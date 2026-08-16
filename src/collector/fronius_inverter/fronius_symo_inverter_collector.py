@@ -1,8 +1,14 @@
-from datetime import datetime, timezone
+from datetime import datetime
 import requests
 
 
+from src.collector.definitions.measurement import Measurement
+from src.collector.definitions.fronius import FRONIUS_METRICS
+
+
 class FoniusSymoInverterCollector:
+    SOURCE = "fronius"
+
     def __init__(
         self,
         inverter_ip="192.168.178.25",
@@ -62,24 +68,63 @@ class FoniusSymoInverterCollector:
 
         return data
 
-    def _now(self, timezone):
-        return datetime.now(timezone)
-
-    def collect(self):
+    def collect(self) -> list[Measurement]:
         data = self._get_data()
+
         site = data["Body"]["Data"]["Site"]
 
         timestamp = datetime.fromisoformat(data["Head"]["Timestamp"])
-        now = self._now(timestamp.tzinfo)
 
-        return {
-            "power_watt": site["P_PV"],
-            "energy_day_wh": site["E_Day"],
-            "energy_year_wh": site["E_Year"],
-            "energy_total_wh": site["E_Total"],
-            "timestamp": timestamp,
-            "timestamp_age_seconds": (now - timestamp).total_seconds(),
-        }
+        return [
+            self._measurement(
+                timestamp=timestamp,
+                metric="pv_power",
+                value=site["P_PV"],
+            ),
+            self._measurement(
+                timestamp=timestamp,
+                metric="pv_energy_day",
+                value=site["E_Day"],
+            ),
+            self._measurement(
+                timestamp=timestamp,
+                metric="pv_energy_year",
+                value=site["E_Year"],
+            ),
+            self._measurement(
+                timestamp=timestamp,
+                metric="pv_energy_total",
+                value=site["E_Total"],
+            ),
+        ]
 
-    def collect_current_power_watt(self):
-        return self.collect()["power_watt"]
+    def _measurement(
+        self,
+        timestamp: datetime,
+        metric: str,
+        value: float,
+    ) -> Measurement:
+        try:
+            definition = FRONIUS_METRICS[metric]
+        except KeyError as exc:
+            raise RuntimeError(f"No Fronius metric definition for '{metric}'") from exc
+
+        return Measurement(
+            timestamp=timestamp,
+            source=self.SOURCE,
+            metric=metric,
+            value=float(value),
+            unit=definition["unit"],
+        )
+
+    def collect_current_power_watt(self) -> float:
+        """
+        Return the current PV power in watts.
+        """
+        measurements = self.collect()
+
+        for measurement in measurements:
+            if measurement.metric == "pv_power":
+                return measurement.value
+
+        raise RuntimeError("Fronius response did not contain pv_power")
