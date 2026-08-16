@@ -1,15 +1,26 @@
-# src/collector/definitions/obis.py
-
 from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
 class ObisDefinition:
     code: str
+    metric: str
     description_en: str
     description_de: str
     unit: str
     category: str
+
+
+def get_obis_definition(obis: str) -> ObisDefinition | None:
+    """
+    Return the definition for an OBIS code.
+
+    Historical OBIS values such as 1.8.0*62 are resolved
+    against their base OBIS code 1.8.0.
+    """
+    base_obis = obis.split("*", 1)[0]
+
+    return OBIS_DEFINITIONS.get(base_obis)
 
 
 OBIS_DEFINITIONS = {
@@ -22,6 +33,22 @@ OBIS_DEFINITIONS = {
         description_de="Zähler-/Seriennummer",
         unit="",
         category="device",
+    ),
+    "0.1.0": ObisDefinition(
+        code="0.1.0",
+        metric="profile_configuration",
+        description_en="Profile configuration",
+        description_de="Profil-/Periodenkonfiguration",
+        unit="",
+        category="device",
+    ),
+    "0.1.2": ObisDefinition(
+        code="0.1.2",
+        metric="profile_period_timestamp",
+        description_en="Profile period timestamp",
+        description_de="Zeitstempel der Profilperiode",
+        unit="",
+        category="timestamp",
     ),
     "0.2.0": ObisDefinition(
         code="0.2.0",
@@ -74,6 +101,28 @@ OBIS_DEFINITIONS = {
         description_de="Aktuelle Wirkleistung Einspeisung",
         unit="kW",
         category="power",
+    ),
+    #
+    # Historical maximum active power / Historische Maximalleistung
+    #
+    # These are currently only definitions.
+    # The collector does not collect them yet.
+    #
+    "1.6.0": ObisDefinition(
+        code="1.6.0",
+        metric="grid_import_power_max",
+        description_en="Maximum active import power",
+        description_de="Maximale Wirkleistung Bezug",
+        unit="kW",
+        category="power_max",
+    ),
+    "2.6.0": ObisDefinition(
+        code="2.6.0",
+        metric="grid_export_power_max",
+        description_en="Maximum active export power",
+        description_de="Maximale Wirkleistung Einspeisung",
+        unit="kW",
+        category="power_max",
     ),
     #
     # Total energy / Zählerstand
