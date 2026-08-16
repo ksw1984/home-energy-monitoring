@@ -2,7 +2,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from src.collector.iec.iec_protocol import IecProtocol
+from src.collectors.iec.iec_protocol import IecProtocol
 
 
 def test_get_baud_rate_9600():
@@ -93,7 +93,7 @@ def test_read_requires_connection():
 
     with pytest.raises(
         RuntimeError,
-        match="IEC collector is not connected",
+        match="IEC collectors is not connected",
     ):
         protocol.read()
 

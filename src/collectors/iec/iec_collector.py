@@ -1,17 +1,18 @@
 import re
 from datetime import datetime
 
-from src.collector.definitions.measurement import Measurement
-from src.collector.definitions.obis import CURRENT_OBIS, get_obis_definition
+from src.collectors.base_collector import BaseCollector
+from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.obis import CURRENT_OBIS, get_obis_definition
 
 from .iec_protocol import IecProtocol
 
 
-class IecCollector:
+class IecCollector(BaseCollector):
     """
     Collector for IEC 62056-21 meter data.
 
-    The collector currently collects only current measurements.
+    The collectors currently collects only current measurements.
     Historical/profile values are defined in obis.py but ignored
     during collection.
     """

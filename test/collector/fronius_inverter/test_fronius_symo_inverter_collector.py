@@ -4,8 +4,8 @@ import pytest
 import requests
 from unittest.mock import Mock, patch
 
-from src.collector.definitions.measurement import Measurement
-from src.collector.fronius_inverter.fronius_symo_inverter_collector import (
+from src.collectors.definitions.measurement import Measurement
+from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FoniusSymoInverterCollector,
 )
 
@@ -67,7 +67,7 @@ def mock_response():
 @pytest.fixture
 def mock_get():
     with patch(
-        "src.collector.fronius_inverter.fronius_symo_inverter_collector.requests.get"
+        "src.collectors.fronius_inverter.fronius_symo_inverter_collector.requests.get"
     ) as mock:
         yield mock
 

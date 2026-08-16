@@ -79,7 +79,7 @@ class IecProtocol:
 
     def read(self):
         if self.serial is None:
-            raise RuntimeError("IEC collector is not connected.")
+            raise RuntimeError("IEC collectors is not connected.")
 
         data = bytearray()
 

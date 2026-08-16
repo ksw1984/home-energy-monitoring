@@ -136,7 +136,7 @@ OBIS_DEFINITIONS = {
     # Historical maximum active power / Historische Maximalleistung
     #
     # These are currently only definitions.
-    # The collector does not collect them yet.
+    # The collectors does not collect them yet.
     #
     "1.6.0": ObisDefinition(
         code="1.6.0",

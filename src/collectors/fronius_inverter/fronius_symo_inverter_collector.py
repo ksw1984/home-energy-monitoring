@@ -1,12 +1,12 @@
 from datetime import datetime
 import requests
 
+from src.collectors.base_collector import BaseCollector
+from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.fronius import FRONIUS_METRICS
 
-from src.collector.definitions.measurement import Measurement
-from src.collector.definitions.fronius import FRONIUS_METRICS
 
-
-class FoniusSymoInverterCollector:
+class FoniusSymoInverterCollector(BaseCollector):
     SOURCE = "fronius"
 
     def __init__(

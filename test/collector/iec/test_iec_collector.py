@@ -3,8 +3,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from src.collector.definitions.measurement import Measurement
-from src.collector.iec.iec_collector import IecCollector
+from src.collectors.definitions.measurement import Measurement
+from src.collectors.iec.iec_collector import IecCollector
 
 IEC_PAYLOAD = """
 1-1:F.F(00000000)
