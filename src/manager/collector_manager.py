@@ -27,6 +27,7 @@ class CollectorManager:
                 self.output(measurements)
 
                 if self.database is not None:
+                    print("write to influx db")
                     await self.database.store(measurements)
 
                 await asyncio.sleep(self.interval)

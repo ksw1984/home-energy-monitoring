@@ -68,8 +68,21 @@ class FoniusSymoInverterCollector(BaseCollector):
 
         return data
 
+    def _offline_measurement(self) -> Measurement:
+        return self._measurement(
+            timestamp=datetime.now().astimezone(),
+            metric="pv_power",
+            value=0.0,
+        )
+
     def collect(self) -> list[Measurement]:
-        data = self._get_data()
+        try:
+            data = self._get_data()
+
+        except requests.exceptions.RequestException as exc:
+            print(f"Fronius inverter unavailable: {exc}. " "Returning pv_power=0 W.")
+
+            return [self._offline_measurement()]
 
         site = data["Body"]["Data"]["Site"]
 
