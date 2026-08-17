@@ -243,3 +243,25 @@ def test_collect_measurements_have_no_obis(
     result = collector.collect()
 
     assert all(measurement.obis is None for measurement in result)
+
+
+def test_collect_returns_zero_power_when_inverter_is_offline(monkeypatch):
+    collector = FoniusSymoInverterCollector(
+        inverter_ip="192.168.178.25",
+    )
+
+    def raise_connection_error():
+        raise requests.exceptions.ConnectTimeout("connection timed out")
+
+    monkeypatch.setattr(
+        collector,
+        "_get_data",
+        raise_connection_error,
+    )
+
+    measurements = collector.collect()
+
+    assert len(measurements) == 1
+    assert measurements[0].metric == "pv_power"
+    assert measurements[0].value == 0.0
+    assert measurements[0].unit == "W"
