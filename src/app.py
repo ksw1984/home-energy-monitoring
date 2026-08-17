@@ -3,8 +3,11 @@ import asyncio
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FoniusSymoInverterCollector,
 )
+
+from src.database.influxdb import InfluxDatabase
 from src.collectors.iec.iec_collector import IecCollector
 from src.manager.collector_manager import CollectorManager
+from src.config import config_obj
 
 #
 #  poetry run python -m app
@@ -14,11 +17,18 @@ from src.manager.collector_manager import CollectorManager
 async def run():
     print("App.run()")
     iec = IecCollector(
-        port="/dev/ttyUSB0",
+        port=config_obj.ir_device0,
     )
 
     fronius = FoniusSymoInverterCollector(
-        inverter_ip="192.168.178.25",
+        inverter_ip=config_obj.fronius_ip,
+    )
+
+    database = InfluxDatabase(
+        url=config_obj.influxdb_url,
+        token=config_obj.influxdb_token,
+        org=config_obj.influxdb_org,
+        bucket=config_obj.influxdb_bucket,
     )
 
     manager = CollectorManager(
@@ -26,10 +36,27 @@ async def run():
             # iec,
             fronius,
         ],
-        interval=10,
+        database=database,
+        interval=config_obj.collection_interval,
     )
 
-    await manager.run()
+    try:
+
+        # await manager.run()
+
+        # debug
+        await manager.connect()
+        measurements = await manager.collect_all()
+
+        for measurement in measurements:
+            print(measurement)
+
+        await database.store(measurements)
+
+    finally:
+
+        await manager.disconnect()  # debug
+        database.close()
 
 
 def main():
