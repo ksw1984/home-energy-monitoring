@@ -9,7 +9,7 @@ services:
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: energy-monitoring-dev
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}
       DOCKER_INFLUXDB_INIT_ORG: home-energy
       DOCKER_INFLUXDB_INIT_BUCKET: energy
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: dev-energy-token
@@ -20,6 +20,20 @@ services:
 
     restart: unless-stopped
 
+  grafana:
+    image: grafana/grafana:latest
+    container_name: energy-monitoring-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    depends_on:
+      - influxdb
+
 volumes:
   influxdb-data:
   influxdb-config:
+  grafana-data:

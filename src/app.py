@@ -41,21 +41,9 @@ async def run():
     )
 
     try:
-
-        # await manager.run()
-
-        # debug
-        await manager.connect()
-        measurements = await manager.collect_all()
-
-        for measurement in measurements:
-            print(measurement)
-
-        await database.store(measurements)
+        await manager.run()
 
     finally:
-
-        await manager.disconnect()  # debug
         database.close()
 
 
