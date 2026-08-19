@@ -1,11 +1,14 @@
 import asyncio
 
-from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
-    FoniusSymoInverterCollector,
-)
 
 from src.database.influxdb import InfluxDatabase
 from src.collectors.iec.iec_collector import IecCollector
+from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
+    FoniusSymoInverterCollector,
+)
+from src.collectors.rademacher.umweltsensor_9475_collector import (
+    RademacherEnvironmentSensorCollector,
+)
 from src.manager.collector_manager import CollectorManager
 from src.config import config_obj
 
@@ -16,12 +19,17 @@ from src.config import config_obj
 
 async def run():
     print("App.run()")
-    iec = IecCollector(
+    meter_iec = IecCollector(
         port=config_obj.ir_device0,
     )
 
-    fronius = FoniusSymoInverterCollector(
+    fronius_inverter = FoniusSymoInverterCollector(
         inverter_ip=config_obj.fronius_ip,
+    )
+
+    env_sensor = RademacherEnvironmentSensorCollector(
+        smart_home_box_ip=config_obj.smart_home_box_ip,
+        device_id=config_obj.umweltsensor_9475_device_id,
     )
 
     database = InfluxDatabase(
@@ -33,8 +41,9 @@ async def run():
 
     manager = CollectorManager(
         collectors=[
-            # iec,
-            fronius,
+            # meter_iec,
+            fronius_inverter,
+            env_sensor,
         ],
         database=database,
         interval=config_obj.collection_interval,
