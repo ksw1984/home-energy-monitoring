@@ -93,6 +93,8 @@ class Config:
     influxdb_bucket: str
     fronius_ip: str
     ir_device0: str
+    smart_home_box_ip: str
+    umweltsensor_9475_device_id: str
 
     # Optional project configuration
     collection_interval: int
@@ -109,8 +111,12 @@ config_obj = Config(
     influxdb_url=required_config("INFLUXDB_URL"),
     influxdb_org=required_config("INFLUXDB_ORG"),
     influxdb_bucket=required_config("INFLUXDB_BUCKET"),
-    fronius_ip=required_config("FRONIUS_IP"),
-    ir_device0=required_config("IR_DEVICE0"),
+    fronius_ip=required_config("FRONIUS_INVERTER_IP"),
+    ir_device0=required_config("POWER_METER_IR_DEVICE0"),
+    smart_home_box_ip=required_config("RADEMACHER_SMART_HOME_BOX_IP"),
+    umweltsensor_9475_device_id=required_config(
+        "RADEMACHER_UMWELTSENSOR_9475_DEVICE_ID"
+    ),
     # Optional project configuration
     collection_interval=optional_int(
         "COLLECTION_INTERVAL",
