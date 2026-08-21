@@ -1,16 +1,15 @@
 import asyncio
 
-
-from src.database.influxdb import InfluxDatabase
-from src.collectors.iec.iec_collector import IecCollector
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
+from src.collectors.iec.iec_collector import IecCollector
 from src.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
 )
-from src.manager.collector_manager import CollectorManager
 from src.config import config_obj
+from src.database.influxdb import InfluxDatabase
+from src.manager.collector_manager import CollectorManager
 
 #
 #  poetry run python -m app

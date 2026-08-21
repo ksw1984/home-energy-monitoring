@@ -51,9 +51,7 @@ def test_get_baud_rate_unsupported_code():
 
 
 def test_extract_payload():
-    data = (
-        b"\x02" b"1-1:1.5.0(00.000*kW)\r\n" b"1-1:2.5.0(08.272*kW)\r\n" b"\x03" b"\x00"
-    )
+    data = b"\x02" b"1-1:1.5.0(00.000*kW)\r\n" b"1-1:2.5.0(08.272*kW)\r\n" b"\x03" b"\x00"
 
     result = IecProtocol._extract_payload(data)
 
