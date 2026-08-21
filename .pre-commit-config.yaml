@@ -30,7 +30,7 @@ repos:
     hooks:
       - id: mypy
         name: MyPy
-        entry: poetry run mypy
+        entry: poetry run mypy src
         language: system
-        types: [python]
+        types: [ python ]
         pass_filenames: false
