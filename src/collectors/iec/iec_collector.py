@@ -92,9 +92,7 @@ class IecCollector(BaseCollector):
 
         measurements = []
 
-        pattern = re.compile(
-            r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)"
-        )
+        pattern = re.compile(r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)")
 
         for match in pattern.finditer(text):
             obis = match.group(2)

@@ -1,5 +1,4 @@
 from datetime import datetime
-
 from typing import Any
 
 import requests
@@ -73,17 +72,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         data = response.json()
 
         if data.get("error_code") != 0:
-            raise RuntimeError(
-                f"Rademacher API error: "
-                f"{data.get('error_description', 'Unknown error')}"
-            )
+            raise RuntimeError(f"Rademacher API error: " f"{data.get('error_description', 'Unknown error')}")
 
         try:
             return data["payload"]["device"]
         except KeyError as exc:
-            raise RuntimeError(
-                "Invalid Rademacher API response: " "payload.device missing"
-            ) from exc
+            raise RuntimeError("Invalid Rademacher API response: " "payload.device missing") from exc
 
     def collect(self) -> list[Measurement]:
         """Collect all supported measurements from the environment sensor.
@@ -105,16 +99,10 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             device = self._get_data()
 
         except requests.exceptions.RequestException as exc:
-            print(
-                f"Rademacher environment sensor unavailable: {exc}. "
-                "Returning no measurements."
-            )
+            print(f"Rademacher environment sensor unavailable: {exc}. " "Returning no measurements.")
             return []
 
-        capabilities = {
-            capability["name"]: capability
-            for capability in device.get("capabilities", [])
-        }
+        capabilities = {capability["name"]: capability for capability in device.get("capabilities", [])}
 
         measurements = []
 
@@ -230,9 +218,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         try:
             definition = RADEMACHER_METRICS[metric]
         except KeyError as exc:
-            raise RuntimeError(
-                f"No Rademacher metric definition for '{metric}'"
-            ) from exc
+            raise RuntimeError(f"No Rademacher metric definition for '{metric}'") from exc
 
         return Measurement(
             timestamp=timestamp,

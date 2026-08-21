@@ -1,8 +1,8 @@
 from datetime import datetime
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
-from unittest.mock import Mock, patch
 
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.rademacher.umweltsensor_9475_collector import (
@@ -91,9 +91,7 @@ def mock_response():
 
 @pytest.fixture
 def mock_get():
-    with patch(
-        "src.collectors.rademacher.umweltsensor_9475_collector.requests.get"
-    ) as mock:
+    with patch("src.collectors.rademacher.umweltsensor_9475_collector.requests.get") as mock:
         yield mock
 
 
@@ -301,7 +299,7 @@ def test_invalid_response_is_detected(
 
     with pytest.raises(
         RuntimeError,
-        match="payload.device missing",
+        match=r"payload\.device missing",
     ):
         collector.collect()
 
@@ -317,9 +315,7 @@ def test_missing_capability_is_ignored(
             "device": {
                 "capabilities": [
                     capability
-                    for capability in RADEMACHER_RESPONSE["payload"]["device"][
-                        "capabilities"
-                    ]
+                    for capability in RADEMACHER_RESPONSE["payload"]["device"]["capabilities"]
                     if capability["name"] != "WIND_SPEED_MS_MEA"
                 ]
             }
