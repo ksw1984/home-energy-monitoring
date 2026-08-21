@@ -7,10 +7,11 @@ from dotenv import load_dotenv
 # Configuration sources
 # ---------------------------------------------------------
 
-# Load general configuration
+# Load general configuration first.
 load_dotenv("config.env")
 
-# Load secrets and override
+# Load local secrets/configuration without overriding
+# values already provided by the environment or config.env.
 load_dotenv(".env", override=True)
 
 # ---------------------------------------------------------
@@ -21,19 +22,19 @@ load_dotenv(".env", override=True)
 def required_config(name: str) -> str:
     """Read a required project configuration value.
 
-    Resolution order:
-    1. Real environment variable
-    2. config.env
+    The value is read from the environment. Values from ``config.env``
+    are loaded first and values from ``.env`` override them.
 
     Raises:
-        RuntimeError: if the value is missing or empty.
+        RuntimeError: If the value is missing or empty.
     """
-    value = os.getenv(name) or config_env.get(name)
+    value = os.getenv(name)
 
     if not value:
         raise RuntimeError(
             f"Required configuration '{name}' is missing. "
-            f"Please set it in config.env or as an environment variable."
+            "Please set it in config.env, .env, "
+            "or as an environment variable."
         )
 
     return value
@@ -42,14 +43,13 @@ def required_config(name: str) -> str:
 def required_secret(name: str) -> str:
     """Read a required secret.
 
-    Resolution order:
-    1. Real environment variable
-    2. .env
+    The value is read from the environment after ``config.env`` and
+    ``.env`` have been loaded.
 
     Raises:
-        RuntimeError: if the secret is missing or empty.
+        RuntimeError: If the secret is missing or empty.
     """
-    value = os.getenv(name) or secret_env.get(name)
+    value = os.getenv(name)
 
     if not value:
         raise RuntimeError(
@@ -62,7 +62,7 @@ def required_secret(name: str) -> str:
 
 def optional_config(name: str, default: str) -> str:
     """Read optional project configuration."""
-    return os.getenv(name) or config_env.get(name) or default
+    return os.getenv(name) or default
 
 
 def optional_int(name: str, default: int) -> int:

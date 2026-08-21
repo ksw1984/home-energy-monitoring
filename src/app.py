@@ -19,7 +19,7 @@ from src.config import config_obj
 
 async def run():
     print("App.run()")
-    meter_iec = IecCollector(
+    _meter_iec = IecCollector(
         port=config_obj.ir_device0,
     )
 

@@ -199,6 +199,9 @@ class FroniusSymoInverterCollector(BaseCollector):
         Returns:
             ``True`` if the timestamp is at or after sunset.
         """
+        if timestamp.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware")
+
         observer = Observer(
             latitude=self.latitude,
             longitude=self.longitude,
