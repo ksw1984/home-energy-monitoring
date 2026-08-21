@@ -1,3 +1,8 @@
+### Workflow Status
+
+[![CI](https://github.com/ksw1984/home-energy-monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/ksw1984/home-energy-monitoring/actions/workflows/ci.yml)
+
+
 # home-energy-monitoring
 Energy monitoring using 
 
