@@ -1,8 +1,8 @@
 from datetime import datetime
+from unittest.mock import Mock, patch
 
 import pytest
 import requests
-from unittest.mock import Mock, patch
 
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
@@ -75,9 +75,7 @@ def mock_response():
 
 @pytest.fixture
 def mock_get():
-    with patch(
-        "src.collectors.fronius_inverter.fronius_symo_inverter_collector.requests.get"
-    ) as mock:
+    with patch("src.collectors.fronius_inverter.fronius_symo_inverter_collector.requests.get") as mock:
         yield mock
 
 
@@ -177,10 +175,7 @@ def test_collect_timestamp_has_timezone(
 
     assert all(measurement.timestamp.tzinfo is not None for measurement in result)
 
-    assert all(
-        measurement.timestamp.utcoffset().total_seconds() == 2 * 60 * 60
-        for measurement in result
-    )
+    assert all(measurement.timestamp.utcoffset().total_seconds() == 2 * 60 * 60 for measurement in result)
 
 
 def test_collect_measurements_have_no_obis(

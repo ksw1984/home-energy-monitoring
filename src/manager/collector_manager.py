@@ -1,6 +1,5 @@
 import asyncio
 
-
 from src.collectors.definitions.measurement import Measurement
 
 
@@ -53,10 +52,7 @@ class CollectorManager:
                 continue
 
             if not result:
-                print(
-                    f"Collector {collector.__class__.__name__} unavailable: "
-                    f"{result}"
-                )
+                print(f"Collector {collector.__class__.__name__} unavailable: " f"{result}")
                 continue
 
             measurements.extend(result)
@@ -64,14 +60,10 @@ class CollectorManager:
         return measurements
 
     async def connect(self):
-        await asyncio.gather(
-            *[asyncio.to_thread(collector.connect) for collector in self.collectors]
-        )
+        await asyncio.gather(*[asyncio.to_thread(collector.connect) for collector in self.collectors])
 
     async def disconnect(self):
-        await asyncio.gather(
-            *[asyncio.to_thread(collector.disconnect) for collector in self.collectors]
-        )
+        await asyncio.gather(*[asyncio.to_thread(collector.disconnect) for collector in self.collectors])
 
     @staticmethod
     def output(measurements: list[Measurement]):

@@ -53,8 +53,7 @@ def required_secret(name: str) -> str:
 
     if not value:
         raise RuntimeError(
-            f"Required secret '{name}' is missing. "
-            f"Please set it in .env or as an environment variable."
+            f"Required secret '{name}' is missing. " f"Please set it in .env or as an environment variable."
         )
 
     return value
@@ -72,9 +71,7 @@ def optional_int(name: str, default: int) -> int:
     try:
         return int(value)
     except ValueError as exc:
-        raise RuntimeError(
-            f"Configuration '{name}' must be an integer, got: {value!r}"
-        ) from exc
+        raise RuntimeError(f"Configuration '{name}' must be an integer, got: {value!r}") from exc
 
 
 # ---------------------------------------------------------
@@ -114,9 +111,7 @@ config_obj = Config(
     fronius_ip=required_config("FRONIUS_INVERTER_IP"),
     ir_device0=required_config("POWER_METER_IR_DEVICE0"),
     smart_home_box_ip=required_config("RADEMACHER_SMART_HOME_BOX_IP"),
-    umweltsensor_9475_device_id=required_config(
-        "RADEMACHER_UMWELTSENSOR_9475_DEVICE_ID"
-    ),
+    umweltsensor_9475_device_id=required_config("RADEMACHER_UMWELTSENSOR_9475_DEVICE_ID"),
     # Optional project configuration
     collection_interval=optional_int(
         "COLLECTION_INTERVAL",
