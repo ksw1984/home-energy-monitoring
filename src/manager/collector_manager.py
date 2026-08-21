@@ -46,7 +46,7 @@ class CollectorManager:
 
         measurements: list[Measurement] = []
 
-        for collector, result in zip(self.collectors, results):
+        for collector, result in zip(self.collectors, results, strict=True):
             if isinstance(result, BaseException):
                 print(f"Collector {collector.__class__.__name__} failed: " f"{result}")
                 continue

@@ -9,8 +9,10 @@ class BaseCollector(ABC):
     def collect(self) -> list[Measurement]:
         raise NotImplementedError
 
+    @abstractmethod
     def connect(self) -> None:
-        pass
+        raise NotImplementedError
 
+    @abstractmethod
     def disconnect(self) -> None:
-        pass
+        raise NotImplementedError

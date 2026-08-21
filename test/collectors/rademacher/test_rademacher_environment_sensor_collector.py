@@ -299,7 +299,7 @@ def test_invalid_response_is_detected(
 
     with pytest.raises(
         RuntimeError,
-        match="payload.device missing",
+        match=r"payload\.device missing",
     ):
         collector.collect()
 
