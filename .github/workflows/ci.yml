@@ -150,4 +150,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          python -m poetry run pytest -vv -ra
+          python -m poetry run pytest -vv -ra \
+            --cov=src \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          if-no-files-found: ignore
