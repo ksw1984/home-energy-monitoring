@@ -28,22 +28,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "poetry"
+          cache: "pip"
           cache-dependency-path: "poetry.lock"
 
-      - name: Install Poetry
+      - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
           python -m pip install poetry
-
-      - name: Install dependencies
-        run: |
-          poetry config virtualenvs.create false
-          poetry install --with dev --no-interaction
+          python -m poetry config virtualenvs.create false
+          python -m poetry install --with dev --no-interaction
 
       - name: Run Black
+        shell: bash
         run: |
-          black --check --diff --fast .
+          set -euo pipefail
+
+          python -m poetry run black --check --diff --fast .
 
 
   ruff:
@@ -58,22 +61,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "poetry"
+          cache: "pip"
           cache-dependency-path: "poetry.lock"
 
-      - name: Install Poetry
+      - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
           python -m pip install poetry
-
-      - name: Install dependencies
-        run: |
-          poetry config virtualenvs.create false
-          poetry install --with dev --no-interaction
+          python -m poetry config virtualenvs.create false
+          python -m poetry install --with dev --no-interaction
 
       - name: Run Ruff
+        shell: bash
         run: |
-          ruff check . --output-format=github
+          set -euo pipefail
+
+          python -m poetry run ruff check . --output-format=github
 
 
   mypy:
@@ -88,22 +94,25 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "poetry"
+          cache: "pip"
           cache-dependency-path: "poetry.lock"
 
-      - name: Install Poetry
+      - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
           python -m pip install poetry
-
-      - name: Install dependencies
-        run: |
-          poetry config virtualenvs.create false
-          poetry install --with dev --no-interaction
+          python -m poetry config virtualenvs.create false
+          python -m poetry install --with dev --no-interaction
 
       - name: Run MyPy
+        shell: bash
         run: |
-          mypy src
+          set -euo pipefail
+
+          python -m poetry run mypy src
 
 
   pytest:
@@ -123,19 +132,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "poetry"
+          cache: "pip"
           cache-dependency-path: "poetry.lock"
 
-      - name: Install Poetry
+      - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --upgrade pip
           python -m pip install poetry
-
-      - name: Install dependencies
-        run: |
-          poetry config virtualenvs.create false
-          poetry install --with dev --no-interaction
+          python -m poetry config virtualenvs.create false
+          python -m poetry install --with dev --no-interaction
 
       - name: Run Pytest
+        shell: bash
         run: |
-          pytest -vv -ra
+          set -euo pipefail
+
+          python -m poetry run pytest -vv -ra
