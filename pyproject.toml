@@ -21,6 +21,10 @@ astral = "^3.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"
+black = "^26.5.0"
+ruff = "^0.15.0"
+mypy = "^1.17.0"
+types-pyserial = "^3.5.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]

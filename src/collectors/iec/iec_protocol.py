@@ -46,8 +46,8 @@ class IecProtocol:
         """
         self.port = port
         self.timeout = timeout
-        self.serial = None
-        self.data_baud = None
+        self.data_baud: int | None = None
+        self.serial: serial.Serial | None = None
 
     def _open_serial(self, baud: int) -> serial.Serial:
         """Open the serial connection using IEC serial parameters.
