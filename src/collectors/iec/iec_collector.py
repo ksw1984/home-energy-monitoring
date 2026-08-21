@@ -9,12 +9,19 @@ from .iec_protocol import IecProtocol
 
 
 class IecCollector(BaseCollector):
-    """
-    Collector for IEC 62056-21 meter data.
+    """Collect current electrical measurements from an IEC 62056-21 meter.
 
-    The collectors currently collects only current measurements.
-    Historical/profile values are defined in obis.py but ignored
-    during collection.
+    The collector communicates with the meter through an
+    :class:`IecProtocol` instance and converts supported current OBIS
+    values into the common :class:`Measurement` representation.
+
+    Only OBIS codes defined in ``CURRENT_OBIS`` are collected. Historical
+    or profile data may be present in the meter telegram and may have
+    definitions in ``obis.py``, but is intentionally ignored by this
+    collector.
+
+    The serial connection is established lazily when ``collect()`` is
+    called if it has not already been established through ``connect()``.
     """
 
     SOURCE = "iec"
@@ -22,21 +29,37 @@ class IecCollector(BaseCollector):
     def __init__(
         self,
         port="/dev/ttyUSB0",
-    ):
+    ) -> None:
+        """Initialize the IEC meter collector.
+
+        Args:
+            port: Serial device used to communicate with the IEC meter.
+        """
         self.protocol = IecProtocol(port)
         self.connected = False
 
     def connect(self) -> None:
+        """Establish the IEC meter connection."""
         self.protocol.connect()
         self.connected = True
 
     def disconnect(self) -> None:
+        """Close the IEC meter connection."""
         self.protocol.disconnect()
         self.connected = False
 
     def collect(self) -> list[Measurement]:
-        """
-        Read the current IEC values and return them as Measurements.
+        """Read and return the current measurements from the meter.
+
+        If the collector is not connected, the IEC connection is
+        established automatically before reading the meter telegram.
+
+        Returns:
+            A list of measurements for the supported current OBIS codes.
+
+        Raises:
+            RuntimeError: If the IEC protocol cannot read because the
+                connection is not available.
         """
         if not self.connected:
             self.connect()
@@ -47,16 +70,22 @@ class IecCollector(BaseCollector):
 
     @classmethod
     def _parse(cls, text: str) -> list[Measurement]:
-        """
-        Parse IEC values from the meter response.
+        """Parse supported current values from an IEC meter telegram.
 
-        Example:
+        Example values include::
 
             1-1:1.5.0(00.000*kW)
             1-1:2.5.0(07.417*kW)
             1-1:32.7.0(243.1*V)
 
-        Only OBIS codes listed in CURRENT_OBIS are returned.
+        Only OBIS codes listed in ``CURRENT_OBIS`` are converted into
+        measurements. Historical and unsupported OBIS values are ignored.
+
+        Args:
+            text: Decoded IEC meter telegram.
+
+        Returns:
+            A list of measurements for recognized current OBIS values.
         """
 
         timestamp = datetime.now().astimezone()
@@ -101,13 +130,24 @@ class IecCollector(BaseCollector):
 
     @staticmethod
     def _parse_value(raw_value: str) -> tuple[float, str]:
-        """
-        Parse values such as:
+        """Parse a numeric IEC value and its optional unit.
+
+        Examples::
 
             07.417*kW
             243.1*V
             -8.77*kW
             +0.59*kvar
+
+        Args:
+            raw_value: Raw value including the optional unit.
+
+        Returns:
+            A tuple containing the numeric value and unit string.
+
+        Raises:
+            ValueError: If the numeric portion cannot be converted to
+                a floating-point value.
         """
 
         if "*" in raw_value:

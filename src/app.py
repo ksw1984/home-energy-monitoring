@@ -4,7 +4,7 @@ import asyncio
 from src.database.influxdb import InfluxDatabase
 from src.collectors.iec.iec_collector import IecCollector
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
-    FoniusSymoInverterCollector,
+    FroniusSymoInverterCollector,
 )
 from src.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
@@ -23,7 +23,7 @@ async def run():
         port=config_obj.ir_device0,
     )
 
-    fronius_inverter = FoniusSymoInverterCollector(
+    fronius_inverter = FroniusSymoInverterCollector(
         inverter_ip=config_obj.fronius_ip,
     )
 

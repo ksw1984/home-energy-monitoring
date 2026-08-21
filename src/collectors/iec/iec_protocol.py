@@ -15,6 +15,21 @@ BAUD_MAP = {
 
 
 class IecProtocol:
+    """Handle the IEC 62056-21 serial communication protocol.
+
+    The protocol starts communication at 300 baud, sends the IEC
+    identification request, reads the meter's identification response,
+    and determines the baud rate negotiated by the meter.
+
+    After sending the acknowledgement with the negotiated baud rate,
+    the initial connection is closed and reopened using the negotiated
+    data baud rate.
+
+    The connection remains open after :meth:`connect` and is used by
+    :meth:`read` to retrieve meter telegrams until :meth:`disconnect`
+    is called.
+    """
+
     START_BAUD = 300
     REQUEST = b"/?!\r\n"
 
@@ -22,13 +37,27 @@ class IecProtocol:
         self,
         port="/dev/ttyUSB0",
         timeout=0.2,
-    ):
+    ) -> None:
+        """Initialize the IEC serial protocol handler.
+
+        Args:
+            port: Serial device used to communicate with the meter.
+            timeout: Serial read timeout in seconds.
+        """
         self.port = port
         self.timeout = timeout
         self.serial = None
         self.data_baud = None
 
-    def _open_serial(self, baud):
+    def _open_serial(self, baud: int) -> serial.Serial:
+        """Open the serial connection using IEC serial parameters.
+
+        Args:
+            baud: Baud rate for the serial connection.
+
+        Returns:
+            An open :class:`serial.Serial` connection.
+        """
         return serial.Serial(
             port=self.port,
             baudrate=baud,
@@ -41,12 +70,22 @@ class IecProtocol:
             dsrdtr=False,
         )
 
-    def connect(self):
-        """
-        Perform IEC 62056-21 initialization and leave the
-        serial connection open at the negotiated baud rate.
-        """
+    def connect(self) -> None:
+        """Perform the IEC 62056-21 handshake and open the data connection.
 
+        Communication starts at 300 baud. The meter's identification
+        response determines the baud rate used for the actual data
+        transmission.
+
+        After the IEC acknowledgement is sent, the initial serial
+        connection is closed and reopened at the negotiated baud rate.
+
+        Raises:
+            RuntimeError: If the meter does not provide a valid or
+                supported baud-rate code.
+            serial.SerialException: If the serial connection cannot
+                be opened or configured.
+        """
         ser = self._open_serial(self.START_BAUD)
 
         try:
@@ -72,12 +111,28 @@ class IecProtocol:
         self.data_baud = data_baud
         self.serial = self._open_serial(data_baud)
 
-    def disconnect(self):
+    def disconnect(self) -> None:
+        """Close the active serial connection.
+
+        Calling this method when no connection is open has no effect.
+        """
         if self.serial is not None:
             self.serial.close()
             self.serial = None
 
-    def read(self):
+    def read(self) -> str:
+        """Read and extract one IEC meter telegram.
+
+        Reading continues until the telegram's ETX character is received,
+        no data has been received for one second, or the overall read
+        timeout of 30 seconds is reached.
+
+        Returns:
+            The decoded IEC telegram payload without STX and ETX framing.
+
+        Raises:
+            RuntimeError: If the protocol is not connected.
+        """
         if self.serial is None:
             raise RuntimeError("IEC collectors is not connected.")
 
@@ -114,7 +169,19 @@ class IecProtocol:
         return self._extract_payload(bytes(data))
 
     @staticmethod
-    def _read_identification(ser, timeout=5.0):
+    def _read_identification(
+        ser: serial.Serial,
+        timeout: float = 5.0,
+    ) -> bytes:
+        """Read the meter identification response.
+
+        Args:
+            ser: Open serial connection using the initial baud rate.
+            timeout: Maximum time to wait for the identification response.
+
+        Returns:
+            Raw identification response from the meter.
+        """
         identification = bytearray()
         start = time.monotonic()
 
@@ -130,7 +197,24 @@ class IecProtocol:
         return bytes(identification)
 
     @staticmethod
-    def _get_baud_rate(identification):
+    def _get_baud_rate(
+        identification: bytes,
+    ) -> tuple[int, int]:
+        """Extract the negotiated baud-rate code from meter identification.
+
+        The IEC identification response contains a single digit indicating
+        the baud rate to use for subsequent data communication.
+
+        Args:
+            identification: Raw identification response from the meter.
+
+        Returns:
+            A tuple containing the IEC baud-rate code and the corresponding
+            baud rate in bits per second.
+
+        Raises:
+            RuntimeError: If no valid or supported baud-rate code is found.
+        """
         match = re.search(
             rb"^/[A-Za-z]{3}([0-9])",
             identification,
@@ -147,7 +231,20 @@ class IecProtocol:
         return baud_code, BAUD_MAP[baud_code]
 
     @staticmethod
-    def _extract_payload(data):
+    def _extract_payload(data: bytes) -> str:
+        """Remove IEC telegram framing and decode the payload.
+
+        The IEC telegram may contain STX and ETX framing characters.
+        Everything before STX and after ETX is ignored.
+
+        Args:
+            data: Raw bytes received from the meter.
+
+        Returns:
+            The decoded telegram payload. Latin-1 decoding is used because
+            IEC meter telegrams are byte-oriented and may contain characters
+            outside standard ASCII.
+        """
         if not data:
             return ""
 
