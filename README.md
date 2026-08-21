@@ -4,7 +4,7 @@
 
 
 # home-energy-monitoring
-Energy monitoring using 
+Energy monitoring using
 
 - Fronius PV Inverter data
 - Landys+Gyr E650 ZMD310 IEC 62056-21 Readout data
@@ -56,4 +56,3 @@ Energy monitoring using
     OS	            Raspberry Pi OS 64-bit	Host
     Storage	SSD     rather than SD card	    Reliability
     Reverse proxy	Optional Caddy/nginx	HTTPS/access control
-    
