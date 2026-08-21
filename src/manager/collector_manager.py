@@ -51,6 +51,12 @@ class CollectorManager:
             if isinstance(result, Exception):
                 print(f"Collector {collector.__class__.__name__} failed: " f"{result}")
                 continue
+            elif isinstance(result, list) and not result:
+                print(
+                    f"Collector {collector.__class__.__name__} unavailable: "
+                    f"{result}"
+                )
+                continue
 
             measurements.extend(result)
 
