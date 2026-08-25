@@ -18,8 +18,12 @@ from src.manager.collector_manager import CollectorManager
 
 async def run():
     print("App.run()")
-    _meter_iec = IecCollector(
-        port=config_obj.ir_device0,
+    _meter_grid_iec = IecCollector(
+        port=config_obj.power_meter_grid_ir_device0,
+    )
+
+    _meter_household_iec = IecCollector(
+        port=config_obj.power_meter_household_ir_device1,
     )
 
     fronius_inverter = FroniusSymoInverterCollector(
@@ -40,7 +44,8 @@ async def run():
 
     manager = CollectorManager(
         collectors=[
-            # meter_iec,
+            # _meter_grid_iec,
+            # _meter_household_iec,
             fronius_inverter,
             env_sensor,
         ],
