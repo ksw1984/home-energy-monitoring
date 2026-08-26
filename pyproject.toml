@@ -156,6 +156,9 @@ addopts = [
     "-vv",
     "-ra",
 ]
+markers = [
+    "online: tests requiring internet access",
+]
 
 ################
 # TEST COVERAGE
