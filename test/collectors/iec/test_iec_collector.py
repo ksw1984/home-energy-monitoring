@@ -71,137 +71,117 @@ def test_parse_returns_measurements():
     assert all(isinstance(measurement, Measurement) for measurement in result)
 
 
-def test_parse_returns_only_current_obis():
+def test_parse_returns_only_current_metrics():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    obis_codes = {measurement.obis for measurement in result}
+    metrics = {measurement.metric for measurement in result}
 
-    assert obis_codes == {
-        "1.5.0",
-        "2.5.0",
-        "1.8.0",
-        "2.8.0",
-        "16.7.0",
-        "131.7.0",
+    assert metrics == {
+        "grid_import_power",
+        "grid_export_power",
+        "grid_import_energy_total",
+        "grid_export_energy_total",
+        "grid_active_power",
+        "reactive_power_total",
     }
 
 
 def test_parse_ignores_historical_values():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    obis_codes = [measurement.obis for measurement in result]
+    metrics = {measurement.metric for measurement in result}
 
-    assert "1.6.0" not in obis_codes
-    assert "1.8.0*62" not in obis_codes
-    assert "2.6.0" not in obis_codes
-    assert "2.6.0*62" not in obis_codes
-    assert "2.8.0*62" not in obis_codes
+    assert "grid_import_power_max" not in metrics
+    assert "grid_export_power_max" not in metrics
 
 
 def test_parse_ignores_unselected_current_values():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    obis_codes = {measurement.obis for measurement in result}
+    metrics = {measurement.metric for measurement in result}
 
-    assert "32.7.0" not in obis_codes
-    assert "52.7.0" not in obis_codes
-    assert "72.7.0" not in obis_codes
+    assert "voltage_l1" not in metrics
+    assert "voltage_l2" not in metrics
+    assert "voltage_l3" not in metrics
 
-    assert "31.7.0" not in obis_codes
-    assert "51.7.0" not in obis_codes
-    assert "71.7.0" not in obis_codes
+    assert "current_l1" not in metrics
+    assert "current_l2" not in metrics
+    assert "current_l3" not in metrics
 
-    assert "36.7.0" not in obis_codes
-    assert "56.7.0" not in obis_codes
-    assert "76.7.0" not in obis_codes
+    assert "active_power_l1" not in metrics
+    assert "active_power_l2" not in metrics
+    assert "active_power_l3" not in metrics
 
-    assert "151.7.0" not in obis_codes
-    assert "171.7.0" not in obis_codes
-    assert "191.7.0" not in obis_codes
+    assert "reactive_power_l1" not in metrics
+    assert "reactive_power_l2" not in metrics
+    assert "reactive_power_l3" not in metrics
 
 
 def test_parse_current_power_import():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "1.5.0",
-    )
+    measurement = _find_measurement(result, "grid_import_power")
 
     assert measurement.value == 0.0
     assert measurement.unit == "kW"
-    assert measurement.obis == "1.5.0"
 
 
 def test_parse_current_power_export():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "2.5.0",
-    )
+    measurement = _find_measurement(result, "grid_export_power")
 
     assert measurement.value == 8.272
     assert measurement.unit == "kW"
-    assert measurement.obis == "2.5.0"
 
 
 def test_parse_total_import_energy():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "1.8.0",
-    )
+    measurement = _find_measurement(result, "grid_import_energy_total")
 
     assert measurement.value == 18788.9
     assert measurement.unit == "kWh"
-    assert measurement.obis == "1.8.0"
+    assert measurement.source == "iec"
 
 
 def test_parse_total_export_energy():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "2.8.0",
-    )
+    measurement = _find_measurement(result, "grid_export_energy_total")
 
     assert measurement.value == 77347.5
     assert measurement.unit == "kWh"
-    assert measurement.obis == "2.8.0"
 
 
 def test_parse_total_active_power():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "16.7.0",
-    )
+    measurement = _find_measurement(result, "grid_active_power")
 
     assert measurement.value == -7.66
     assert measurement.unit == "kW"
-    assert measurement.obis == "16.7.0"
 
 
 def test_parse_total_reactive_power():
     result = IecCollector._parse(IEC_PAYLOAD)
 
-    measurement = _find_measurement(
-        result,
-        "131.7.0",
-    )
+    measurement = _find_measurement(result, "reactive_power_total")
 
     assert measurement.value == -0.82
     assert measurement.unit == "kvar"
-    assert measurement.obis == "131.7.0"
 
 
 def test_parse_measurement_source():
     result = IecCollector._parse(IEC_PAYLOAD)
 
     assert all(measurement.source == "iec" for measurement in result)
+
+
+def test_parse_measurement_type():
+    result = IecCollector._parse(IEC_PAYLOAD)
+
+    assert all(measurement.measurement_type == "current" for measurement in result)
 
 
 def test_parse_measurement_timestamp():
@@ -228,7 +208,7 @@ def test_parse_signed_values():
     assert (
         _find_measurement(
             result,
-            "16.7.0",
+            "grid_active_power",
         ).value
         == -7.66
     )
@@ -236,7 +216,7 @@ def test_parse_signed_values():
     assert (
         _find_measurement(
             result,
-            "131.7.0",
+            "reactive_power_total",
         ).value
         == -0.82
     )
@@ -251,10 +231,11 @@ def test_parse_plus_signed_values():
 
     measurement = _find_measurement(
         result,
-        "131.7.0",
+        "reactive_power_total",
     )
 
     assert measurement.value == 0.59
+    assert measurement.unit == "kvar"
 
 
 def test_parse_accepts_obis_without_device_prefix():
@@ -270,7 +251,7 @@ def test_parse_accepts_obis_without_device_prefix():
     assert (
         _find_measurement(
             result,
-            "1.5.0",
+            "grid_import_power",
         ).value
         == 0.0
     )
@@ -278,7 +259,7 @@ def test_parse_accepts_obis_without_device_prefix():
     assert (
         _find_measurement(
             result,
-            "2.5.0",
+            "grid_export_power",
         ).value
         == 8.272
     )
@@ -312,8 +293,10 @@ def test_parse_historical_value_is_not_returned_even_if_base_obis_is_current():
 
     measurement = result[0]
 
-    assert measurement.obis == "1.8.0"
+    assert measurement.metric == "grid_import_energy_total"
     assert measurement.value == 18788.9
+    assert measurement.unit == "kWh"
+    assert measurement.measurement_type == "current"
 
 
 def test_collect_connects_when_not_connected(collector):
@@ -360,10 +343,10 @@ def test_disconnect(collector):
 
 def _find_measurement(
     measurements: list[Measurement],
-    obis: str,
+    metric: str,
 ) -> Measurement:
     for measurement in measurements:
-        if measurement.obis == obis:
+        if measurement.metric == metric:
             return measurement
 
-    raise AssertionError(f"No measurement found for OBIS {obis}")
+    raise AssertionError(f"No measurement found for metric {metric}")

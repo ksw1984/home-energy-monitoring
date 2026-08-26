@@ -178,18 +178,6 @@ def test_collect_timestamp_has_timezone(
     assert all(measurement.timestamp.utcoffset().total_seconds() == 2 * 60 * 60 for measurement in result)
 
 
-def test_collect_measurements_have_no_obis(
-    collector,
-    mock_response,
-    mock_get,
-):
-    mock_get.return_value = mock_response
-
-    result = collector.collect()
-
-    assert all(measurement.obis is None for measurement in result)
-
-
 # ============================================================================
 # Day finalization
 #
