@@ -226,18 +226,6 @@ def test_collect_calls_correct_url(
     )
 
 
-def test_collect_measurements_have_no_obis(
-    collector,
-    mock_response,
-    mock_get,
-):
-    mock_get.return_value = mock_response
-
-    result = collector.collect()
-
-    assert all(measurement.obis is None for measurement in result)
-
-
 def test_http_error_is_handled(
     collector,
     mock_response,

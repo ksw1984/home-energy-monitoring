@@ -107,11 +107,7 @@ class IecCollector(BaseCollector):
             if definition is None:
                 continue
 
-            value, unit = cls._parse_value(raw_value)
-
-            # Prefer the unit supplied by the OBIS definition.
-            if definition.unit:
-                unit = definition.unit
+            value, _ = cls._parse_value(raw_value)
 
             measurements.append(
                 Measurement(
@@ -119,8 +115,7 @@ class IecCollector(BaseCollector):
                     source=cls.SOURCE,
                     metric=definition.metric,
                     value=value,
-                    unit=unit,
-                    obis=obis,
+                    unit=definition.unit,
                 )
             )
 
