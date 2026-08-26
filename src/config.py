@@ -59,6 +59,20 @@ def required_secret(name: str) -> str:
     return value
 
 
+def required_float(name: str) -> float:
+    """Read a required floating-point configuration value.
+
+    Raises:
+        RuntimeError: If the value is missing, empty, or not a valid float.
+    """
+    value = required_config(name)
+
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise RuntimeError(f"Configuration '{name}' must be a float, got: {value!r}") from exc
+
+
 def optional_config(name: str, default: str) -> str:
     """Read optional project configuration."""
     return os.getenv(name) or default
@@ -84,6 +98,10 @@ class Config:
     # Secrets
     influxdb_token: str
 
+    # Location
+    latitude: float
+    longitude: float
+
     # Required project configuration
     influxdb_url: str
     influxdb_org: str
@@ -105,6 +123,9 @@ class Config:
 config_obj = Config(
     # Secret
     influxdb_token=required_secret("INFLUXDB_TOKEN"),
+    # Location
+    latitude=required_float("LATITUDE"),
+    longitude=required_float("LONGITUDE"),
     # Required project configuration
     influxdb_url=required_config("INFLUXDB_URL"),
     influxdb_org=required_config("INFLUXDB_ORG"),
