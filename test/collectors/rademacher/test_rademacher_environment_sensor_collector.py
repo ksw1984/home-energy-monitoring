@@ -434,3 +434,17 @@ def test_collect_returns_empty_list_when_no_capabilities(
     result = collector.collect()
 
     assert result == []
+
+
+def test_measurement_raises_for_unknown_metric(collector):
+    timestamp = datetime.now().astimezone()
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"No Rademacher metric definition for 'unknown_metric'",
+    ):
+        collector._measurement(
+            timestamp=timestamp,
+            metric="unknown_metric",
+            value=1.0,
+        )

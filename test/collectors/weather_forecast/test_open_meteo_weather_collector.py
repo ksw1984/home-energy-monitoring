@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -5,6 +6,14 @@ import pytest
 from src.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
+
+
+@pytest.fixture
+def collector():
+    return OpenMeteoWeatherCollector(
+        latitude=50.0,
+        longitude=10.0,
+    )
 
 
 @patch("src.collectors.weather_forecast.open_meteo_weather_collector.requests.get")
@@ -120,3 +129,57 @@ def test_open_meteo_api():
     measurements = collector.collect()
 
     assert measurements
+
+
+def test_parse_current_ignores_none_values(collector):
+    current = {
+        "time": "2026-08-17T12:00",
+        "temperature_2m": 20.0,
+        "cloud_cover": None,
+    }
+
+    result = collector._parse_current(current)
+
+    assert len(result) == 1
+    assert result[0].metric == "temperature"
+    assert result[0].value == 20.0
+
+
+def test_parse_timestamp_with_missing_timestamp():
+    before = datetime.now().astimezone()
+
+    result = OpenMeteoWeatherCollector._parse_timestamp(None)
+
+    after = datetime.now().astimezone()
+
+    assert result.tzinfo is not None
+    assert before <= result <= after
+
+
+def test_measurement_raises_for_unknown_metric(collector):
+    timestamp = datetime.now().astimezone()
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"No Open-Meteo metric definition for 'unknown_metric'",
+    ):
+        collector._measurement(
+            timestamp=timestamp,
+            metric="unknown_metric",
+            value=20.0,
+        )
+
+
+def test_parse_hourly_ignores_none_values(collector):
+    hourly = {
+        "time": ["2026-08-17T12:00"],
+        "temperature_2m": [20.0],
+        "cloud_cover": [None],
+    }
+
+    result = collector._parse_hourly(hourly)
+
+    metrics = [measurement.metric for measurement in result]
+
+    assert metrics == ["temperature"]
+    assert result[0].value == 20.0

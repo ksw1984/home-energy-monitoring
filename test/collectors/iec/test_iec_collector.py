@@ -331,6 +331,15 @@ def test_collect_does_not_reconnect_when_already_connected(collector):
     assert len(result) == 6
 
 
+def test_connect(collector):
+    collector.protocol.connect = Mock()
+
+    collector.connect()
+
+    collector.protocol.connect.assert_called_once()
+    assert collector.connected is True
+
+
 def test_disconnect(collector):
     collector.connected = True
     collector.protocol.disconnect = Mock()
@@ -339,6 +348,35 @@ def test_disconnect(collector):
 
     collector.protocol.disconnect.assert_called_once()
     assert collector.connected is False
+
+
+def test_parse_value_without_unit():
+    value, unit = IecCollector._parse_value("123.45")
+
+    assert value == 123.45
+    assert unit == ""
+
+
+def test_parse_value_with_unit():
+    value, unit = IecCollector._parse_value("123.45*kW")
+
+    assert value == 123.45
+    assert unit == "kW"
+
+
+def test_parse_ignores_current_obis_without_definition(monkeypatch):
+    text = """
+    1-1:1.5.0(00.000*kW)
+    """
+
+    monkeypatch.setattr(
+        "src.collectors.iec.iec_collector.get_obis_definition",
+        lambda obis: None,
+    )
+
+    result = IecCollector._parse(text)
+
+    assert result == []
 
 
 def _find_measurement(

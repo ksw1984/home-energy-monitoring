@@ -1,8 +1,35 @@
 from unittest.mock import Mock, patch
 
 import pytest
+import serial
 
 from src.collectors.iec.iec_protocol import IecProtocol
+
+
+def test_open_serial_uses_iec_serial_settings():
+    protocol = IecProtocol(
+        port="/dev/ttyUSB0",
+        timeout=0.5,
+    )
+
+    with patch(
+        "src.collectors.iec.iec_protocol.serial.Serial",
+    ) as serial_cls:
+        serial_connection = protocol._open_serial(9600)
+
+    serial_cls.assert_called_once_with(
+        port="/dev/ttyUSB0",
+        baudrate=9600,
+        bytesize=serial.SEVENBITS,
+        parity=serial.PARITY_EVEN,
+        stopbits=serial.STOPBITS_ONE,
+        timeout=0.5,
+        xonxoff=False,
+        rtscts=False,
+        dsrdtr=False,
+    )
+
+    assert serial_connection is serial_cls.return_value
 
 
 def test_get_baud_rate_9600():
@@ -48,6 +75,150 @@ def test_get_baud_rate_unsupported_code():
         match="Unsupported IEC baud rate code: 9",
     ):
         IecProtocol._get_baud_rate(identification)
+
+
+def test_read_identification_times_out_without_terminator():
+    serial_connection = Mock()
+    serial_connection.read.return_value = b"/LGZ5"
+
+    with patch(
+        "src.collectors.iec.iec_protocol.time.monotonic",
+        side_effect=[
+            0.0,  # start
+            0.0,  # first loop condition
+            6.0,  # second loop condition -> timeout
+        ],
+    ):
+        result = IecProtocol._read_identification(
+            serial_connection,
+            timeout=5.0,
+        )
+
+    assert result == b"/LGZ5"
+    serial_connection.read.assert_called_once_with(64)
+
+
+def test_read_identification_ignores_empty_reads():
+    serial_connection = Mock()
+
+    serial_connection.read.side_effect = [
+        b"",
+        b"/LGZ5\\2ZMD3104107.B40\r\n",
+    ]
+
+    with patch(
+        "src.collectors.iec.iec_protocol.time.monotonic",
+        side_effect=[
+            0.0,  # start
+            0.0,  # first loop condition
+            0.0,  # second loop condition
+        ],
+    ):
+        result = IecProtocol._read_identification(
+            serial_connection,
+            timeout=5.0,
+        )
+
+    assert result == b"/LGZ5\\2ZMD3104107.B40\r\n"
+    assert serial_connection.read.call_count == 2
+    serial_connection.read.assert_called_with(64)
+
+
+def test_connect_closes_initial_serial_when_handshake_fails():
+    protocol = IecProtocol()
+
+    initial_serial = Mock()
+
+    with (
+        patch.object(
+            protocol,
+            "_open_serial",
+            return_value=initial_serial,
+        ),
+        patch.object(
+            protocol,
+            "_read_identification",
+            side_effect=RuntimeError("invalid identification"),
+        ),
+        pytest.raises(
+            RuntimeError,
+            match="invalid identification",
+        ),
+    ):
+        protocol.connect()
+
+    initial_serial.close.assert_called_once()
+    assert protocol.serial is None
+
+
+def test_read_stops_after_one_second_without_data():
+    protocol = IecProtocol()
+
+    serial_connection = Mock()
+    serial_connection.read.return_value = b""
+
+    protocol.serial = serial_connection
+
+    with patch(
+        "src.collectors.iec.iec_protocol.time.monotonic",
+        side_effect=[
+            0.0,  # start
+            1.1,  # now
+        ],
+    ):
+        result = protocol.read()
+
+    assert result == ""
+    serial_connection.read.assert_called_once_with(256)
+
+
+def test_read_stops_after_thirty_second_overall_timeout():
+    protocol = IecProtocol()
+
+    serial_connection = Mock()
+    serial_connection.read.side_effect = [
+        b"some data",
+        b"more data",
+    ]
+
+    protocol.serial = serial_connection
+
+    with patch(
+        "src.collectors.iec.iec_protocol.time.monotonic",
+        side_effect=[
+            0.0,  # start
+            0.1,  # last_rx after first chunk
+            0.1,  # now after first chunk
+            29.9,  # last_rx after second chunk
+            30.1,  # now after second chunk
+        ],
+    ):
+        result = protocol.read()
+
+    assert result == "some datamore data"
+    assert serial_connection.read.call_count == 2
+
+
+def test_read_reads_remaining_data_after_etx():
+    protocol = IecProtocol()
+
+    serial_connection = Mock()
+    serial_connection.read.side_effect = [
+        b"\x02payload\x03",
+        b"\x00trailing",
+    ]
+
+    protocol.serial = serial_connection
+
+    with patch(
+        "src.collectors.iec.iec_protocol.time.monotonic",
+        return_value=0.0,
+    ):
+        result = protocol.read()
+
+    assert result == "payload"
+    serial_connection.read.assert_any_call(256)
+    serial_connection.read.assert_any_call(64)
 
 
 def test_extract_payload():

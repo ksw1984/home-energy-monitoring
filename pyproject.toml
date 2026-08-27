@@ -167,6 +167,9 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src"]
+omit = [
+    "src/check_collector_output.py",
+]
 
 [tool.coverage.report]
 precision = 2
