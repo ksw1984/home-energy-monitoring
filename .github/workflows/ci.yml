@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6
@@ -55,7 +55,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6
@@ -88,7 +88,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6
@@ -124,9 +124,23 @@ jobs:
       - ruff
       - mypy
 
+    env:
+      INFLUXDB_TOKEN: ci-test-token
+      LATITUDE: "54.321"
+      LONGITUDE: "12.345"
+      INFLUXDB_URL: http://localhost:8086
+      INFLUXDB_ORG: test-org
+      INFLUXDB_BUCKET: test-bucket
+      FRONIUS_INVERTER_IP: 127.0.0.1
+      POWER_METER_GRID_IR_DEVICE0: /dev/null
+      POWER_METER_HOUSEHOLD_IR_DEVICE1: /dev/null
+      RADEMACHER_SMART_HOME_BOX_IP: 127.0.0.1
+      RADEMACHER_UMWELTSENSOR_9475_DEVICE_ID: test-device
+      COLLECTION_INTERVAL: "10"
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Python 3.13
         uses: actions/setup-python@v6

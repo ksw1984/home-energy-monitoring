@@ -178,6 +178,70 @@ def test_collect_timestamp_has_timezone(
     assert all(measurement.timestamp.utcoffset().total_seconds() == 2 * 60 * 60 for measurement in result)
 
 
+def test_get_current_power_returns_zero_when_fronius_api_reports_error(
+    collector,
+    mock_response,
+    mock_get,
+):
+    error_response = {
+        **FRONIUS_RESPONSE,
+        "Head": {
+            **FRONIUS_RESPONSE["Head"],
+            "Status": {
+                "Code": 1,
+                "Reason": "Something went wrong",
+                "UserMessage": "Fronius API error",
+            },
+        },
+    }
+
+    mock_response.json.return_value = error_response
+    mock_get.return_value = mock_response
+
+    assert collector.get_current_power_watt() == 0.0
+
+
+def test_measurement_raises_for_unknown_metric(collector):
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    with pytest.raises(
+        RuntimeError,
+        match="No Fronius metric definition for 'unknown_metric'",
+    ):
+        collector._measurement(
+            timestamp=timestamp,
+            metric="unknown_metric",
+            value=123.0,
+        )
+
+
+def test_get_data_raises_when_fronius_api_reports_error(
+    collector,
+    mock_response,
+    mock_get,
+):
+    error_response = {
+        **FRONIUS_RESPONSE,
+        "Head": {
+            **FRONIUS_RESPONSE["Head"],
+            "Status": {
+                "Code": 1,
+                "Reason": "Something went wrong",
+                "UserMessage": "Fronius API error",
+            },
+        },
+    }
+
+    mock_response.json.return_value = error_response
+    mock_get.return_value = mock_response
+
+    with pytest.raises(
+        RuntimeError,
+        match="Something went wrong",
+    ):
+        collector._get_data()
+
+
 # ============================================================================
 # Day finalization
 #
@@ -446,6 +510,16 @@ def test_http_error_does_not_create_measurement(
     result = collector.collect()
 
     assert result == []
+
+
+def test_is_after_sunset_rejects_naive_timestamp(collector):
+    timestamp = datetime(2026, 8, 15, 21, 00)
+
+    with pytest.raises(
+        ValueError,
+        match="timestamp must be timezone-aware",
+    ):
+        collector._is_after_sunset(timestamp)
 
 
 def test_fronius_api_error_is_detected(
