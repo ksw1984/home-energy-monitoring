@@ -1,0 +1,52 @@
+# Home Energy Monitoring configuration
+
+collection:
+  # Interval between collection cycles, in seconds.
+  interval: 300
+
+collectors:
+
+  # IEC electricity meter for grid import/export
+  - type: iec
+    enabled: false
+    attributes:
+      port: /dev/ttyUSB0
+      source: meter_grid
+
+  # IEC electricity meter for household consumption
+  - type: iec
+    enabled: false
+    attributes:
+      port: /dev/ttyUSB1
+      source: meter_household
+
+  # Fronius Symo inverter
+  - type: fronius
+    enabled: true
+    attributes:
+      inverter_ip: 192.168.178.25
+      latitude: 52.4
+      longitude: 13.7
+
+  # Rademacher environment sensor
+  - type: environment
+    enabled: true
+    attributes:
+      smart_home_box_ip: 192.168.178.19
+      device_id: 50
+
+  # Open-Meteo weather forecast
+  - type: weather
+    enabled: true
+    attributes:
+      latitude: 52.4
+      longitude: 13.7
+
+databases:
+  # InfluxDB instance used to store measurements
+  - type: influxdb
+    enabled: false
+    attributes:
+      url: http://influxdb:8086
+      org: home-energy
+      bucket: energy

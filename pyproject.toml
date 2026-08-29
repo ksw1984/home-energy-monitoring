@@ -1,0 +1,181 @@
+[tool.poetry]
+name = "home-energy-monitoring"
+version = "0.1.0"
+description = "Home energy monitoring using Gurux, smart meters and PV inverters"
+authors = ["ksw1984"]
+readme = "README.md"
+packages = [
+    { include = "src" }
+]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<4.0"
+gurux-common = "1.0.13"
+gurux-dlms = "1.0.201"
+gurux-serial = "1.0.21"
+pyserial = "3.5"
+requests = "^2.34.2"
+influxdb-client = "^1.50.0"
+dotenv = "^0.9.9"
+astral = "^3.2"
+pyyaml = "^6.0.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.1.1"
+pytest-cov = "^7.0.0"
+black = "^26.5.0"
+ruff = "^0.15.0"
+mypy = "^1.17.0"
+types-pyserial = "^3.5.0"
+pre-commit = "^4.3.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+home-energy-monitoring = "src.app:main"
+
+################
+# FORMATTING
+################
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+include = '\.pyi?$'
+extend-exclude = '''
+(
+    /(
+        \.venv
+        | build
+        | dist
+        | __pycache__
+    )/
+    | CHANGELOG\.md
+    | README\.md
+)
+'''
+
+################
+# LINTING
+################
+[tool.ruff]
+line-length = 120
+indent-width = 4
+
+extend-exclude = [
+    "__pycache__",
+    ".*",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle Warnings
+    "F", # Pyflakes
+    "I", # isort
+    "N", # pep8-naming
+    "UP", # pyupgrade
+    "B", # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # Ruff-specific codes
+    #
+#    "PL", # Pylint
+#    "PERF", # Performance-related issues
+#    "LOG", # flake8-logger
+#    "G", # flake8-logger-format
+#    "C901", # maccabe
+#    "S", # flake8-bandit
+#    "TID", # flake8-tidy-imports
+#    "TCH", # flake8-type-checking
+#    "INT", # flake8-gettext
+#    "FLY002", # flynt
+#    "ISC", # flake8-implicit-str-concat
+#    "ICN", # flake8-import-conventions
+]
+
+ignore = [
+    "E501", # Let Black handle formatting-related conflicts.
+    "G004", # Logging statement uses f-string
+]
+
+[tool.ruff.lint.per-file-ignores]
+"test/**/*.py" = [
+    "S101",   # assert is perfectly normal in tests
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+################
+# TYPE CHECKING
+################
+
+[tool.mypy]
+python_version = "3.13"
+
+# Check function bodies even when they don't have annotations.
+check_untyped_defs = true
+
+# Don't require every function to be fully annotated yet.
+disallow_untyped_defs = false
+
+# Third-party packages without type stubs shouldn't prevent CI.
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+
+# Useful warnings.
+warn_redundant_casts = true
+warn_unreachable = true
+warn_unused_ignores = true
+
+# Keep Optional handling strict.
+strict_optional = true
+
+# Better CI output.
+pretty = true
+show_error_context = true
+
+# Don't use incremental cache in CI.
+incremental = false
+
+exclude = [
+    "^\\.venv/",
+    "^test/",
+]
+
+################
+# PYTEST
+################
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+addopts = [
+    "-vv",
+    "-ra",
+]
+markers = [
+    "online: tests requiring internet access",
+]
+
+################
+# TEST COVERAGE
+################
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = [
+    "src/check_collector_output.py",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_empty = true
+omit = [
+    "test/*",
+]
