@@ -3,7 +3,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from src.collectors.definitions.measurement import Measurement
-from src.database.influxdb import InfluxDatabase
+from src.databases.influxdb.influxdb import InfluxDatabase
 
 
 def make_measurement(
@@ -26,7 +26,7 @@ def test_init_creates_influxdb_client():
     client.write_api.return_value = write_api
 
     with patch(
-        "src.database.influxdb.InfluxDBClient",
+        "src.databases.influxdb.influxdb.InfluxDBClient",
         return_value=client,
     ) as influx_client:
 
@@ -57,7 +57,7 @@ def test_store_writes_measurements():
     client.write_api.return_value = write_api
 
     with patch(
-        "src.database.influxdb.InfluxDBClient",
+        "src.databases.influxdb.influxdb.InfluxDBClient",
         return_value=client,
     ):
         database = InfluxDatabase(
@@ -91,7 +91,7 @@ def test_store_with_empty_measurements_writes_empty_list():
     client.write_api.return_value = write_api
 
     with patch(
-        "src.database.influxdb.InfluxDBClient",
+        "src.databases.influxdb.influxdb.InfluxDBClient",
         return_value=client,
     ):
         database = InfluxDatabase(
@@ -116,7 +116,7 @@ def test_close_closes_client():
     client.write_api.return_value = write_api
 
     with patch(
-        "src.database.influxdb.InfluxDBClient",
+        "src.databases.influxdb.influxdb.InfluxDBClient",
         return_value=client,
     ):
         database = InfluxDatabase(

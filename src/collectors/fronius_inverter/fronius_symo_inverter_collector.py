@@ -41,8 +41,8 @@ class FroniusSymoInverterCollector(BaseCollector):
         self,
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
-        pv_latitude: float = 52.4567,
-        pv_longitude: float = 13.7213,
+        latitude: float = 54.3217,
+        longitude: float = 12.3456,
     ) -> None:
         """Initialize the Fronius Symo inverter collector.
 
@@ -50,16 +50,16 @@ class FroniusSymoInverterCollector(BaseCollector):
             inverter_ip: IP address of the Fronius inverter.
             inverter_url: API path used to retrieve the inverter's realtime
                 power-flow data.
-            pv_latitude: Latitude of the PV installation, used to calculate
+            latitude: Latitude of the PV installation, used to calculate
                 the local sunset time.
-            pv_longitude: Longitude of the PV installation, used to calculate
+            longitude: Longitude of the PV installation, used to calculate
                 the local sunset time.
         """
         self.inverter_ip = inverter_ip
         self.inverter_url = f"http://{inverter_ip}/{inverter_url}"
 
-        self.latitude = pv_latitude
-        self.longitude = pv_longitude
+        self.latitude = latitude
+        self.longitude = longitude
 
         self._zero_power_since: datetime | None = None
         self._energy_recorded_for_date: date | None = None

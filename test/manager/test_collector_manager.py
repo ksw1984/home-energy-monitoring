@@ -24,16 +24,16 @@ def make_measurement(
 
 def test_init():
     collectors = [Mock(), Mock()]
-    database = Mock()
+    databases = [Mock()]
 
     manager = CollectorManager(
         collectors=collectors,
-        database=database,
+        databases=databases,
         interval=15,
     )
 
     assert manager.collectors is collectors
-    assert manager.database is database
+    assert manager.databases is databases
     assert manager.interval == 15
 
 
@@ -157,7 +157,7 @@ def test_output(caplog):
 def test_run_without_database_disconnects_on_shutdown():
     manager = CollectorManager(
         collectors=[],
-        database=None,
+        databases=None,
         interval=10,
     )
 
@@ -185,7 +185,7 @@ def test_run_stores_measurements_when_database_is_configured():
 
     manager = CollectorManager(
         collectors=[],
-        database=database,
+        databases=[database],
         interval=10,
     )
 
@@ -219,7 +219,7 @@ def test_run_sleeps_between_collection_cycles():
 
     manager = CollectorManager(
         collectors=[],
-        database=None,
+        databases=None,
         interval=15,
     )
 

@@ -1,15 +1,9 @@
 import logging
 
-from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
-    FroniusSymoInverterCollector,
-)
-from src.collectors.rademacher.umweltsensor_9475_collector import (
-    RademacherEnvironmentSensorCollector,
-)
-from src.collectors.weather_forecast.open_meteo_weather_collector import (
-    OpenMeteoWeatherCollector,
-)
+from src.collectors.collector_factory import create_collectors
 from src.config import config_obj
+from src.databases.database_factory import create_databases
+from src.logger.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -36,27 +30,11 @@ def log_measurements(name, measurements):
 
 
 def check_collectors():
-    fronius = FroniusSymoInverterCollector(
-        inverter_ip=config_obj.fronius_ip,
-        pv_latitude=config_obj.latitude,
-        pv_longitude=config_obj.longitude,
-    )
+    logger.info("App.run()")
 
-    rademacher = RademacherEnvironmentSensorCollector(
-        smart_home_box_ip=config_obj.smart_home_box_ip,
-        device_id=config_obj.umweltsensor_9475_device_id,
-    )
+    collectors = create_collectors(config_obj)
 
-    weather = OpenMeteoWeatherCollector(
-        latitude=config_obj.latitude,
-        longitude=config_obj.longitude,
-    )
-
-    collectors = [
-        fronius,
-        rademacher,
-        weather,
-    ]
+    _databases = create_databases(config_obj)
 
     try:
         for collector in collectors:
@@ -82,4 +60,5 @@ def check_collectors():
 
 
 if __name__ == "__main__":
+    setup_logging()
     check_collectors()

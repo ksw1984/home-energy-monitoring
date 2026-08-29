@@ -2,7 +2,9 @@ import asyncio
 import logging
 from datetime import datetime
 
+from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
+from src.databases.base_database import BaseDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +33,12 @@ class CollectorManager:
 
     def __init__(
         self,
-        collectors,
-        database=None,
-        interval=300,
+        collectors: list[BaseCollector],
+        databases: list[BaseDatabase] | None = None,
+        interval: int = 300,
     ):
         self.collectors = collectors
-        self.database = database
+        self.databases = databases
         self.interval = interval
 
         # True after the daily meter snapshot has been stored during
@@ -58,9 +60,10 @@ class CollectorManager:
                     measurements,
                 )
 
-                if self.database is not None and measurements_to_store:
-                    logger.info("Write to influx db")
-                    await self.database.store(measurements_to_store)
+                if self.databases is not None and measurements_to_store:
+                    logger.info("Write to dbs")
+                    for db in self.databases:
+                        await db.store(measurements_to_store)
 
                 await asyncio.sleep(self.interval)
 
@@ -102,7 +105,7 @@ class CollectorManager:
         self,
         measurements: list[Measurement],
     ) -> list[Measurement]:
-        """Return measurements that should be written to the database.
+        """Return measurements that should be written to the databases.
 
         Current meter power measurements are always stored.
 
