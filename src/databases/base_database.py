@@ -7,8 +7,8 @@ class BaseDatabase(ABC):
 
     @abstractmethod
     async def store(self, measurements: list[Measurement]) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def close(self) -> None:
-        pass
+        raise NotImplementedError
