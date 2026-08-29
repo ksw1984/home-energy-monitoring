@@ -517,7 +517,7 @@ def test_is_after_sunset_rejects_naive_timestamp(collector):
 
     with pytest.raises(
         ValueError,
-        match="timestamp must be timezone-aware",
+        match="Timestamp must be timezone-aware",
     ):
         collector._is_after_sunset(timestamp)
 
