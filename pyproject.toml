@@ -18,6 +18,7 @@ requests = "^2.34.2"
 influxdb-client = "^1.50.0"
 dotenv = "^0.9.9"
 astral = "^3.2"
+pyyaml = "^6.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"
@@ -84,8 +85,8 @@ select = [
     #
 #    "PL", # Pylint
 #    "PERF", # Performance-related issues
-#    "LOG", # flake8-logging
-#    "G", # flake8-logging-format
+#    "LOG", # flake8-logger
+#    "G", # flake8-logger-format
 #    "C901", # maccabe
 #    "S", # flake8-bandit
 #    "TID", # flake8-tidy-imports

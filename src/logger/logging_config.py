@@ -3,7 +3,7 @@ import sys
 
 
 def setup_logging() -> None:
-    """Configure application-wide logging."""
+    """Configure application-wide logger."""
 
     logging.basicConfig(
         level=logging.INFO,

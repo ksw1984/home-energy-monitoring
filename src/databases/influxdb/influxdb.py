@@ -5,11 +5,12 @@ from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 from src.collectors.definitions.measurement import Measurement
+from src.databases.base_database import BaseDatabase
 
 logger = logging.getLogger(__name__)
 
 
-class InfluxDatabase:
+class InfluxDatabase(BaseDatabase):
     def __init__(
         self,
         url: str,
