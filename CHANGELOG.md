@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.1.0] - 2026-08-29
+## 0.1.0 - 2026-08-29
 First version with basic functionality to monitor grid meters, pv inverter, environment sensor, weather reports.
 
 ### Added
