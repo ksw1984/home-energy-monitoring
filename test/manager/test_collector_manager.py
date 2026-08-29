@@ -11,10 +11,11 @@ from src.manager.collector_manager import CollectorManager
 def make_measurement(
     metric="temperature",
     value=20.5,
+    source="test",
 ):
     return Measurement(
         timestamp=datetime(2026, 8, 27, 12, 0),
-        source="test",
+        source=source,
         metric=metric,
         value=value,
         unit="°C",
@@ -242,3 +243,200 @@ def test_run_sleeps_between_collection_cycles():
 
     sleep.assert_awaited_once_with(15)
     manager.disconnect.assert_awaited_once()
+
+
+def test_filter_measurements_stores_current_meter_values():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement("grid_import_power", 1.5),
+        make_measurement("grid_export_power", 2.5),
+    ]
+
+    result = manager._filter_measurements(measurements)
+
+    assert result == measurements
+
+
+def test_filter_measurements_stores_current_meter_values_every_cycle():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    first = [
+        make_measurement("grid_import_power", 1.5),
+        make_measurement("grid_export_power", 2.5),
+    ]
+
+    second = [
+        make_measurement("grid_import_power", 1.7),
+        make_measurement("grid_export_power", 2.7),
+    ]
+
+    assert manager._filter_measurements(first) == first
+    assert manager._filter_measurements(second) == second
+
+
+def test_filter_measurements_does_not_store_daily_values_until_both_are_available():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement("grid_import_energy_total", 100.0),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == []
+    assert manager._daily_values_stored is False
+
+
+def test_filter_measurements_stores_daily_values_when_both_are_available():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement("grid_export_energy_total", 50.0),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == measurements
+    assert manager._daily_values_stored is True
+
+
+def test_filter_measurements_stores_daily_values_only_once():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement("grid_export_energy_total", 50.0),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+
+        first_result = manager._filter_measurements(measurements)
+        second_result = manager._filter_measurements(measurements)
+
+    assert first_result == measurements
+    assert second_result == []
+
+
+def test_filter_measurements_does_not_store_daily_values_outside_midnight():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement("grid_export_energy_total", 50.0),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 12
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == []
+
+
+def test_filter_measurements_stores_normal_measurements_every_cycle():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurement = make_measurement(
+        metric="temperature",
+        value=20.5,
+    )
+
+    result = manager._filter_measurements([measurement])
+
+    assert result == [measurement]
+
+
+def test_filter_measurements_stores_daily_values_from_one_meter():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == measurements
+    assert manager._daily_values_stored is True
+
+
+def test_filter_measurements_stores_daily_values_from_both_meters():
+    manager = CollectorManager(
+        collectors=[],
+        interval=10,
+    )
+
+    measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_import_energy_total",
+            200.0,
+            source="meter_household",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            25.0,
+            source="meter_household",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == measurements
+    assert manager._daily_values_stored is True

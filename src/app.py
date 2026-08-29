@@ -23,10 +23,12 @@ async def run():
     print("App.run()")
     _meter_grid_iec = IecCollector(
         port=config_obj.power_meter_grid_ir_device0,
+        source="meter_grid",
     )
 
     _meter_household_iec = IecCollector(
         port=config_obj.power_meter_household_ir_device1,
+        source="meter_household",
     )
 
     fronius_inverter = FroniusSymoInverterCollector(
