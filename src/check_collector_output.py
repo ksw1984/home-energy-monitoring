@@ -1,3 +1,5 @@
+import logging
+
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
@@ -9,19 +11,21 @@ from src.collectors.weather_forecast.open_meteo_weather_collector import (
 )
 from src.config import config_obj
 
+logger = logging.getLogger(__name__)
 
-def print_measurements(name, measurements):
-    print()
-    print("=" * 70)
-    print(name)
-    print("=" * 70)
+
+def log_measurements(name, measurements):
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info(name)
+    logger.info("=" * 70)
 
     if not measurements:
-        print("No measurements returned.")
+        logger.info("No measurements returned.")
         return
 
     for measurement in measurements:
-        print(
+        logger.info(
             f"{measurement.timestamp.isoformat()} "
             f"{measurement.source:10} "
             f"{measurement.metric:30} "
@@ -56,11 +60,11 @@ def check_collectors():
 
     try:
         for collector in collectors:
-            print(f"\nCollecting from {collector.__class__.__name__}...")
+            logger.info(f"\nCollecting from {collector.__class__.__name__}...")
 
             measurements = collector.collect()
 
-            print_measurements(
+            log_measurements(
                 collector.__class__.__name__,
                 measurements,
             )
@@ -72,7 +76,7 @@ def check_collectors():
         for collector in collectors:
 
             if hasattr(collector, "disconnect"):
-                print(f"\nDisconnecting " f"{collector.__class__.__name__}...")
+                logger.info(f"\nDisconnecting " f"{collector.__class__.__name__}...")
 
                 collector.disconnect()
 

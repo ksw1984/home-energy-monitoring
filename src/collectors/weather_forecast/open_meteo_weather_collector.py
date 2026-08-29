@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -7,6 +8,7 @@ from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.open_meteo import OPEN_METEO_METRICS
 
+logger = logging.getLogger(__name__)
 CURRENT_FIELDS = {
     "temperature_2m": "temperature",
     "cloud_cover": "cloud_cover",
@@ -65,7 +67,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:
-            print(f"Open-Meteo unavailable: {exc}. Returning no measurements.")
+            logger.error(f"Open-Meteo unavailable: {exc}. Returning no measurements.")
             return []
 
         measurements = []
@@ -160,7 +162,11 @@ class OpenMeteoWeatherCollector(BaseCollector):
             params=params,
             timeout=10,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"HTTPError {exc}")
+            raise exc
 
         return response.json()
 
@@ -183,6 +189,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
         try:
             definition = OPEN_METEO_METRICS[metric]
         except KeyError as exc:
+            logger.error(f"No Open-Meteo metric definition for '{metric}'")
             raise RuntimeError(f"No Open-Meteo metric definition for '{metric}'") from exc
 
         return Measurement(

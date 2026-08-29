@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -6,6 +7,8 @@ import requests
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.rademacher import RADEMACHER_METRICS
+
+logger = logging.getLogger(__name__)
 
 
 class RademacherEnvironmentSensorCollector(BaseCollector):
@@ -99,7 +102,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             device = self._get_data()
 
         except requests.exceptions.RequestException as exc:
-            print(f"Rademacher environment sensor unavailable: {exc}. " "Returning no measurements.")
+            logger.warning(f"Rademacher environment sensor unavailable: {exc}. Returning no measurements.")
             return []
 
         capabilities = {capability["name"]: capability for capability in device.get("capabilities", [])}

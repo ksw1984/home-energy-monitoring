@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
@@ -12,7 +13,12 @@ from src.collectors.weather_forecast.open_meteo_weather_collector import (
 )
 from src.config import config_obj
 from src.database.influxdb import InfluxDatabase
+
+# Configure logging before importing/starting application components.
+from src.logging.logging_config import setup_logging
 from src.manager.collector_manager import CollectorManager
+
+logger = logging.getLogger(__name__)
 
 #
 #  poetry run python -m app
@@ -20,7 +26,7 @@ from src.manager.collector_manager import CollectorManager
 
 
 async def run():
-    print("App.run()")
+    logger.info("App.run()")
     _meter_grid_iec = IecCollector(
         port=config_obj.power_meter_grid_ir_device0,
         source="meter_grid",
@@ -74,6 +80,7 @@ async def run():
 
 
 def main():
+    setup_logging()
     asyncio.run(run())
 
 
