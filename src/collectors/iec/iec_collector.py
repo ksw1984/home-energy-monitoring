@@ -24,11 +24,10 @@ class IecCollector(BaseCollector):
     called if it has not already been established through ``connect()``.
     """
 
-    SOURCE = "iec"
-
     def __init__(
         self,
         port="/dev/ttyUSB0",
+        source="iec",
     ) -> None:
         """Initialize the IEC meter collector.
 
@@ -36,6 +35,7 @@ class IecCollector(BaseCollector):
             port: Serial device used to communicate with the IEC meter.
         """
         self.protocol = IecProtocol(port)
+        self.source = source
         self.connected = False
 
     def connect(self) -> None:
@@ -68,8 +68,7 @@ class IecCollector(BaseCollector):
 
         return self._parse(text)
 
-    @classmethod
-    def _parse(cls, text: str) -> list[Measurement]:
+    def _parse(self, text: str) -> list[Measurement]:
         """Parse supported current values from an IEC meter telegram.
 
         Example values include::
@@ -107,12 +106,12 @@ class IecCollector(BaseCollector):
             if definition is None:
                 continue
 
-            value, _ = cls._parse_value(raw_value)
+            value, _ = self._parse_value(raw_value)
 
             measurements.append(
                 Measurement(
                     timestamp=timestamp,
-                    source=cls.SOURCE,
+                    source=self.source,
                     metric=definition.metric,
                     value=value,
                     unit=definition.unit,
