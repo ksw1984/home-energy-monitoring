@@ -1,7 +1,11 @@
+import logging
 import re
 import time
 
 import serial
+
+logger = logging.getLogger(__name__)
+
 
 BAUD_MAP = {
     0: 300,
@@ -104,7 +108,12 @@ class IecProtocol:
             ser.flush()
 
             time.sleep(0.2)
-
+        except RuntimeError as e:
+            logger.exception(f"IEC meter handshake failed. No supported baud-rate code provided. {e}")
+            raise e
+        except serial.SerialException as e:
+            logger.exception(f"IEC serial meter connection failed: {e}")
+            raise e
         finally:
             ser.close()
 
@@ -134,6 +143,7 @@ class IecProtocol:
             RuntimeError: If the protocol is not connected.
         """
         if self.serial is None:
+            logger.error("IEC collectors is not connected.")
             raise RuntimeError("IEC collectors is not connected.")
 
         data = bytearray()
@@ -221,11 +231,13 @@ class IecProtocol:
         )
 
         if not match:
+            logger.error("Could not determine IEC baud rate.")
             raise RuntimeError("Could not determine IEC baud rate.")
 
         baud_code = int(match.group(1))
 
         if baud_code not in BAUD_MAP:
+            logger.error("Unsupported IEC baud rate code: {baud_code}")
             raise RuntimeError(f"Unsupported IEC baud rate code: {baud_code}")
 
         return baud_code, BAUD_MAP[baud_code]

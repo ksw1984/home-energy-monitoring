@@ -1,9 +1,12 @@
 import asyncio
+import logging
 
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 from src.collectors.definitions.measurement import Measurement
+
+logger = logging.getLogger(__name__)
 
 
 class InfluxDatabase:
@@ -33,8 +36,8 @@ class InfluxDatabase:
             .time(measurement.timestamp)
             for measurement in measurements
         ]
-        print("points", points)
-        print("write to db")
+        logger.info("Points", points)
+        logger.info("Write to db")
         await asyncio.to_thread(
             self.write_api.write,
             bucket=self.bucket,

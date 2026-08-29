@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -8,6 +9,8 @@ from astral.sun import sun
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.fronius import FRONIUS_METRICS
 from src.collectors.definitions.measurement import Measurement
+
+logger = logging.getLogger(__name__)
 
 
 class FroniusSymoInverterCollector(BaseCollector):
@@ -78,6 +81,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         data = response.json()
 
         if data["Head"]["Status"]["Code"] != 0:
+            logger.error(f"Fronius API error: {data['Head']['Status']['Reason']}")
             raise RuntimeError(f"Fronius API error: {data['Head']['Status']['Reason']}")
 
         return data
@@ -99,7 +103,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:
-            print(f"Fronius inverter unavailable: {exc}. " "No measurement recorded.")
+            logger.info(f"Fronius inverter unavailable: {exc}. " "No measurement recorded.")
             return []
 
         timestamp = datetime.fromisoformat(data["Head"]["Timestamp"])
@@ -200,7 +204,8 @@ class FroniusSymoInverterCollector(BaseCollector):
             ``True`` if the timestamp is at or after sunset.
         """
         if timestamp.tzinfo is None:
-            raise ValueError("timestamp must be timezone-aware")
+            logger.error("Timestamp must be timezone-aware")
+            raise ValueError("Timestamp must be timezone-aware")
 
         observer = Observer(
             latitude=self.latitude,
@@ -272,6 +277,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         try:
             definition = FRONIUS_METRICS[metric]
         except KeyError as exc:
+            logger.error(f"No Fronius metric definition for '{metric}'")
             raise RuntimeError(f"No Fronius metric definition for '{metric}'") from exc
 
         return Measurement(

@@ -136,21 +136,22 @@ def test_collect_all_returns_empty_list_when_no_measurements():
     assert result == []
 
 
-def test_output(capsys):
+def test_output(caplog):
     measurement = make_measurement(
         metric="temperature",
         value=20.5,
     )
 
-    CollectorManager.output([measurement])
+    with caplog.at_level("INFO"):
+        CollectorManager.output([measurement])
 
-    captured = capsys.readouterr()
+    assert "2026-08-27T12:00:00" in caplog.text
+    assert "test" in caplog.text
+    assert "temperature" in caplog.text
+    assert "20.500" in caplog.text
+    assert "°C" in caplog.text
 
-    assert "2026-08-27T12:00:00" in captured.out
-    assert "test" in captured.out
-    assert "temperature" in captured.out
-    assert "20.500" in captured.out
-    assert "°C" in captured.out
+    assert "src.manager.collector_manager" in caplog.text
 
 
 def test_run_without_database_disconnects_on_shutdown():

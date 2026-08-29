@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from datetime import datetime
 
 from src.collectors.definitions.measurement import Measurement
+
+logger = logging.getLogger(__name__)
 
 METER_DAILY_METRICS = {
     "grid_import_energy_total",
@@ -42,7 +45,7 @@ class CollectorManager:
 
     async def run(self):
 
-        print("CollectorManager.run()")
+        logger.info("CollectorManager.run()")
         await self.connect()
 
         try:
@@ -56,7 +59,7 @@ class CollectorManager:
                 )
 
                 if self.database is not None and measurements_to_store:
-                    print("write to influx db")
+                    logger.info("Write to influx db")
                     await self.database.store(measurements_to_store)
 
                 await asyncio.sleep(self.interval)
@@ -72,7 +75,7 @@ class CollectorManager:
 
     async def collect_all(self) -> list[Measurement]:
 
-        print("CollectorManager.collect_all()")
+        logger.info("CollectorManager.collect_all()")
         tasks = [asyncio.to_thread(collector.collect) for collector in self.collectors]
 
         results = await asyncio.gather(
@@ -84,11 +87,11 @@ class CollectorManager:
 
         for collector, result in zip(self.collectors, results, strict=True):
             if isinstance(result, BaseException):
-                print(f"Collector {collector.__class__.__name__} failed: {result}")
+                logger.error(f"Collector {collector.__class__.__name__} failed: {result}")
                 continue
 
             if not result:
-                print(f"Collector {collector.__class__.__name__} unavailable: {result}")
+                logger.warning(f"Collector {collector.__class__.__name__} unavailable: {result}")
                 continue
 
             measurements.extend(result)
@@ -152,7 +155,7 @@ class CollectorManager:
     @staticmethod
     def output(measurements: list[Measurement]):
         for measurement in measurements:
-            print(
+            logger.info(
                 f"{measurement.timestamp.isoformat()} "
                 f"{measurement.source:10} "
                 f"{measurement.metric:20} "
