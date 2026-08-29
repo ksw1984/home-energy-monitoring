@@ -1,0 +1,353 @@
+name: Release Main
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+env:
+  GH_HOST: vwg.ghe.com
+  PROJECT_NAME: home-energy-monitoring
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+
+      - name: Setup Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: "poetry.lock"
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(
+            python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+
+          print(data["tool"]["poetry"]["version"])
+          PY
+          )"
+
+          TAG="v${VERSION}"
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+          echo "Version: ${VERSION}"
+          echo "Tag: ${TAG}"
+
+      - name: Validate release version
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+
+        run: |
+          set -euo pipefail
+
+          git fetch --prune --force origin \
+            '+refs/tags/*:refs/tags/*'
+
+          #
+          # The version must not already have been released.
+          #
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            TAG_COMMIT="$(git rev-list -n 1 "${TAG}")"
+            HEAD_COMMIT="$(git rev-parse HEAD)"
+
+            if [ "${TAG_COMMIT}" = "${HEAD_COMMIT}" ]; then
+              echo "Release ${TAG} already exists on this commit."
+              echo "Nothing to do."
+              exit 0
+            fi
+
+            echo "ERROR: Tag ${TAG} already exists on another commit."
+            echo "The version in pyproject.toml must be increased."
+            exit 1
+          fi
+
+          #
+          # Make sure this version is newer than the previous release.
+          #
+
+          LATEST_TAG="$(
+            git tag \
+              --sort=-v:refname |
+            grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+            head -n 1 || true
+          )"
+
+          echo "Latest release: ${LATEST_TAG:-none}"
+
+          if [ -n "${LATEST_TAG}" ]; then
+            LATEST_VERSION="${LATEST_TAG#v}"
+
+            VERSION="${VERSION}" \
+            LATEST_VERSION="${LATEST_VERSION}" \
+            python - <<'PY'
+          import os
+          import re
+          import sys
+
+          version = os.environ["VERSION"]
+          latest = os.environ["LATEST_VERSION"]
+
+          def parse(value: str) -> tuple[int, int, int]:
+              if not re.fullmatch(r"\d+\.\d+\.\d+", value):
+                  print(
+                      f"ERROR: Unsupported version format: {value}",
+                      file=sys.stderr,
+                  )
+                  sys.exit(1)
+
+              return tuple(map(int, value.split(".")))
+
+          if parse(version) <= parse(latest):
+              print(
+                  f"ERROR: Version {version} is not greater "
+                  f"than latest release {latest}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(
+              f"Version {version} is newer than latest release {latest}"
+          )
+          PY
+          fi
+
+      - name: Validate CHANGELOG
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+        run: |
+          set -euo pipefail
+
+          VERSION="${VERSION}" python - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          path = Path("CHANGELOG.md")
+
+          if not path.exists():
+              print(
+                  "ERROR: CHANGELOG.md does not exist",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          changelog = path.read_text(encoding="utf-8")
+
+          pattern = (
+              rf"^##\s+v?{re.escape(version)}[^\n]*\n"
+              rf"(.*?)(?=^##\s+|\Z)"
+          )
+
+          match = re.search(
+              pattern,
+              changelog,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+
+          if not match:
+              print(
+                  f"ERROR: No changelog section found for version {version}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          section = match.group(1).strip()
+
+          if not section:
+              print(
+                  f"ERROR: Changelog section for version {version} is empty",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(
+              f"CHANGELOG.md contains a non-empty section for {version}"
+          )
+          PY
+
+      - name: Create release tag
+        id: tag
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+
+        run: |
+          set -euo pipefail
+
+          git config user.name "GitHub Release Bot"
+          git config user.email "github-release-bot@users.noreply.github.com"
+
+          git tag -a "${TAG}" \
+            -m "Release ${TAG}"
+
+          git push origin "refs/tags/${TAG}"
+
+          echo "Created and pushed tag ${TAG}"
+
+      - name: Install Poetry
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -m pip install --upgrade pip
+          python -m pip install poetry
+
+          python -m poetry config virtualenvs.create false
+
+      - name: Build wheel
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf dist build *.egg-info
+
+          python -m poetry build -f wheel
+
+          echo "Built wheel:"
+          ls -la dist
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-notes
+
+          VERSION="${VERSION}" python - <<'PY'
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+
+          changelog = Path("CHANGELOG.md").read_text(
+              encoding="utf-8"
+          )
+
+          pattern = (
+              rf"^##\s+v?{re.escape(version)}[^\n]*\n"
+              rf"(.*?)(?=^##\s+|\Z)"
+          )
+
+          match = re.search(
+              pattern,
+              changelog,
+              flags=re.MULTILINE | re.DOTALL,
+          )
+
+          if not match:
+              print(
+                  f"ERROR: No changelog section found for {version}",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          section = match.group(1).strip()
+
+          if not section:
+              print(
+                  f"ERROR: Changelog section for {version} is empty",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          Path(
+              f"release-notes/home-energy-monitoring-v{version}.md"
+          ).write_text(
+              section + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          echo "Release notes:"
+          cat "release-notes/home-energy-monitoring-${TAG}.md"
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+          GH_ENTERPRISE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || github.token }}
+          GH_NO_UPDATE_NOTIFIER: 1
+
+          TAG: ${{ steps.version.outputs.tag }}
+
+        run: |
+          set -euo pipefail
+
+          REPO="${GH_HOST}/${GITHUB_REPOSITORY}"
+
+          echo "Repository: ${REPO}"
+          echo "Creating release ${TAG}"
+
+          gh auth status --hostname "${GH_HOST}"
+
+          RELEASE_NOTES_FILE=(
+            release-notes/*.md
+          )
+
+          if gh release view "${TAG}" \
+              --repo "${REPO}" \
+              >/dev/null 2>&1; then
+
+            echo "GitHub Release ${TAG} already exists."
+
+            gh release upload "${TAG}" \
+              --repo "${REPO}" \
+              dist/*.whl \
+              "${RELEASE_NOTES_FILE[@]}" \
+              --clobber
+
+          else
+
+            gh release create "${TAG}" \
+              --repo "${REPO}" \
+              dist/*.whl \
+              "${RELEASE_NOTES_FILE[@]}" \
+              --title "home-energy-monitoring ${TAG}" \
+              --notes-file "${RELEASE_NOTES_FILE[0]}"
+
+          fi
+
+          echo "Release ${TAG} completed."
