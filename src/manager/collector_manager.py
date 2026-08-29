@@ -3,19 +3,25 @@ from datetime import datetime
 
 from src.collectors.definitions.measurement import Measurement
 
-DAILY_METRICS = {
+METER_DAILY_METRICS = {
     "grid_import_energy_total",
     "grid_export_energy_total",
+}
+METER_CURRENT_METRICS = {
+    "grid_import_power",
+    "grid_export_power",
 }
 
 
 class CollectorManager:
     """Run all collectors and store their measurements.
 
-    Daily meter energy values are handled specially. The manager stores
-    ``grid_import_energy_total`` and ``grid_export_energy_total`` only once
-    during hour 00:00. Both values must be available before the daily
-    snapshot is written.
+    All collectors are executed every ``interval`` seconds.
+
+    Current meter power values are stored on every collection cycle.
+
+    Daily meter energy values are stored only once during hour 00:00,
+    after the required values from both meter sources are available.
 
     All other measurements are stored on every collection cycle.
     """
@@ -24,17 +30,15 @@ class CollectorManager:
         self,
         collectors,
         database=None,
-        interval=10,
+        interval=300,
     ):
         self.collectors = collectors
         self.database = database
         self.interval = interval
 
-        # Start as if we are already outside the 00:00 hour.
-        #
-        # This means that if the application starts at 00:05, the first
-        # collection is still allowed to create the daily snapshot.
-        self._daily_energy_recorded = False
+        # True after the daily meter snapshot has been stored during
+        # the current midnight hour.
+        self._daily_values_stored = False
 
     async def run(self):
 
@@ -97,38 +101,53 @@ class CollectorManager:
     ) -> list[Measurement]:
         """Return measurements that should be written to the database.
 
-        Normal measurements are always returned.
+        Current meter power measurements are always stored.
 
-        Daily meter energy values are only returned during hour 00 and only
-        after both required values have been collected.
+        Daily meter energy measurements are stored only once during
+        hour 00:00, after all required values from both meter sources
+        are available.
+
+        All other measurements are always stored.
         """
         now = datetime.now().astimezone()
 
-        # We have entered hour 01 or later. This resets the daily snapshot
-        # flag so that the next midnight can store a new snapshot.
+        #
+        # Reset the daily flag once we leave midnight.
+        #
         if now.hour != 0:
             self._daily_values_stored = False
 
-        # Outside midnight: discard daily energy measurements.
-        if now.hour != 0:
-            return [measurement for measurement in measurements if measurement.metric not in DAILY_METRICS]
+        #
+        # Current measurements are always stored.
+        #
+        measurements_to_store = [
+            measurement for measurement in measurements if measurement.metric in METER_CURRENT_METRICS
+        ]
 
-        # Already stored this midnight.
-        if self._daily_values_stored:
-            return [measurement for measurement in measurements if measurement.metric not in DAILY_METRICS]
+        #
+        # Daily measurements are stored only once at midnight.
+        #
+        if now.hour == 0 and not self._daily_values_stored:
+            daily_measurements = [
+                measurement for measurement in measurements if measurement.metric in METER_DAILY_METRICS
+            ]
 
-        daily_measurements = [measurement for measurement in measurements if measurement.metric in DAILY_METRICS]
+            daily_metrics_received = {measurement.metric for measurement in daily_measurements}
 
-        daily_metrics_received = {measurement.metric for measurement in daily_measurements}
+            if METER_DAILY_METRICS.issubset(daily_metrics_received):
+                measurements_to_store.extend(daily_measurements)
+                self._daily_values_stored = True
 
-        # We need both meter values before storing the daily snapshot.
-        if not DAILY_METRICS.issubset(daily_metrics_received):
-            return [measurement for measurement in measurements if measurement.metric not in DAILY_METRICS]
+        #
+        # All other measurements are stored every cycle.
+        #
+        measurements_to_store.extend(
+            measurement
+            for measurement in measurements
+            if measurement.metric not in METER_CURRENT_METRICS and measurement.metric not in METER_DAILY_METRICS
+        )
 
-        # Both daily meter values are available. Store them now.
-        self._daily_values_stored = True
-
-        return measurements
+        return measurements_to_store
 
     @staticmethod
     def output(measurements: list[Measurement]):
