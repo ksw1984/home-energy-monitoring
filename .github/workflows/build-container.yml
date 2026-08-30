@@ -1,0 +1,113 @@
+name: Build Container
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Release version"
+        required: true
+        type: string
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-container-${{ inputs.version || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build And Push Container
+    runs-on: ubuntu-latest
+
+    steps:
+      #
+      # Checkout release
+      #
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: >-
+            ${{ inputs.version != '' &&
+                format('v{0}', inputs.version) ||
+                github.ref }}
+          fetch-depth: 0
+
+      #
+      # Determine version
+      #
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ inputs.version }}"
+
+          if [ -z "${VERSION}" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [ -z "${VERSION}" ]; then
+            echo "ERROR: Could not determine version."
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+          echo "Building container version: ${VERSION}"
+
+      #
+      # Log in to GitHub Container Registry
+      #
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      #
+      # Build and push
+      #
+
+      - name: Build and push container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      #
+      # Show published image
+      #
+
+      - name: Show published image
+        shell: bash
+        run: |
+          echo "Published container:"
+          echo "${REGISTRY}/${IMAGE_NAME}:${{ steps.version.outputs.version }}"
+          echo "${REGISTRY}/${IMAGE_NAME}:latest"
