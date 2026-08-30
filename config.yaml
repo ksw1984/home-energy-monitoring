@@ -37,7 +37,7 @@ collectors:
 
   # Open-Meteo weather forecast
   - type: weather
-    enabled: true
+    enabled: false
     attributes:
       latitude: 52.4
       longitude: 13.7
@@ -45,7 +45,7 @@ collectors:
 databases:
   # InfluxDB instance used to store measurements
   - type: influxdb
-    enabled: false
+    enabled: true
     attributes:
       url: http://influxdb:8086
       org: home-energy
