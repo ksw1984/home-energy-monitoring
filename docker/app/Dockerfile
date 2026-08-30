@@ -8,7 +8,7 @@ WORKDIR /build
 RUN pip install --no-cache-dir poetry
 
 # Copy dependency definitions first for Docker layer caching
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml poetry.lock README.md ./
 
 # Install production dependencies
 RUN poetry config virtualenvs.create false \
