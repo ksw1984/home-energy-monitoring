@@ -19,7 +19,7 @@ permissions:
 jobs:
 
   #
-  # Build the dependency image first
+  # Build or reuse the CI dependency image first
   #
 
   prepare-ci-image:
@@ -39,7 +39,7 @@ jobs:
       - prepare-ci-image
 
     container:
-      image: ${{ needs.prepare-ci-image.outputs.image }}
+      image: ghcr.io/ksw1984/home-energy-monitoring-ci:latest
 
     steps:
       - name: Checkout repository
@@ -61,7 +61,7 @@ jobs:
       - prepare-ci-image
 
     container:
-      image: ${{ needs.prepare-ci-image.outputs.image }}
+      image: ghcr.io/ksw1984/home-energy-monitoring-ci:latest
 
     steps:
       - name: Checkout repository
@@ -83,7 +83,7 @@ jobs:
       - prepare-ci-image
 
     container:
-      image: ${{ needs.prepare-ci-image.outputs.image }}
+      image: ghcr.io/ksw1984/home-energy-monitoring-ci:latest
 
     steps:
       - name: Checkout repository
@@ -108,7 +108,7 @@ jobs:
       - mypy
 
     container:
-      image: ${{ needs.prepare-ci-image.outputs.image }}
+      image: ghcr.io/ksw1984/home-energy-monitoring-ci:latest
 
     env:
       INFLUXDB_TOKEN: ci-test-token
