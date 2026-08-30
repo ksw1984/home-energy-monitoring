@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0 - 2026-08-30
+
+### Added
+- CI: Add a Build Container workflow to build & push container images to GHCR (/.github/workflows/build-container.yml).
+- Deployment: Add a production/dev deployment compose and environment example (deployment/compose.yml, deployment/.env.example).
+- Release automation: Release workflow now outputs version and tag and triggers a build-container job as part of the release flow (.github/workflows/release-main.yml).
+
+### Changed
+- Release pipeline: release-main.yml refactored/extended to:
+  - export release outputs (version, tag),
+  - prepare/reuse release notes file,
+  - create/push release tag and GitHub Release,
+  - invoke a container build job after release.
+- CI/workflows: reorganized workflow responsibilities between prepare-release, release-main, and the new build-container workflow.
+
+### Removed
+- Top-level compose.yml removed in favor of deployment/compose.yml (deployment split & reorganization).
+
+### Notes
+- These changes add container image build & publishing and an explicit deployment layout. Recommended next steps before publishing a new release:
+  1. Bump project version (e.g., 0.1.1) in `pyproject.toml`.
+  2. Add a release section for the new version in CHANGELOG.md (move the above "Unreleased" into `## 0.1.1 - YYYY-MM-DD` when ready).
+  3. Merge dev → main (release PR) so the release-main workflow can create the tag and publish artifacts (the new build-container job will then build/push the container).
+
+
 ## 0.1.0 - 2026-08-29
 First version with basic functionality to monitor grid meters, pv inverter, environment sensor, weather reports.
 
