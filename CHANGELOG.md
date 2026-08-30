@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.2 - 2026-08-30
+
+### Added
+- CI: Add required Readme to container for install
+-
 ## 0.2.1 - 2026-08-30
 
 ### Added
