@@ -6,6 +6,9 @@ services:
     env_file:
       - ../.env
 
+    volumes:
+      - ../config.yaml:/app/config.yaml:ro
+
     depends_on:
       - influxdb
 
