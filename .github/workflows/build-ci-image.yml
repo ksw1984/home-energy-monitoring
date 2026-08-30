@@ -1,13 +1,11 @@
 name: Build CI Image
 
 on:
-  push:
-    branches:
-      - "**"
-    paths:
-      - "pyproject.toml"
-      - "poetry.lock"
-      - "docker/ci/Dockerfile"
+  workflow_call:
+    outputs:
+      image:
+        description: "CI dependency image to use"
+        value: ${{ jobs.build.outputs.image }}
 
   workflow_dispatch:
 
@@ -24,9 +22,46 @@ jobs:
     name: Build CI Dependencies Image
     runs-on: ubuntu-latest
 
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+
     steps:
+      #
+      # Checkout
+      #
+
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      #
+      # Calculate dependency image version
+      #
+
+      - name: Calculate image tag
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HASH="$(
+            sha256sum \
+              pyproject.toml \
+              poetry.lock \
+              docker/ci/Dockerfile |
+            sha256sum |
+            cut -c1-16
+          )"
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:deps-${HASH}"
+
+          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
+
+          echo "CI dependency image:"
+          echo "${IMAGE}"
+
+      #
+      # Log in to GHCR
+      #
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -35,11 +70,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      #
+      # Build and push
+      #
+
       - name: Build and push CI image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/ci/Dockerfile
           push: true
+
           tags: |
+            ${{ steps.image.outputs.image }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
