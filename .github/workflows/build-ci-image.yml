@@ -1,0 +1,140 @@
+name: Build CI Image
+
+on:
+  workflow_call:
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-ci
+
+jobs:
+  build:
+    name: Build CI Dependencies Image
+    runs-on: ubuntu-latest
+
+    steps:
+      #
+      # Checkout
+      #
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      #
+      # Calculate deterministic dependency image tag
+      #
+
+      - name: Calculate image tag
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          HASH="$(
+            sha256sum \
+              pyproject.toml \
+              poetry.lock \
+              docker/ci/Dockerfile |
+            sha256sum |
+            cut -c1-16
+          )"
+
+          IMAGE="${REGISTRY}/${IMAGE_NAME}:deps-${HASH}"
+
+          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
+
+          echo "CI dependency image:"
+          echo "${IMAGE}"
+
+      #
+      # Log in to GHCR
+      #
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      #
+      # Check whether this exact dependency image already exists
+      #
+
+      - name: Check for existing dependency image
+        id: existing
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          if docker manifest inspect "${IMAGE}" >/dev/null 2>&1; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+
+            echo "CI dependency image already exists:"
+            echo "${IMAGE}"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+
+            echo "CI dependency image does not exist:"
+            echo "${IMAGE}"
+          fi
+
+      #
+      # Build the dependency image only when required
+      #
+
+      - name: Build and push CI image
+        if: steps.existing.outputs.exists != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/ci/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image.outputs.image }}
+
+      #
+      # Make latest point to this dependency image
+      #
+
+      - name: Update latest tag
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          LATEST_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        run: |
+          set -euo pipefail
+
+          docker pull "${IMAGE}"
+
+          docker tag \
+            "${IMAGE}" \
+            "${LATEST_IMAGE}"
+
+          docker push "${LATEST_IMAGE}"
+
+      #
+      # Show selected image
+      #
+
+      - name: Show selected CI image
+        shell: bash
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: |
+          set -euo pipefail
+
+          echo "CI dependency image:"
+          echo "${IMAGE}"
+
+          echo ""
+          echo "CI will use:"
+          echo "${REGISTRY}/${IMAGE_NAME}:latest"
