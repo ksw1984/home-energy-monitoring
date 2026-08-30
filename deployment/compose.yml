@@ -1,0 +1,47 @@
+services:
+  home-energy-monitoring:
+    image: ghcr.io/ksw1984/home-energy-monitoring:${HOME_ENERGY_VERSION}
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    depends_on:
+      - influxdb
+
+  influxdb:
+    image: influxdb:${INFLUXDB_VERSION}
+    restart: unless-stopped
+
+    ports:
+      - "8086:8086"
+
+    volumes:
+      - ./data/influxdb:/var/lib/influxdb2
+
+    env_file:
+      - .env
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "influx",
+          "ping"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION}
+    restart: unless-stopped
+
+    ports:
+      - "3000:3000"
+
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
