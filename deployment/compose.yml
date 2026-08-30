@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
 
     env_file:
-      - .env
+      - ../.env
 
     depends_on:
       - influxdb
@@ -20,7 +20,7 @@ services:
       - ./data/influxdb:/var/lib/influxdb2
 
     env_file:
-      - .env
+      - ../.env
 
     healthcheck:
       test:

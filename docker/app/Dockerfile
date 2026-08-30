@@ -8,7 +8,7 @@ WORKDIR /build
 RUN pip install --no-cache-dir poetry
 
 # Copy dependency definitions first for Docker layer caching
-COPY pyproject.toml poetry.lock README.md ./
+COPY pyproject.toml poetry.lock ./
 
 # Install production dependencies
 RUN poetry config virtualenvs.create false \
@@ -16,9 +16,6 @@ RUN poetry config virtualenvs.create false \
 
 # Copy application source
 COPY src ./src
-
-# Install the application
-RUN poetry install --only main --no-interaction --no-ansi
 
 
 FROM python:3.13-slim
@@ -32,11 +29,8 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.13/site-packages \
     /usr/local/lib/python3.13/site-packages
 
-COPY --from=builder /usr/local/bin \
-    /usr/local/bin
-
 # Copy application source
 COPY --from=builder /build/src ./src
 
 # Start Home Energy Monitoring
-CMD ["home-energy-monitoring"]
+CMD ["python", "-m", "src.app"]
