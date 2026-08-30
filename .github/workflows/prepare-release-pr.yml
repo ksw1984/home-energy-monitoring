@@ -275,6 +275,8 @@ jobs:
           6. Prepare release notes
           7. Create the GitHub Release
           8. Attach the wheel to the release
+          9. Build the release container image
+          10. Publish the container image to GitHub Container Registry (GHCR)
 
           The \`main\` branch is protected and can only be updated
           through a pull request from \`dev\`.
