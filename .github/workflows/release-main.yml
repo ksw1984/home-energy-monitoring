@@ -24,6 +24,10 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
 
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+
     steps:
       #
       # Checkout
@@ -73,7 +77,7 @@ jobs:
           echo "Tag: ${TAG}"
 
       #
-      # Validate version
+      # Validate release version
       #
 
       - name: Validate release version
@@ -293,7 +297,9 @@ jobs:
 
           mkdir -p release-notes
 
-          VERSION="${VERSION}" TAG="${TAG}" PROJECT_NAME="${PROJECT_NAME}" \
+          VERSION="${VERSION}" \
+          TAG="${TAG}" \
+          PROJECT_NAME="${PROJECT_NAME}" \
           python - <<'PY'
           import os
           import re
@@ -395,3 +401,23 @@ jobs:
           fi
 
           echo "Release ${TAG} completed."
+
+  #
+  # Build container from the release tag
+  #
+
+  build-container:
+    name: Build Container
+    needs:
+      - release
+
+    permissions:
+      contents: read
+      packages: write
+
+    uses: ./.github/workflows/build-container.yml
+
+    with:
+      version: ${{ needs.release.outputs.version }}
+
+    secrets: inherit
