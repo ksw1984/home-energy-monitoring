@@ -441,3 +441,51 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
 
     assert result == measurements
     assert manager._daily_values_stored is True
+
+
+def test_run_continues_with_next_database_when_database_fails(caplog):
+    measurement = make_measurement()
+
+    failing_database = Mock()
+    failing_database.store = AsyncMock(
+        side_effect=RuntimeError("database failed"),
+    )
+
+    working_database = Mock()
+    working_database.store = AsyncMock()
+
+    manager = CollectorManager(
+        collectors=[],
+        databases=[failing_database, working_database],
+        interval=10,
+    )
+
+    manager.connect = AsyncMock()
+    manager.collect_all = AsyncMock(
+        side_effect=[
+            [measurement],
+            asyncio.CancelledError(),
+        ],
+    )
+    manager.output = Mock()
+    manager.disconnect = AsyncMock()
+
+    with (
+        patch(
+            "src.manager.collector_manager.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        caplog.at_level("ERROR"),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager.run())
+
+    manager.connect.assert_awaited_once()
+    manager.output.assert_called_once_with([measurement])
+
+    failing_database.store.assert_awaited_once_with([measurement])
+    working_database.store.assert_awaited_once_with([measurement])
+
+    assert "Failed to store measurements in Mock" in caplog.text
+
+    manager.disconnect.assert_awaited_once()
