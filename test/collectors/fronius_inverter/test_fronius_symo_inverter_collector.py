@@ -62,6 +62,7 @@ FRONIUS_RESPONSE = {
 def collector():
     return FroniusSymoInverterCollector(
         inverter_ip="192.168.178.25",
+        timezone="Europe/Berlin",
     )
 
 
@@ -164,7 +165,7 @@ def test_collect_returns_timestamp(
     assert all(measurement.timestamp == expected_timestamp for measurement in result)
 
 
-def test_collect_timestamp_has_timezone(
+def test_collect_timestamp_uses_configured_timezone(
     collector,
     mock_response,
     mock_get,
