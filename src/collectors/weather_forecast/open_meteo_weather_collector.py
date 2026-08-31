@@ -50,6 +50,8 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
     def __init__(
         self,
+        timezone: str = "UTC",
+        *,
         latitude: float,
         longitude: float,
     ) -> None:
@@ -59,6 +61,8 @@ class OpenMeteoWeatherCollector(BaseCollector):
             latitude: Latitude of the weather location.
             longitude: Longitude of the weather location.
         """
+        super().__init__(timezone)
+
         self.latitude = latitude
         self.longitude = longitude
 
@@ -154,7 +158,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
             "longitude": self.longitude,
             "current": ",".join(CURRENT_FIELDS),
             "hourly": ",".join(HOURLY_FIELDS),
-            "timezone": "auto",
+            "timezone": str(self.timezone),
         }
 
         response = requests.get(
@@ -170,13 +174,12 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
         return response.json()
 
-    @staticmethod
-    def _parse_timestamp(timestamp: str | None) -> datetime:
+    def _parse_timestamp(self, timestamp: str | None) -> datetime:
         """Parse an Open-Meteo timestamp."""
         if timestamp is None:
-            return datetime.now().astimezone()
+            return self.now()
 
-        return datetime.fromisoformat(timestamp).astimezone()
+        return self.localize_timestamp(datetime.fromisoformat(timestamp))
 
     def _measurement(
         self,

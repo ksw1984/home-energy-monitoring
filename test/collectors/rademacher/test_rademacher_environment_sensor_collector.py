@@ -382,10 +382,10 @@ def test_parse_value(value, expected):
     assert result == expected
 
 
-def test_parse_timestamp():
+def test_parse_timestamp(collector):
     timestamp = 1787129571
 
-    result = RademacherEnvironmentSensorCollector._parse_timestamp(timestamp)
+    result = collector._parse_timestamp(timestamp)
 
     expected = datetime.fromtimestamp(timestamp).astimezone()
 
@@ -393,10 +393,10 @@ def test_parse_timestamp():
     assert result.tzinfo is not None
 
 
-def test_parse_timestamp_with_missing_timestamp():
+def test_parse_timestamp_with_missing_timestamp(collector):
     before = datetime.now().astimezone()
 
-    result = RademacherEnvironmentSensorCollector._parse_timestamp(None)
+    result = collector._parse_timestamp(None)
 
     after = datetime.now().astimezone()
 
@@ -404,10 +404,10 @@ def test_parse_timestamp_with_missing_timestamp():
     assert before <= result <= after
 
 
-def test_parse_timestamp_with_minus_one():
+def test_parse_timestamp_with_minus_one(collector):
     before = datetime.now().astimezone()
 
-    result = RademacherEnvironmentSensorCollector._parse_timestamp(-1)
+    result = collector._parse_timestamp(-1)
 
     after = datetime.now().astimezone()
 
