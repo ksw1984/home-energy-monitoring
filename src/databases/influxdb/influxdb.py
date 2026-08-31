@@ -37,7 +37,7 @@ class InfluxDatabase(BaseDatabase):
             .time(measurement.timestamp)
             for measurement in measurements
         ]
-        logger.info("Points", points)
+        logger.info("Points: %s", points)
         logger.info("Write to db")
         await asyncio.to_thread(
             self.write_api.write,
