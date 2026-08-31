@@ -1,11 +1,14 @@
 import asyncio
 import json
+import logging
 from datetime import date
 from pathlib import Path
 from typing import TextIO
 
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class TextFileDatabase(BaseDatabase):
@@ -42,6 +45,7 @@ class TextFileDatabase(BaseDatabase):
         """
         self.directory.mkdir(parents=True, exist_ok=True)
 
+        logger.info(f"Write to jsonl in {self.directory.absolute()}")
         files: dict[date, TextIO] = {}
 
         try:

@@ -57,4 +57,4 @@ databases:
   - type: text_file
     enabled: true
     attributes:
-      directory: /data/backup
+      directory: ./data/backup
