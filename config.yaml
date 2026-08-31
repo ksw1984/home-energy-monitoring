@@ -45,7 +45,7 @@ collectors:
 databases:
   # InfluxDB instance used to store measurements
   - type: influxdb
-    enabled: true
+    enabled: false
     attributes:
       url: http://influxdb:8086
       org: home-energy
