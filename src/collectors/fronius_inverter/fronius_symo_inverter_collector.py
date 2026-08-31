@@ -39,6 +39,8 @@ class FroniusSymoInverterCollector(BaseCollector):
 
     def __init__(
         self,
+        timezone: str = "UTC",
+        *,
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
         latitude: float = 54.3217,
@@ -55,6 +57,8 @@ class FroniusSymoInverterCollector(BaseCollector):
             longitude: Longitude of the PV installation, used to calculate
                 the local sunset time.
         """
+        super().__init__(timezone)
+
         self.inverter_ip = inverter_ip
         self.inverter_url = f"http://{inverter_ip}/{inverter_url}"
 
@@ -106,7 +110,7 @@ class FroniusSymoInverterCollector(BaseCollector):
             logger.info(f"Fronius inverter unavailable: {exc}. " "No measurement recorded.")
             return []
 
-        timestamp = datetime.fromisoformat(data["Head"]["Timestamp"])
+        timestamp = self.localize_timestamp(datetime.fromisoformat(data["Head"]["Timestamp"]))
         site = data["Body"]["Data"]["Site"]
 
         pv_power = float(site["P_PV"])

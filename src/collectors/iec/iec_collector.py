@@ -1,6 +1,5 @@
 import logging
 import re
-from datetime import datetime
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
@@ -29,6 +28,8 @@ class IecCollector(BaseCollector):
 
     def __init__(
         self,
+        timezone: str = "UTC",
+        *,
         port="/dev/ttyUSB0",
         source="iec",
     ) -> None:
@@ -37,6 +38,8 @@ class IecCollector(BaseCollector):
         Args:
             port: Serial device used to communicate with the IEC meter.
         """
+        super().__init__(timezone)
+
         self.protocol = IecProtocol(port)
         self.source = source
         self.connected = False
@@ -90,9 +93,9 @@ class IecCollector(BaseCollector):
             A list of measurements for recognized current OBIS values.
         """
 
-        timestamp = datetime.now().astimezone()
+        timestamp = self.now()
 
-        measurements = []
+        measurements: list[Measurement] = []
 
         pattern = re.compile(r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)")
 
