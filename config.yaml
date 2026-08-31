@@ -1,8 +1,11 @@
 # Home Energy Monitoring configuration
 
 collection:
-  # Interval between collection cycles, in seconds.
+   # Interval between collection cycles, in seconds.
   interval: 300
+
+  # Timezone used for all collected measurements.
+  timezone: Europe/Berlin
 
 collectors:
 
