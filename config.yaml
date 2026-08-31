@@ -50,3 +50,8 @@ databases:
       url: http://influxdb:8086
       org: home-energy
       bucket: energy
+
+  - type: text_file
+    enabled: true
+    attributes:
+      directory: /data/backup
