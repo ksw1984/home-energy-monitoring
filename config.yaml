@@ -1,8 +1,11 @@
 # Home Energy Monitoring configuration
 
 collection:
-  # Interval between collection cycles, in seconds.
+   # Interval between collection cycles, in seconds.
   interval: 300
+
+  # Timezone used for all collected measurements.
+  timezone: Europe/Berlin
 
 collectors:
 
@@ -37,7 +40,7 @@ collectors:
 
   # Open-Meteo weather forecast
   - type: weather
-    enabled: true
+    enabled: false
     attributes:
       latitude: 52.4
       longitude: 13.7
@@ -54,4 +57,4 @@ databases:
   - type: text_file
     enabled: true
     attributes:
-      directory: /data/backup
+      directory: ./data/backup

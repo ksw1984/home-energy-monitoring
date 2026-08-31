@@ -145,10 +145,10 @@ def test_parse_current_ignores_none_values(collector):
     assert result[0].value == 20.0
 
 
-def test_parse_timestamp_with_missing_timestamp():
+def test_parse_timestamp_with_missing_timestamp(collector):
     before = datetime.now().astimezone()
 
-    result = OpenMeteoWeatherCollector._parse_timestamp(None)
+    result = collector._parse_timestamp(None)
 
     after = datetime.now().astimezone()
 

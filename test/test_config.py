@@ -73,12 +73,16 @@ def test_config_dataclass():
     ]
 
     config = Config(
-        collection=CollectionConfig(interval=10),
+        collection=CollectionConfig(
+            interval=10,
+            timezone="Europe/Berlin",
+        ),
         collectors=collectors,
         databases=databases,
     )
 
     assert config.collection.interval == 10
+    assert config.collection.timezone == "Europe/Berlin"
 
     assert config.collectors == collectors
     assert config.databases == databases

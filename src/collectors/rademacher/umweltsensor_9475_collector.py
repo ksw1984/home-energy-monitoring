@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -42,6 +42,8 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
     def __init__(
         self,
+        timezone: str = "UTC",
+        *,
         smart_home_box_ip="192.168.178.19",
         device_id=50,
     ) -> None:
@@ -51,6 +53,8 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             smart_home_box_ip: IP address of the Rademacher Smart Home Box.
             device_id: Rademacher device ID of the environment sensor in the Smart Home Box.
         """
+        super().__init__(timezone)
+
         self.smart_home_box_ip = smart_home_box_ip
         self.device_id = device_id
         self.sensor_url = f"http://{smart_home_box_ip}/devices/{device_id}"
@@ -178,8 +182,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
         return float(value)
 
-    @staticmethod
-    def _parse_timestamp(timestamp) -> datetime:
+    def _parse_timestamp(self, timestamp: Any) -> datetime:
         """Convert a Rademacher Unix timestamp to a timezone-aware datetime.
 
         Rademacher uses Unix timestamps for capability measurements.
@@ -194,9 +197,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         """
 
         if timestamp is None or timestamp == -1:
-            return datetime.now().astimezone()
+            return self.now()
 
-        return datetime.fromtimestamp(float(timestamp)).astimezone()
+        return datetime.fromtimestamp(
+            float(timestamp),
+            tz=timezone.utc,
+        ).astimezone(self.timezone)
 
     def _measurement(
         self,

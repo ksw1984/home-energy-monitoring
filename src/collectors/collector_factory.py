@@ -19,18 +19,19 @@ def create_collectors(config):
             continue
 
         attributes = collector_config.attributes
+        timezone = config.collection.timezone
 
         if collector_config.type == "fronius":
-            collectors.append(FroniusSymoInverterCollector(**attributes))
+            collectors.append(FroniusSymoInverterCollector(timezone=timezone, **attributes))
 
         elif collector_config.type == "iec":
-            collectors.append(IecCollector(**attributes))
+            collectors.append(IecCollector(timezone=timezone, **attributes))
 
         elif collector_config.type == "environment":
-            collectors.append(RademacherEnvironmentSensorCollector(**attributes))
+            collectors.append(RademacherEnvironmentSensorCollector(timezone=timezone, **attributes))
 
         elif collector_config.type == "weather":
-            collectors.append(OpenMeteoWeatherCollector(**attributes))
+            collectors.append(OpenMeteoWeatherCollector(timezone=timezone, **attributes))
 
         else:
             raise ValueError(f"Unknown collector type: {collector_config.type}")
