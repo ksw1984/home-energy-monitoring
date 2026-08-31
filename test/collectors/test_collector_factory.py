@@ -64,6 +64,7 @@ def test_create_fronius_collector():
         result = create_collectors(config)
 
     fronius_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
         inverter_ip="192.168.178.25",
         latitude=52.4567,
         longitude=13.7213,
@@ -84,6 +85,7 @@ def test_create_iec_collector():
         result = create_collectors(config)
 
     iec_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
         device="/dev/ttyUSB0",
     )
     assert result == [iec_cls.return_value]
@@ -103,6 +105,7 @@ def test_create_environment_collector():
         result = create_collectors(config)
 
     environment_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
         smart_home_box_ip="192.168.178.19",
         device_id="50",
     )
@@ -123,6 +126,7 @@ def test_create_weather_collector():
         result = create_collectors(config)
 
     weather_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
         latitude=52.4567,
         longitude=13.7213,
     )
