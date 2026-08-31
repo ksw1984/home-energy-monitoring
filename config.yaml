@@ -37,7 +37,7 @@ collectors:
 
   # Open-Meteo weather forecast
   - type: weather
-    enabled: true
+    enabled: false
     attributes:
       latitude: 52.4
       longitude: 13.7

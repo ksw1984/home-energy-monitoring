@@ -1,0 +1,18 @@
+# pull images
+docker compose -f deployment/compose.yml --env-file .env pull
+# start images
+docker compose -f deployment/compose.yml --env-file .env up -d
+# stop images
+docker compose -f deployment/compose.yml --env-file .env down
+# check processes
+docker compose -f deployment/compose.yml --env-file .env ps
+
+# logs
+docker compose -f deployment/compose.yml --env-file .env logs home-energy-monitoring
+# live logs
+docker compose -f deployment/compose.yml --env-file .env logs -f home-energy-monitoring
+
+# logs via contaienr name
+docker logs deployment-home-energy-monitoring-1
+# last 100 lines
+docker logs --tail 100 deployment-home-energy-monitoring-1
