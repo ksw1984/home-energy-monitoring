@@ -63,7 +63,13 @@ class CollectorManager:
                 if self.databases is not None and measurements_to_store:
                     logger.info("Write to dbs")
                     for db in self.databases:
-                        await db.store(measurements_to_store)
+                        try:
+                            await db.store(measurements_to_store)
+                        except Exception:
+                            logger.exception(
+                                "Failed to store measurements in %s",
+                                db.__class__.__name__,
+                            )
 
                 await asyncio.sleep(self.interval)
 
