@@ -1,9 +1,11 @@
 from src.config import required_secret
+from src.databases.base_database import BaseDatabase
 from src.databases.influxdb.influxdb import InfluxDatabase
+from src.databases.text_file.textfiledb import TextFileDatabase
 
 
 def create_databases(config):
-    databases = []
+    databases: list[BaseDatabase] = []
 
     for database_config in config.databases:
         if not database_config.enabled:
@@ -20,7 +22,12 @@ def create_databases(config):
                     bucket=str(attributes["bucket"]),
                 )
             )
-
+        elif database_config.type == "text_file":
+            databases.append(
+                TextFileDatabase(
+                    directory=str(attributes["directory"]),
+                )
+            )
         else:
             raise ValueError(f"Unknown database type: {database_config.type}")
 
