@@ -11,21 +11,18 @@ services:
       - ../config.yaml:/app/config.yaml:ro
       - ./data/backup:/data/backup
 
-    depends_on:
-      - influxdb
-
   influxdb:
     image: influxdb:${INFLUXDB_VERSION}
     restart: unless-stopped
+
+    env_file:
+      - ../.env
 
     ports:
       - "8086:8086"
 
     volumes:
       - ./data/influxdb:/var/lib/influxdb2
-
-    env_file:
-      - ../.env
 
     healthcheck:
       test:
@@ -42,6 +39,9 @@ services:
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION}
     restart: unless-stopped
+
+    env_file:
+      - ../.env
 
     ports:
       - "3000:3000"
