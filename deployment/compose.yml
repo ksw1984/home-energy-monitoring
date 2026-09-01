@@ -11,6 +11,10 @@ services:
       - ../config.yaml:/app/config.yaml:ro
       - ./data/backup:/data/backup
 
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyUSB1:/dev/ttyUSB1
+
   influxdb:
     image: influxdb:${INFLUXDB_VERSION}
     restart: unless-stopped

@@ -11,14 +11,14 @@ collectors:
 
   # IEC electricity meter for grid import/export
   - type: iec
-    enabled: false
+    enabled: true
     attributes:
       port: /dev/ttyUSB0
       source: meter_grid
 
   # IEC electricity meter for household consumption
   - type: iec
-    enabled: false
+    enabled: true
     attributes:
       port: /dev/ttyUSB1
       source: meter_household
