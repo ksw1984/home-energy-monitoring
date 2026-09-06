@@ -635,6 +635,26 @@ files = [
 cp2110 = ["hidapi"]
 
 [[package]]
+name = "pysunspec2"
+version = "1.3.6"
+description = "Python SunSpec Tools"
+optional = false
+python-versions = ">=3.5"
+groups = ["main"]
+files = [
+    {file = "pysunspec2-1.3.6-py3-none-any.whl", hash = "sha256:6fae3c690f4bc1130880d85beaf84babe5d24689ecf76b12bdf209120ee0cfca"},
+    {file = "pysunspec2-1.3.6.tar.gz", hash = "sha256:699442066ce7731767f5179d8aea8cfeaac0aa0bbe5dec572280b74371849d24"},
+]
+
+[package.dependencies]
+pyserial = ">=3.5"
+
+[package.extras]
+excel = ["openpyxl"]
+serial = ["pyserial"]
+test = ["pytest"]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 description = "pytest: simple powerful testing with Python"
@@ -969,4 +989,4 @@ python-discovery = ">=1.6"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "f84e2dc4b89c0ff02c1d39538c76f78b223617c94663d7297b76c701728f927b"
+content-hash = "33ae69123730b2a414e47bfc979c863e055e1b4b395e5388119586e225421dd8"
