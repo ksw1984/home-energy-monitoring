@@ -1,13 +1,13 @@
 from unittest.mock import patch
 
-import pytest
-
 from src.config import (
     CollectionConfig,
     ComponentConfig,
     Config,
     required_secret,
 )
+
+import pytest
 
 # ============================================================================
 # required_secret

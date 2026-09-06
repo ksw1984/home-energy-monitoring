@@ -1,13 +1,13 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-import pytest
-import requests
-
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
 )
+
+import pytest
+import requests
 
 RADEMACHER_RESPONSE = {
     "error_description": "OK",
@@ -302,9 +302,7 @@ def test_missing_capability_is_ignored(
         "payload": {
             "device": {
                 "capabilities": [
-                    capability
-                    for capability in RADEMACHER_RESPONSE["payload"]["device"]["capabilities"]
-                    if capability["name"] != "WIND_SPEED_MS_MEA"
+                    capability for capability in RADEMACHER_RESPONSE["payload"]["device"]["capabilities"] if capability["name"] != "WIND_SPEED_MS_MEA"
                 ]
             }
         },
@@ -327,9 +325,7 @@ def test_capability_without_value_is_ignored(
     mock_get,
 ):
     capabilities = [
-        capability
-        for capability in RADEMACHER_RESPONSE["payload"]["device"]["capabilities"]
-        if capability["name"] != "TEMP_CURR_DEG_MEA"
+        capability for capability in RADEMACHER_RESPONSE["payload"]["device"]["capabilities"] if capability["name"] != "TEMP_CURR_DEG_MEA"
     ]
 
     capabilities.append(

@@ -1,8 +1,8 @@
 from unittest.mock import Mock, patch
 
-import pytest
-
 from src.collectors.collector_factory import create_collectors
+
+import pytest
 
 
 def make_collector_config(

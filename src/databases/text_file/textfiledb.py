@@ -1,12 +1,14 @@
 import asyncio
 import json
 import logging
-from datetime import date
 from pathlib import Path
-from typing import TextIO
+from typing import TextIO, TYPE_CHECKING
 
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+
+if TYPE_CHECKING:
+    from datetime import date
 
 logger = logging.getLogger(__name__)
 

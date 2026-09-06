@@ -43,7 +43,7 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    def shutdown(signum, frame):
+    def shutdown(signum, _frame):
         signal_name = signal.Signals(signum).name
         logger.info("Shutdown signal received: %s (%s)", signal_name, signum)
         for task in asyncio.all_tasks(loop):

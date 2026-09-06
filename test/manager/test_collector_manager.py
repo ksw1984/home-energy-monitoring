@@ -1,11 +1,11 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import AsyncMock, Mock, patch
-
-import pytest
 
 from src.collectors.definitions.measurement import Measurement
 from src.manager.collector_manager import CollectorManager
+
+import pytest
 
 
 def make_measurement(
@@ -14,7 +14,7 @@ def make_measurement(
     source="test",
 ):
     return Measurement(
-        timestamp=datetime(2026, 8, 27, 12, 0),
+        timestamp=datetime(2026, 8, 27, 12, 0, tzinfo=UTC),
         source=source,
         metric=metric,
         value=value,

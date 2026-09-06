@@ -16,6 +16,7 @@ BAUD_MAP = {
     5: 9600,
     6: 19200,
 }
+READ_TIMEOUT_SECONDS = 30.0
 
 
 class IecProtocol:
@@ -181,7 +182,7 @@ class IecProtocol:
             if now - last_rx >= 1.0:
                 break
 
-            if now - start >= 30.0:
+            if now - start >= READ_TIMEOUT_SECONDS:
                 break
 
         return self._extract_payload(bytes(data))

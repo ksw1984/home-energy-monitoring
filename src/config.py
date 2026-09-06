@@ -35,9 +35,7 @@ def required_secret(name: str) -> str:
     value = os.getenv(name)
 
     if not value:
-        raise RuntimeError(
-            f"Required secret '{name}' is missing. " "Please set it in .env or as an environment variable."
-        )
+        raise RuntimeError(f"Required secret '{name}' is missing. Please set it in .env or as an environment variable.")
 
     return value
 
