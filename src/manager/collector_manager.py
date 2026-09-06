@@ -77,10 +77,38 @@ class CollectorManager:
             await self.disconnect()
 
     async def connect(self):
-        await asyncio.gather(*[asyncio.to_thread(collector.connect) for collector in self.collectors])
+        logger.info("CollectorManager.connect()")
+
+        results = await asyncio.gather(
+            *[asyncio.to_thread(collector.connect) for collector in self.collectors],
+            return_exceptions=True,
+        )
+
+        for collector, result in zip(self.collectors, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error(
+                    "Failed to connect collector %s: %s",
+                    collector.__class__.__name__,
+                    result,
+                    exc_info=result,
+                )
 
     async def disconnect(self):
-        await asyncio.gather(*[asyncio.to_thread(collector.disconnect) for collector in self.collectors])
+        logger.info("CollectorManager.disconnect()")
+
+        results = await asyncio.gather(
+            *[asyncio.to_thread(collector.disconnect) for collector in self.collectors],
+            return_exceptions=True,
+        )
+
+        for collector, result in zip(self.collectors, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error(
+                    "Failed to disconnect collector %s: %s",
+                    collector.__class__.__name__,
+                    result,
+                    exc_info=result,
+                )
 
     async def collect_all(self) -> list[Measurement]:
 

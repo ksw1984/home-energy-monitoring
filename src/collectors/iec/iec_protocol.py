@@ -110,10 +110,10 @@ class IecProtocol:
             time.sleep(0.2)
         except RuntimeError as e:
             logger.exception(f"IEC meter handshake failed. No supported baud-rate code provided. {e}")
-            raise e
+            raise
         except serial.SerialException as e:
             logger.exception(f"IEC serial meter connection failed: {e}")
-            raise e
+            raise
         finally:
             ser.close()
 

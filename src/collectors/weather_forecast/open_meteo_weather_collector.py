@@ -170,7 +170,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
             response.raise_for_status()
         except requests.exceptions.RequestException as exc:
             logger.error(f"HTTPError {exc}")
-            raise exc
+            raise
 
         return response.json()
 
