@@ -53,16 +53,15 @@ class IecCollector(BaseCollector):
         self.connected = False
 
     def connect(self) -> None:
-        """Establish the IEC meter connection.
+        """Open the physical IEC serial connection.
 
-        The connection state is set to connected only after the IEC
-        protocol successfully completes its connection handshake.
+        The IEC protocol handshake is performed for each collection by
+        ``IecProtocol.read()``.
 
         Raises:
-            serial.SerialException: If the serial port cannot be opened
-                or another serial communication error occurs.
-            RuntimeError: If the IEC handshake fails.
+            serial.SerialException: If the serial port cannot be opened.
         """
+
         try:
             self.protocol.connect()
         except serial.SerialException:
@@ -84,24 +83,11 @@ class IecCollector(BaseCollector):
     def collect(self) -> list[Measurement]:
         """Read and return the current measurements from the meter.
 
-        If the collector is not connected, the IEC connection is
-        established automatically before reading the meter telegram.
-
-        If the serial connection is lost while reading, the collector
-        marks itself as disconnected and closes the protocol connection.
-        The exception is propagated so the manager can handle the failed
-        collection. A subsequent collection cycle will retry the
-        connection.
-
-        Returns:
-            A list of measurements for the supported current OBIS codes.
-
-        Raises:
-            serial.SerialException: If the serial connection cannot be
-                established or is lost while reading.
-            RuntimeError: If the IEC protocol cannot read because the
-                connection is not available.
+        A fresh IEC 62056-21 protocol session is established for every
+        collection. The underlying physical serial connection remains open
+        between collections.
         """
+
         if not self.connected:
             self.connect()
 
