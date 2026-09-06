@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 
 from src.collectors.collector_factory import create_collectors
 from src.config import config_obj
@@ -29,15 +30,34 @@ async def run():
 
     try:
         await manager.run()
-
     finally:
+        logger.info("App shutting down")
+
         for database in databases:
             database.close()
 
 
 def main():
     setup_logging()
-    asyncio.run(run())
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    def shutdown(signum, frame):
+        signal_name = signal.Signals(signum).name
+        logger.info("Shutdown signal received: %s (%s)", signal_name, signum)
+        for task in asyncio.all_tasks(loop):
+            task.cancel()
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    try:
+        loop.run_until_complete(run())
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        logger.info("Application stopped")
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

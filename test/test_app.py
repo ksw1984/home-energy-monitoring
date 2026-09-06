@@ -83,16 +83,24 @@ def test_run_closes_database_when_manager_fails(mocked_config):
     mock_databases[0].close.assert_called_once()
 
 
-def test_main_calls_asyncio_run():
-    with patch.object(src.app.asyncio, "run") as asyncio_run:
+def test_main_sets_up_event_loop():
+    loop = Mock()
+
+    with (
+        patch.object(src.app, "asyncio") as asyncio_mock,
+        patch.object(src.app, "signal") as signal_mock,
+    ):
+        asyncio_mock.new_event_loop.return_value = loop
+
         src.app.main()
 
-    asyncio_run.assert_called_once()
+    asyncio_mock.new_event_loop.assert_called_once()
+    asyncio_mock.set_event_loop.assert_called_once_with(loop)
 
-    coroutine = asyncio_run.call_args.args[0]
+    loop.run_until_complete.assert_called_once()
+    loop.close.assert_called_once()
 
-    assert asyncio.iscoroutine(coroutine)
-    coroutine.close()
+    assert signal_mock.signal.call_count == 2
 
 
 def test_module_entry_point():
