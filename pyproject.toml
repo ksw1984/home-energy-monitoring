@@ -179,6 +179,9 @@ python-version = "3.13"
 #min-severity = "error"
 min-severity = "warn"
 
+disable-search-path-heuristics = true
+search-path = ["."]
+
 project-includes = [
     "src/**/*.py",
     "test/**/*.py",
