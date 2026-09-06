@@ -164,7 +164,7 @@ ignore = [
     "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
     "N803", # Argument name `id_S32` should be lowercase -> from c++ structs
 ]
-"src/check_collector_output.py" = ["S101"]
+"src/scripts/check_collector_output.py" = ["S101"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["adas_databricks_jobs"]
