@@ -58,7 +58,7 @@ jobs:
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
 
-          print(data["tool"]["poetry"]["version"])
+          print(data["project"]["version"])
           PY
           )"
 
