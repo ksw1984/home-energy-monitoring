@@ -61,6 +61,10 @@ class IecProtocol:
 
         Returns:
             An open :class:`serial.Serial` connection.
+
+        Raises:
+            serial.SerialException: If the serial connection cannot be
+                opened.
         """
         return serial.Serial(
             port=self.port,
@@ -75,50 +79,53 @@ class IecProtocol:
         )
 
     def connect(self) -> None:
-        """Perform the IEC 62056-21 handshake and open the data connection.
+        """Establish a connection to the IEC meter.
 
-        Communication starts at 300 baud. The meter's identification
-        response determines the baud rate used for the actual data
-        transmission.
+        Communication is initiated at :attr:`START_BAUD`. The meter's
+        identification response is used to determine the negotiated
+        data baud rate. After acknowledging the negotiated baud rate,
+        the initial connection is closed and a new connection is opened
+        at the data baud rate.
 
-        After the IEC acknowledgement is sent, the initial serial
-        connection is closed and reopened at the negotiated baud rate.
+        The resulting data connection remains open and is stored in
+        :attr:`serial` for subsequent calls to :meth:`read`.
 
         Raises:
-            RuntimeError: If the meter does not provide a valid or
-                supported baud-rate code.
-            serial.SerialException: If the serial connection cannot
-                be opened or configured.
+            serial.SerialException: If the serial port cannot be opened
+                or another serial communication error occurs.
+            RuntimeError: If the meter identification does not contain
+                a valid or supported baud-rate code.
         """
-        ser = self._open_serial(self.START_BAUD)
+        ser = None
+        data_serial = None
 
         try:
-            ser.reset_input_buffer()
+            ser = self._open_serial(self.START_BAUD)
 
+            ser.reset_input_buffer()
             ser.write(self.REQUEST)
             ser.flush()
 
             identification = self._read_identification(ser)
-
             baud_code, data_baud = self._get_baud_rate(identification)
 
             ack = b"\x06" + b"0" + str(baud_code).encode() + b"0\r\n"
-
             ser.write(ack)
             ser.flush()
 
             time.sleep(0.2)
-        except RuntimeError as e:
-            logger.exception(f"IEC meter handshake failed. No supported baud-rate code provided. {e}")
-            raise e
-        except serial.SerialException as e:
-            logger.exception(f"IEC serial meter connection failed: {e}")
-            raise e
-        finally:
-            ser.close()
 
-        self.data_baud = data_baud
-        self.serial = self._open_serial(data_baud)
+            data_serial = self._open_serial(data_baud)
+
+            self.data_baud = data_baud
+            self.serial = data_serial
+            data_serial = None
+
+        finally:
+            if ser is not None:
+                ser.close()
+            if data_serial is not None:
+                data_serial.close()
 
     def disconnect(self) -> None:
         """Close the active serial connection.
@@ -141,6 +148,7 @@ class IecProtocol:
 
         Raises:
             RuntimeError: If the protocol is not connected.
+            serial.SerialException: If a serial communication error occurs.
         """
         if self.serial is None:
             logger.error("IEC collectors is not connected.")
