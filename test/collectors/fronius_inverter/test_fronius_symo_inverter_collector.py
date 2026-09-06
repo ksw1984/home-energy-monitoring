@@ -514,7 +514,7 @@ def test_http_error_does_not_create_measurement(
 
 
 def test_is_after_sunset_rejects_naive_timestamp(collector):
-    timestamp = datetime(2026, 8, 15, 21, 00, tzinfo=datetime.UTC)
+    timestamp = datetime(2026, 8, 15, 21, 00, tzinfo=None)  # noqa: DTZ001
 
     with pytest.raises(
         ValueError,

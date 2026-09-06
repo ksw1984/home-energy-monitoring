@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
 
 from src.collectors.definitions.measurement import Measurement
@@ -12,7 +12,7 @@ def make_measurement(
     value=20.5,
 ):
     return Measurement(
-        timestamp=datetime(2026, 8, 27, 12, 0, tzinfo=datetime.UTC),
+        timestamp=datetime(2026, 8, 27, 12, 0, tzinfo=UTC),
         source=source,
         metric=metric,
         value=value,
