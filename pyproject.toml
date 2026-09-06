@@ -23,9 +23,8 @@ pyyaml = "^6.0.3"
 [tool.poetry.group.dev.dependencies]
 pytest = "^9.1.1"
 pytest-cov = "^7.0.0"
-black = "^26.5.0"
-ruff = "^0.15.0"
-mypy = "^1.17.0"
+ruff = "^0.16.0"
+pyrefly = "^1.2.0"
 types-pyserial = "^3.5.0"
 pre-commit = "^4.3.0"
 
@@ -35,117 +34,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 home-energy-monitoring = "src.app:main"
-
-################
-# FORMATTING
-################
-
-[tool.black]
-line-length = 120
-target-version = ["py313"]
-include = '\.pyi?$'
-extend-exclude = '''
-(
-    /(
-        \.venv
-        | build
-        | dist
-        | __pycache__
-    )/
-    | CHANGELOG\.md
-    | README\.md
-)
-'''
-
-################
-# LINTING
-################
-[tool.ruff]
-line-length = 120
-indent-width = 4
-
-extend-exclude = [
-    "__pycache__",
-    ".*",
-    "build",
-    "dist",
-]
-
-[tool.ruff.lint]
-select = [
-    "E", # pycodestyle errors
-    "W", # pycodestyle Warnings
-    "F", # Pyflakes
-    "I", # isort
-    "N", # pep8-naming
-    "UP", # pyupgrade
-    "B", # flake8-bugbear
-    "SIM", # flake8-simplify
-    "RUF", # Ruff-specific codes
-    #
-#    "PL", # Pylint
-#    "PERF", # Performance-related issues
-#    "LOG", # flake8-logger
-#    "G", # flake8-logger-format
-#    "C901", # maccabe
-#    "S", # flake8-bandit
-#    "TID", # flake8-tidy-imports
-#    "TCH", # flake8-type-checking
-#    "INT", # flake8-gettext
-#    "FLY002", # flynt
-#    "ISC", # flake8-implicit-str-concat
-#    "ICN", # flake8-import-conventions
-]
-
-ignore = [
-    "E501", # Let Black handle formatting-related conflicts.
-    "G004", # Logging statement uses f-string
-]
-
-[tool.ruff.lint.per-file-ignores]
-"test/**/*.py" = [
-    "S101",   # assert is perfectly normal in tests
-]
-
-[tool.ruff.lint.isort]
-known-first-party = ["src"]
-
-################
-# TYPE CHECKING
-################
-
-[tool.mypy]
-python_version = "3.13"
-
-# Check function bodies even when they don't have annotations.
-check_untyped_defs = true
-
-# Don't require every function to be fully annotated yet.
-disallow_untyped_defs = false
-
-# Third-party packages without type stubs shouldn't prevent CI.
-ignore_missing_imports = true
-disable_error_code = ["import-untyped"]
-
-# Useful warnings.
-warn_redundant_casts = true
-warn_unreachable = true
-warn_unused_ignores = true
-
-# Keep Optional handling strict.
-strict_optional = true
-
-# Better CI output.
-pretty = true
-show_error_context = true
-
-# Don't use incremental cache in CI.
-incremental = false
-
-exclude = [
-    "^\\.venv/",
-    "^test/",
-]
 
 ################
 # PYTEST
@@ -178,4 +66,112 @@ show_missing = true
 skip_empty = true
 omit = [
     "test/*",
+]
+exclude_also = [
+  # Don't complain about missing debug-only code:
+  "def __repr__",
+  "if self\\.debug",
+  # Don't complain if tests don't hit defensive assertion code:
+  "raise AssertionError",
+  "raise NotImplementedError",
+  # Don't complain if non-runnable code isn't run:
+  "if 0:",
+  "if __name__ == .__main__.:",
+  # Don't complain about abstract methods, they aren't run:
+  "@(abc\\.)?abstractmethod",
+]
+
+ignore_errors = true
+
+################
+# LINTING & CODE FORMATTING
+################
+[tool.ruff]
+line-length = 150
+target-version = "py313"
+extend-exclude = [
+  ".venv",
+  "build",
+  "dist",
+  "test_results",
+  "**/__pycache__",
+]
+
+[tool.ruff.format]
+docstring-code-format = true
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint]
+extend-select = [
+  "E", # pycodestyle errors: common Python style and formatting errors
+  "W", # pycodestyle warnings: less severe Python style issues
+  "F", # Pyflakes: undefined names, unused imports, unused variables, and similar errors
+  "I", # isort: import sorting and import-group organization
+  "UP", # pyupgrade: modernize Python syntax for the configured Python version
+  "N", # pep8-naming: enforce conventional names for functions, classes, variables, etc.
+  "PL", # Pylint: broader code-quality, design, and maintainability checks
+  "B", # flake8-bugbear: detect likely bugs and questionable design patterns
+  "RUF", # Ruff-specific: checks for Python issues and improvements unique to Ruff
+  "PERF", # Perflint: detect patterns that may cause unnecessary performance overhead
+  "SIM", # flake8-simplify: suggest simpler and clearer control flow and expressions
+  "LOG", # flake8-logging: detect incorrect or inefficient logging practices
+  "G", # flake8-logging-format: enforce correct logging format-string usage
+  "C901", # McCabe: detect functions whose cyclomatic complexity is too high
+  "S", # flake8-bandit: detect common security weaknesses
+  "TID", # flake8-tidy-imports: enforce import restrictions and cleaner import practices
+  "TCH", # flake8-type-checking: suggest moving type-only imports into TYPE_CHECKING blocks
+  "ISC", # flake8-implicit-str-concat: detect implicit string concatenation issues
+  "ICN", # flake8-import-conventions: enforce conventional import aliases and names
+  "C4", # flake8-comprehensions: improve list, set, dict, and generator comprehensions
+  "RET", # flake8-return: detect unnecessary, inconsistent, or problematic return statements
+  "ARG", # flake8-unused-arguments: detects unused function and method arguments
+  "FBT", # flake8-boolean-trap: detects boolean positional arguments and parameters
+  "FA", # flake8-future-annotations: Enforce from __future__ import annotations
+  "PTH", # flake8-use-pathlib: Use pathlib instead of os.path
+  "FURB", # Suggest more idiomatic Python patterns
+]
+
+ignore = [
+  "E402", # Module-level import not at the top of the file
+  # Useful when imports must follow setup code, such as sys.path modifications
+  "G004", # Logging statement uses an f-string
+  # Allows f-strings in logging calls instead of requiring lazy %-style formatting
+  "ISC001", # Implicitly concatenated strings on a single line
+  # Often conflicts with automatic formatters such as Ruff format
+]
+
+[tool.ruff.lint.per-file-ignores]
+"test/**/*.py" = [
+  "S101", # asserts allowed in tests...
+  "ARG", # Unused function args -> fixtures nevertheless are functionally relevant...
+  "FBT", # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
+  "PLR2004", # Magic value used in comparison, ...
+  "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
+  "N803", # Argument name `id_S32` should be lowercase -> from c++ structs
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["adas_databricks_jobs"]
+section-order = ["future", "standard-library", "first-party", "third-party"]
+order-by-type = false
+
+################
+# TYPE CHECKING
+################
+[tool.pyrefly]
+preset = "default"
+required-version = ">=1.0.0,<2.0.0"
+python-version = "3.13"
+
+project-includes = [
+  "src/**/*.py",
+  "test/**/*.py",
+]
+
+project-excludes = [
+  ".venv/**",
+  "build/**",
+  "dist/**",
+  "test_results/**",
+  "**/__pycache__/**",
 ]

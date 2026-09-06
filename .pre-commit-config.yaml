@@ -12,25 +12,19 @@ repos:
 
   # Ruff linting and import sorting
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.21
+    rev: v0.16.6
     hooks:
       - id: ruff-check
         args: [--fix]
         language_version: python3.13
-
-  # Black formatting
-  - repo: https://github.com/psf/black
-    rev: 26.5.1
-    hooks:
-      - id: black
+      - id: ruff-format
         language_version: python3.13
 
-  # MyPy
-  - repo: local
+   # Pyrefly type checking
+  - repo: https://github.com/facebook/pyrefly-pre-commit
+    rev: 1.2.0
     hooks:
-      - id: mypy
-        name: MyPy
-        entry: poetry run mypy src
+      - id: pyrefly-check
+        name: Pyrefly
         language: system
-        types: [ python ]
         pass_filenames: false
