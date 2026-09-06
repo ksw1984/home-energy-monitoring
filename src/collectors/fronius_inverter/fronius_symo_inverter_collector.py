@@ -3,10 +3,12 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from src.collectors.base_collector import BaseCollector
+from src.collectors.definitions.exceptions import FroniusCollectorError
 from src.collectors.definitions.fronius import FRONIUS_METRICS
 from src.collectors.definitions.measurement import Measurement
 
 import requests
+import sunspec2.modbus.client as sunspec_client
 from astral import Observer
 from astral.sun import sun
 
@@ -59,36 +61,23 @@ class FroniusSymoInverterCollector(BaseCollector):
         """
         super().__init__(timezone)
 
+        # REST call
         self.inverter_ip = inverter_ip
         self.inverter_url = f"http://{inverter_ip}/{inverter_url}"
 
+        # Modbus
+        self.modbus_ip = inverter_ip
+        self.modbus_port = 502
+
+        self._sunspec_device = None
+        self._sunspec_scanned = False
+
+        # General
         self.latitude = latitude
         self.longitude = longitude
 
         self._zero_power_since: datetime | None = None
         self._energy_recorded_for_date: date | None = None
-
-    def _get_data(self) -> dict[str, Any]:
-        """
-        Fetch and validate the current data from the Fronius API.
-
-        Returns:
-            The decoded JSON response from the Fronius API.
-
-        Raises:
-            requests.exceptions.RequestException: If the HTTP request fails.
-            RuntimeError: If the Fronius API reports an error.
-        """
-        response = requests.get(self.inverter_url, timeout=5)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if data["Head"]["Status"]["Code"] != 0:
-            logger.error(f"Fronius API error: {data['Head']['Status']['Reason']}")
-            raise RuntimeError(f"Fronius API error: {data['Head']['Status']['Reason']}")
-
-        return data
 
     def collect(self) -> list[Measurement]:
         """
@@ -123,6 +112,12 @@ class FroniusSymoInverterCollector(BaseCollector):
             )
         ]
 
+        # SunSpec / Modbus data
+        try:
+            measurements.extend(self._collect_sunspec_measurements(timestamp))
+        except FroniusCollectorError as exc:
+            logger.warning(f"Could not collect Fronius SunSpec data: {exc}")
+
         if self._should_finalize_day(timestamp, pv_power):
             measurements.extend(
                 self._collect_energy_measurements(
@@ -150,6 +145,28 @@ class FroniusSymoInverterCollector(BaseCollector):
             return 0.0
 
         return float(data["Body"]["Data"]["Site"]["P_PV"])
+
+    def _get_data(self) -> dict[str, Any]:
+        """
+        Fetch and validate the current data from the Fronius API.
+
+        Returns:
+            The decoded JSON response from the Fronius API.
+
+        Raises:
+            requests.exceptions.RequestException: If the HTTP request fails.
+            RuntimeError: If the Fronius API reports an error.
+        """
+        response = requests.get(self.inverter_url, timeout=5)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if data["Head"]["Status"]["Code"] != 0:
+            logger.error(f"Fronius API error: {data['Head']['Status']['Reason']}")
+            raise RuntimeError(f"Fronius API error: {data['Head']['Status']['Reason']}")
+
+        return data
 
     def _should_finalize_day(
         self,
@@ -291,3 +308,90 @@ class FroniusSymoInverterCollector(BaseCollector):
             value=value,
             unit=definition["unit"],
         )
+
+    def _get_sunspec_device(self):
+        """Return the connected SunSpec device."""
+        if self._sunspec_device is None:
+            self._sunspec_device = sunspec_client.SunSpecModbusClientDeviceTCP(
+                slave_id=1,
+                ipaddr=self.modbus_ip,
+                ipport=self.modbus_port,
+            )
+
+        if not self._sunspec_scanned:
+            self._sunspec_device.scan()
+            self._sunspec_scanned = True
+
+        return self._sunspec_device
+
+    def _collect_mppt_measurements(
+        self,
+        timestamp: datetime,
+    ) -> list[Measurement]:
+        """Collect MPPT values from SunSpec model 160."""
+
+        device = self._get_sunspec_device()
+
+        mppt = device.models[160][0]
+        mppt.read()
+
+        measurements: list[Measurement] = []
+
+        for index, module in enumerate(mppt.module, start=1):
+            measurements.extend(
+                [
+                    self._measurement(
+                        timestamp=timestamp,
+                        metric=f"mppt_{index}_power",
+                        value=float(module.DCW.cvalue),
+                    ),
+                    self._measurement(
+                        timestamp=timestamp,
+                        metric=f"mppt_{index}_energy_total",
+                        value=float(module.DCWH.cvalue),
+                    ),
+                ]
+            )
+
+        return measurements
+
+    def _collect_ac_measurements(
+        self,
+        timestamp: datetime,
+    ) -> list[Measurement]:
+        """Collect total AC values from SunSpec inverter model 113."""
+
+        device = self._get_sunspec_device()
+
+        inverter = device.models[113][0]
+        inverter.read()
+
+        return [
+            self._measurement(
+                timestamp=timestamp,
+                metric="ac_power",
+                value=float(inverter.W.cvalue),
+            ),
+            self._measurement(
+                timestamp=timestamp,
+                metric="ac_energy_total",
+                value=float(inverter.WH.cvalue),
+            ),
+        ]
+
+    def _collect_sunspec_measurements(
+        self,
+        timestamp: datetime,
+    ) -> list[Measurement]:
+        """Collect all relevant SunSpec measurements."""
+
+        try:
+            measurements: list[Measurement] = []
+
+            measurements.extend(self._collect_mppt_measurements(timestamp))
+            measurements.extend(self._collect_ac_measurements(timestamp))
+
+            return measurements
+
+        except Exception as exc:
+            raise FroniusCollectorError("Could not collect Fronius SunSpec data") from exc
