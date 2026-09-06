@@ -1,12 +1,11 @@
 import logging
 import re
 
-import serial
-
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.obis import CURRENT_OBIS, get_obis_definition
 
+import serial
 from .iec_protocol import IecProtocol
 
 logger = logging.getLogger(__name__)
@@ -175,10 +174,10 @@ class IecCollector(BaseCollector):
 
         Examples::
 
-            07.417*kW
-            243.1*V
-            -8.77*kW
-            +0.59*kvar
+            07.417 * kW
+            243.1 * V
+            -8.77 * kW
+            +0.59 * kvar
 
         Args:
             raw_value: Raw value including the optional unit.

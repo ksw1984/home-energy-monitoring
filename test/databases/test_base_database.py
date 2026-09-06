@@ -1,9 +1,9 @@
 import asyncio
 
-import pytest
-
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+
+import pytest
 
 
 class TestDatabase(BaseDatabase):

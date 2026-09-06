@@ -14,7 +14,7 @@ def make_measurement(
     unit="°C",
 ):
     return Measurement(
-        timestamp=timestamp or datetime(2026, 8, 27, 12, 0),
+        timestamp=timestamp or datetime(2026, 8, 27, 12, 0, tzinfo=datetime.UTC),
         source=source,
         metric=metric,
         value=value,
@@ -101,10 +101,10 @@ def test_store_creates_separate_file_for_each_day(tmp_path):
 
     measurements = [
         make_measurement(
-            timestamp=datetime(2026, 8, 27, 23, 59),
+            timestamp=datetime(2026, 8, 27, 23, 59, tzinfo=datetime.UTC),
         ),
         make_measurement(
-            timestamp=datetime(2026, 8, 28, 0, 1),
+            timestamp=datetime(2026, 8, 28, 0, 1, tzinfo=datetime.UTC),
         ),
     ]
 

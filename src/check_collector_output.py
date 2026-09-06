@@ -50,11 +50,9 @@ def check_collectors():
             assert isinstance(measurements, list)
 
     finally:
-
         for collector in collectors:
-
             if hasattr(collector, "disconnect"):
-                logger.info(f"\nDisconnecting " f"{collector.__class__.__name__}...")
+                logger.info(f"\nDisconnecting {collector.__class__.__name__}...")
 
                 collector.disconnect()
 

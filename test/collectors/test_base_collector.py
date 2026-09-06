@@ -1,6 +1,6 @@
-import pytest
-
 from src.collectors.base_collector import BaseCollector
+
+import pytest
 
 
 class TestCollector(BaseCollector):

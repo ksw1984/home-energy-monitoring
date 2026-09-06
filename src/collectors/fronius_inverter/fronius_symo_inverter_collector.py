@@ -2,13 +2,13 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
-import requests
-from astral import Observer
-from astral.sun import sun
-
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.fronius import FRONIUS_METRICS
 from src.collectors.definitions.measurement import Measurement
+
+import requests
+from astral import Observer
+from astral.sun import sun
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:
-            logger.info(f"Fronius inverter unavailable: {exc}. " "No measurement recorded.")
+            logger.info(f"Fronius inverter unavailable: {exc}. No measurement recorded.")
             return []
 
         timestamp = self.localize_timestamp(datetime.fromisoformat(data["Head"]["Timestamp"]))
@@ -288,6 +288,6 @@ class FroniusSymoInverterCollector(BaseCollector):
             timestamp=timestamp,
             source=self.SOURCE,
             metric=metric,
-            value=float(value),
+            value=value,
             unit=definition["unit"],
         )

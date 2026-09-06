@@ -1,10 +1,10 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-import pytest
-
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.iec.iec_collector import IecCollector
+
+import pytest
 
 IEC_PAYLOAD = """
 1-1:F.F(00000000)

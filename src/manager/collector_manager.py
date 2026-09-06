@@ -2,11 +2,11 @@ import asyncio
 import logging
 from datetime import datetime
 
-import serial
-
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+
+import serial
 
 logger = logging.getLogger(__name__)
 
@@ -267,17 +267,13 @@ class CollectorManager:
         #
         # Current measurements are always stored.
         #
-        measurements_to_store = [
-            measurement for measurement in measurements if measurement.metric in METER_CURRENT_METRICS
-        ]
+        measurements_to_store = [measurement for measurement in measurements if measurement.metric in METER_CURRENT_METRICS]
 
         #
         # Daily measurements are stored only once at midnight.
         #
         if now.hour == 0 and not self._daily_values_stored:
-            daily_measurements = [
-                measurement for measurement in measurements if measurement.metric in METER_DAILY_METRICS
-            ]
+            daily_measurements = [measurement for measurement in measurements if measurement.metric in METER_DAILY_METRICS]
 
             daily_metrics_received = {measurement.metric for measurement in daily_measurements}
 
@@ -305,10 +301,5 @@ class CollectorManager:
         """
         for measurement in measurements:
             logger.info(
-                f"{measurement.timestamp.isoformat()} "
-                f"{measurement.source:10} "
-                f"{measurement.metric:20} "
-                f"{measurement.value:<10.3f} "
-                f"{measurement.unit}"
-                f" ",
+                f"{measurement.timestamp.isoformat()} {measurement.source:10} {measurement.metric:20} {measurement.value:<10.3f} {measurement.unit} ",
             )

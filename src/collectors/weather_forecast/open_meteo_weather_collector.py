@@ -2,11 +2,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import requests
-
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.open_meteo import OPEN_METEO_METRICS
+
+import requests
 
 logger = logging.getLogger(__name__)
 CURRENT_FIELDS = {

@@ -1,4 +1,5 @@
-from src.collectors.base_collector import BaseCollector
+from typing import TYPE_CHECKING
+
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
@@ -9,6 +10,9 @@ from src.collectors.rademacher.umweltsensor_9475_collector import (
 from src.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
+
+if TYPE_CHECKING:
+    from src.collectors.base_collector import BaseCollector
 
 
 def create_collectors(config):

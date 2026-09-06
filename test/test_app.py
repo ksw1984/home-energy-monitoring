@@ -1,9 +1,9 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-
 import src.app
+
+import pytest
 
 
 @pytest.fixture

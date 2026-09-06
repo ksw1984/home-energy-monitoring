@@ -1,12 +1,12 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
-
-import requests
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.rademacher import RADEMACHER_METRICS
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +79,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         data = response.json()
 
         if data.get("error_code") != 0:
-            raise RuntimeError(f"Rademacher API error: " f"{data.get('error_description', 'Unknown error')}")
+            raise RuntimeError(f"Rademacher API error: {data.get('error_description', 'Unknown error')}")
 
         try:
             return data["payload"]["device"]
         except KeyError as exc:
-            raise RuntimeError("Invalid Rademacher API response: " "payload.device missing") from exc
+            raise RuntimeError("Invalid Rademacher API response: payload.device missing") from exc
 
     def collect(self) -> list[Measurement]:
         """Collect all supported measurements from the environment sensor.
@@ -201,7 +201,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
         return datetime.fromtimestamp(
             float(timestamp),
-            tz=timezone.utc,
+            tz=UTC,
         ).astimezone(self.timezone)
 
     def _measurement(
@@ -233,6 +233,6 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             timestamp=timestamp,
             source=self.SOURCE,
             metric=metric,
-            value=float(value),
+            value=value,
             unit=definition["unit"],
         )

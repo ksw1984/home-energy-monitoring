@@ -1,9 +1,9 @@
 from unittest.mock import Mock, patch
 
+from src.collectors.iec.iec_protocol import IecProtocol
+
 import pytest
 import serial
-
-from src.collectors.iec.iec_protocol import IecProtocol
 
 
 def test_open_serial_uses_iec_serial_settings():
@@ -222,11 +222,11 @@ def test_read_reads_remaining_data_after_etx():
 
 
 def test_extract_payload():
-    data = b"\x02" b"1-1:1.5.0(00.000*kW)\r\n" b"1-1:2.5.0(08.272*kW)\r\n" b"\x03" b"\x00"
+    data = b"\x021-1:1.5.0(00.000*kW)\r\n1-1:2.5.0(08.272*kW)\r\n\x03\x00"
 
     result = IecProtocol._extract_payload(data)
 
-    assert result == ("1-1:1.5.0(00.000*kW)\r\n" "1-1:2.5.0(08.272*kW)\r\n")
+    assert result == ("1-1:1.5.0(00.000*kW)\r\n1-1:2.5.0(08.272*kW)\r\n")
 
 
 def test_extract_payload_without_stx():
@@ -238,7 +238,7 @@ def test_extract_payload_without_stx():
 
 
 def test_extract_payload_without_etx():
-    data = b"\x02" b"1-1:1.5.0(00.000*kW)\r\n"
+    data = b"\x021-1:1.5.0(00.000*kW)\r\n"
 
     result = IecProtocol._extract_payload(data)
 
@@ -289,7 +289,6 @@ def test_connect_negotiates_9600_baud():
             data_serial,
         ],
     ) as open_serial:
-
         protocol.connect()
 
     assert protocol.data_baud == 9600
@@ -314,10 +313,10 @@ def test_multiple_reads_use_same_open_connection():
 
     serial_connection.read.side_effect = [
         # First IEC response
-        b"\x02" b"1-1:1.5.0(00.000*kW)" b"\x03",
+        b"\x021-1:1.5.0(00.000*kW)\x03",
         b"",
         # Second IEC response
-        b"\x02" b"1-1:1.5.0(00.123*kW)" b"\x03",
+        b"\x021-1:1.5.0(00.123*kW)\x03",
         b"",
     ]
 
@@ -338,7 +337,7 @@ def test_read_does_not_close_connection():
     serial_connection = Mock()
 
     serial_connection.read.side_effect = [
-        b"\x02" b"1-1:1.5.0(00.000*kW)" b"\x03",
+        b"\x021-1:1.5.0(00.000*kW)\x03",
         b"",
     ]
 

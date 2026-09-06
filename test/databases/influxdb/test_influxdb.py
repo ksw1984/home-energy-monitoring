@@ -12,7 +12,7 @@ def make_measurement(
     value=20.5,
 ):
     return Measurement(
-        timestamp=datetime(2026, 8, 27, 12, 0),
+        timestamp=datetime(2026, 8, 27, 12, 0, tzinfo=datetime.UTC),
         source=source,
         metric=metric,
         value=value,
@@ -29,7 +29,6 @@ def test_init_creates_influxdb_client():
         "src.databases.influxdb.influxdb.InfluxDBClient",
         return_value=client,
     ) as influx_client:
-
         database = InfluxDatabase(
             url="http://localhost:8086",
             token="test-token",

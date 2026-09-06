@@ -1,7 +1,11 @@
+from typing import TYPE_CHECKING
+
 from src.config import required_secret
-from src.databases.base_database import BaseDatabase
 from src.databases.influxdb.influxdb import InfluxDatabase
 from src.databases.text_file.textfiledb import TextFileDatabase
+
+if TYPE_CHECKING:
+    from src.databases.base_database import BaseDatabase
 
 
 def create_databases(config):
