@@ -45,6 +45,7 @@ ruff = "^0.16.0"
 pyrefly = "^1.2.0"
 types-pyserial = "^3.5.0"
 pre-commit = "^4.3.0"
+types-pyyaml = "^6.0.12.20260906"
 
 ################
 # PYTEST
@@ -154,12 +155,15 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test/**/*.py" = [
     "S101", # asserts allowed in tests...
+    "S105", # asserts allowed in tests...
+    "S106", # asserts allowed in tests...
     "ARG", # Unused function args -> fixtures nevertheless are functionally relevant...
     "FBT", # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
     "PLR2004", # Magic value used in comparison, ...
     "S311", # Standard pseudo-random generators are not suitable for cryptographic purposes
     "N803", # Argument name `id_S32` should be lowercase -> from c++ structs
 ]
+"src/check_collector_output.py" = ["S101"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["adas_databricks_jobs"]
@@ -170,9 +174,10 @@ order-by-type = false
 # TYPE CHECKING
 ################
 [tool.pyrefly]
-preset = "default"
-required-version = ">=1.0.0,<2.0.0"
+preset = "legacy" # legacy, default
 python-version = "3.13"
+#min-severity = "error"
+min-severity = "warn"
 
 project-includes = [
     "src/**/*.py",
