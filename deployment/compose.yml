@@ -8,8 +8,8 @@ services:
 
     volumes:
 
-      - ../config.yaml:/app/config.yaml:ro
-      - ./data/backup:/data/backup
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data/backup:/app/data/backup
 
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
