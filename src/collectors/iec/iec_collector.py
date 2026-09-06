@@ -1,6 +1,8 @@
 import logging
 import re
 
+import serial
+
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.obis import CURRENT_OBIS, get_obis_definition
@@ -24,6 +26,10 @@ class IecCollector(BaseCollector):
 
     The serial connection is established lazily when ``collect()`` is
     called if it has not already been established through ``connect()``.
+
+    If the serial connection is lost during normal operation, the
+    collector marks itself as disconnected. A subsequent collection
+    cycle will attempt to reconnect automatically.
     """
 
     def __init__(
@@ -36,21 +42,43 @@ class IecCollector(BaseCollector):
         """Initialize the IEC meter collector.
 
         Args:
+            timezone: Timezone used for measurement timestamps.
             port: Serial device used to communicate with the IEC meter.
+            source: Source identifier stored with generated measurements.
         """
         super().__init__(timezone)
 
+        self.port = port
         self.protocol = IecProtocol(port)
         self.source = source
         self.connected = False
 
     def connect(self) -> None:
-        """Establish the IEC meter connection."""
-        self.protocol.connect()
+        """Establish the IEC meter connection.
+
+        The connection state is set to connected only after the IEC
+        protocol successfully completes its connection handshake.
+
+        Raises:
+            serial.SerialException: If the serial port cannot be opened
+                or another serial communication error occurs.
+            RuntimeError: If the IEC handshake fails.
+        """
+        try:
+            self.protocol.connect()
+        except serial.SerialException:
+            self.connected = False
+            raise
+
         self.connected = True
+        logger.info("IEC meter connected on %s", self.port)
 
     def disconnect(self) -> None:
-        """Close the IEC meter connection."""
+        """Close the IEC meter connection.
+
+        Calling this method when the collector is already disconnected
+        has no effect.
+        """
         self.protocol.disconnect()
         self.connected = False
 
@@ -60,17 +88,30 @@ class IecCollector(BaseCollector):
         If the collector is not connected, the IEC connection is
         established automatically before reading the meter telegram.
 
+        If the serial connection is lost while reading, the collector
+        marks itself as disconnected and closes the protocol connection.
+        The exception is propagated so the manager can handle the failed
+        collection. A subsequent collection cycle will retry the
+        connection.
+
         Returns:
             A list of measurements for the supported current OBIS codes.
 
         Raises:
+            serial.SerialException: If the serial connection cannot be
+                established or is lost while reading.
             RuntimeError: If the IEC protocol cannot read because the
                 connection is not available.
         """
         if not self.connected:
             self.connect()
 
-        text = self.protocol.read()
+        try:
+            text = self.protocol.read()
+        except serial.SerialException:
+            self.connected = False
+            self.protocol.disconnect()
+            raise
 
         return self._parse(text)
 
@@ -97,7 +138,9 @@ class IecCollector(BaseCollector):
 
         measurements: list[Measurement] = []
 
-        pattern = re.compile(r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)")
+        pattern = re.compile(
+            r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)",
+        )
 
         for match in pattern.finditer(text):
             obis = match.group(2)

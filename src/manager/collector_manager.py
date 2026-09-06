@@ -2,6 +2,8 @@ import asyncio
 import logging
 from datetime import datetime
 
+import serial
+
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
@@ -23,6 +25,13 @@ class CollectorManager:
 
     All collectors are executed every ``interval`` seconds.
 
+    Collectors are independent of each other. A failure to connect to
+    or collect from one collector does not prevent the remaining
+    collectors from operating.
+
+    Collectors that are temporarily unavailable may retry their
+    connection during subsequent collection cycles.
+
     Current meter power values are stored on every collection cycle.
 
     Daily meter energy values are stored only once during hour 00:00,
@@ -37,6 +46,13 @@ class CollectorManager:
         databases: list[BaseDatabase] | None = None,
         interval: int = 300,
     ):
+        """Initialize the collector manager.
+
+        Args:
+            collectors: Collectors to execute during each collection cycle.
+            databases: Databases receiving the collected measurements.
+            interval: Delay in seconds between collection cycles.
+        """
         self.collectors = collectors
         self.databases = databases
         self.interval = interval
@@ -45,12 +61,22 @@ class CollectorManager:
         # the current midnight hour.
         self._daily_values_stored = False
 
-    async def run(self):
+    async def run(self) -> None:
+        """Run the collection loop until the task is cancelled.
 
+        All configured collectors are initially connected before the
+        collection loop starts. A connection failure of an individual
+        collector does not stop the other collectors from starting.
+
+        The collectors are then executed repeatedly at the configured
+        interval. Cleanup is performed for all collectors when the
+        collection loop exits.
+        """
         logger.info("CollectorManager.run()")
-        await self.connect()
 
         try:
+            await self.connect()
+
             while True:
                 measurements = await self.collect_all()
 
@@ -62,6 +88,7 @@ class CollectorManager:
 
                 if self.databases is not None and measurements_to_store:
                     logger.info("Write to dbs")
+
                     for db in self.databases:
                         try:
                             await db.store(measurements_to_store)
@@ -76,7 +103,16 @@ class CollectorManager:
         finally:
             await self.disconnect()
 
-    async def connect(self):
+    async def connect(self) -> None:
+        """Attempt to connect all configured collectors.
+
+        Collector connections are established concurrently. A connection
+        failure in one collector is captured and logged without preventing
+        the remaining collectors from connecting.
+
+        Individual collectors may retry their connection during subsequent
+        collection cycles if they remain unavailable.
+        """
         logger.info("CollectorManager.connect()")
 
         results = await asyncio.gather(
@@ -86,14 +122,15 @@ class CollectorManager:
 
         for collector, result in zip(self.collectors, results, strict=True):
             if isinstance(result, BaseException):
-                logger.error(
-                    "Failed to connect collector %s: %s",
-                    collector.__class__.__name__,
-                    result,
-                    exc_info=result,
-                )
+                self._log_collector_error(collector, result)
 
-    async def disconnect(self):
+    async def disconnect(self) -> None:
+        """Disconnect all configured collectors.
+
+        Collector disconnections are performed concurrently. A failure
+        while disconnecting one collector does not prevent the remaining
+        collectors from being disconnected.
+        """
         logger.info("CollectorManager.disconnect()")
 
         results = await asyncio.gather(
@@ -107,12 +144,25 @@ class CollectorManager:
                     "Failed to disconnect collector %s: %s",
                     collector.__class__.__name__,
                     result,
-                    exc_info=result,
+                    exc_info=(type(result), result, result.__traceback__),
                 )
 
     async def collect_all(self) -> list[Measurement]:
+        """Collect measurements from all configured collectors.
 
+        Collectors are executed concurrently. A failure in one collector
+        does not prevent measurements from the remaining collectors from
+        being returned.
+
+        Expected serial connection failures are ignored here because the
+        collector is responsible for retrying the connection during a
+        subsequent collection cycle.
+
+        Returns:
+            All measurements successfully returned by the collectors.
+        """
         logger.info("CollectorManager.collect_all()")
+
         tasks = [asyncio.to_thread(collector.collect) for collector in self.collectors]
 
         results = await asyncio.gather(
@@ -124,16 +174,67 @@ class CollectorManager:
 
         for collector, result in zip(self.collectors, results, strict=True):
             if isinstance(result, BaseException):
-                logger.error(f"Collector {collector.__class__.__name__} failed: {result}")
+                if isinstance(result, serial.SerialException):
+                    continue
+
+                logger.error(
+                    "Collector %s failed: %s",
+                    collector.__class__.__name__,
+                    result,
+                    exc_info=(
+                        type(result),
+                        result,
+                        result.__traceback__,
+                    ),
+                )
                 continue
 
             if not result:
-                logger.warning(f"Collector {collector.__class__.__name__} unavailable: {result}")
+                logger.warning(
+                    "Collector %s unavailable: %s",
+                    collector.__class__.__name__,
+                    result,
+                )
                 continue
 
             measurements.extend(result)
 
         return measurements
+
+    @staticmethod
+    def _log_collector_error(
+        collector: BaseCollector,
+        result: BaseException,
+    ) -> None:
+        """Log a collector connection failure.
+
+        Expected serial connection failures are logged as warnings without
+        a traceback. Other failures are logged as errors with their
+        original traceback.
+
+        Args:
+            collector: Collector whose connection attempt failed.
+            result: Exception raised by the connection attempt.
+        """
+        name = collector.__class__.__name__
+
+        if isinstance(result, serial.SerialException):
+            logger.warning(
+                "Collector %s unavailable: %s",
+                name,
+                result,
+            )
+        else:
+            logger.error(
+                "Collector %s failed: %s",
+                name,
+                result,
+                exc_info=(
+                    type(result),
+                    result,
+                    result.__traceback__,
+                ),
+            )
 
     def _filter_measurements(
         self,
@@ -144,10 +245,16 @@ class CollectorManager:
         Current meter power measurements are always stored.
 
         Daily meter energy measurements are stored only once during
-        hour 00:00, after all required values from both meter sources
+        hour 00:00, after the required values from both meter sources
         are available.
 
-        All other measurements are always stored.
+        All other measurements are stored every collection cycle.
+
+        Args:
+            measurements: Measurements collected during the current cycle.
+
+        Returns:
+            Measurements that should be written to the databases.
         """
         now = datetime.now().astimezone()
 
@@ -190,7 +297,12 @@ class CollectorManager:
         return measurements_to_store
 
     @staticmethod
-    def output(measurements: list[Measurement]):
+    def output(measurements: list[Measurement]) -> None:
+        """Log all collected measurements.
+
+        Args:
+            measurements: Measurements collected during the current cycle.
+        """
         for measurement in measurements:
             logger.info(
                 f"{measurement.timestamp.isoformat()} "
