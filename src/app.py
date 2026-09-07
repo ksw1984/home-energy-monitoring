@@ -3,7 +3,7 @@ import logging
 import signal
 
 from src.collectors.collector_factory import create_collectors
-from src.config import config_obj
+from src.config.config import config_obj
 from src.databases.database_factory import create_databases
 from src.logger.logging_config import setup_logging
 from src.manager.collector_manager import CollectorManager

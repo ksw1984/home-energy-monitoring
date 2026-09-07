@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from src.config import required_secret
+from src.config.config import required_secret
 from src.databases.influxdb.influxdb import InfluxDatabase
 from src.databases.text_file.textfiledb import TextFileDatabase
 

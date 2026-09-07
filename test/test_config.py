@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from src.config import (
+from src.config.config import (
     CollectionConfig,
     ComponentConfig,
     Config,

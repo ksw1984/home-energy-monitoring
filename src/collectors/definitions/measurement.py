@@ -56,3 +56,11 @@ class Measurement:
     value: float
     unit: str
     measurement_type: str = "current"
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (
+            self.source,
+            self.metric,
+            self.measurement_type,
+        )
