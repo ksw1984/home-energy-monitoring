@@ -39,9 +39,10 @@ class FroniusSymoInverterCollector(BaseCollector):
 
     ZERO_POWER_DURATION = timedelta(minutes=5)
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         timezone: str = "UTC",
+        interval: int = 300,
         *,
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
@@ -59,7 +60,7 @@ class FroniusSymoInverterCollector(BaseCollector):
             longitude: Longitude of the PV installation, used to calculate
                 the local sunset time.
         """
-        super().__init__(timezone)
+        super().__init__(timezone, interval)
 
         # REST call
         self.inverter_ip = inverter_ip
@@ -93,6 +94,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         prevents an inverter communication failure from being interpreted as
         actual 0 W PV production.
         """
+        # REST data
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:
@@ -102,7 +104,8 @@ class FroniusSymoInverterCollector(BaseCollector):
         timestamp = self.localize_timestamp(datetime.fromisoformat(data["Head"]["Timestamp"]))
         site = data["Body"]["Data"]["Site"]
 
-        pv_power = float(site["P_PV"])
+        pv_power_raw = site["P_PV"]
+        pv_power = float(pv_power_raw) if pv_power_raw is not None else 0.0
 
         measurements = [
             self._measurement(

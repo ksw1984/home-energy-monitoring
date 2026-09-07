@@ -43,6 +43,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
     def __init__(
         self,
         timezone: str = "UTC",
+        interval: int = 300,
         *,
         smart_home_box_ip="192.168.178.19",
         device_id=50,
@@ -53,7 +54,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             smart_home_box_ip: IP address of the Rademacher Smart Home Box.
             device_id: Rademacher device ID of the environment sensor in the Smart Home Box.
         """
-        super().__init__(timezone)
+        super().__init__(timezone, interval)
 
         self.smart_home_box_ip = smart_home_box_ip
         self.device_id = device_id

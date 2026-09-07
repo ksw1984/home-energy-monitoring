@@ -26,16 +26,40 @@ def create_collectors(config):
         timezone = config.collection.timezone
 
         if collector_config.type == "fronius":
-            collectors.append(FroniusSymoInverterCollector(timezone=timezone, **attributes))
+            collectors.append(
+                FroniusSymoInverterCollector(
+                    timezone=timezone,
+                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
+                    **attributes,
+                )
+            )
 
         elif collector_config.type == "iec":
-            collectors.append(IecCollector(timezone=timezone, **attributes))
+            collectors.append(
+                IecCollector(
+                    timezone=timezone,
+                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
+                    **attributes,
+                )
+            )
 
         elif collector_config.type == "environment":
-            collectors.append(RademacherEnvironmentSensorCollector(timezone=timezone, **attributes))
+            collectors.append(
+                RademacherEnvironmentSensorCollector(
+                    timezone=timezone,
+                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
+                    **attributes,
+                )
+            )
 
         elif collector_config.type == "weather":
-            collectors.append(OpenMeteoWeatherCollector(timezone=timezone, **attributes))
+            collectors.append(
+                OpenMeteoWeatherCollector(
+                    timezone=timezone,
+                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
+                    **attributes,
+                )
+            )
 
         else:
             raise ValueError(f"Unknown collector type: {collector_config.type}")

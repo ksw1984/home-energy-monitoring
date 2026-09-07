@@ -51,6 +51,7 @@ def test_config_dataclass():
         ComponentConfig(
             type="fronius",
             enabled=True,
+            interval=30,
             attributes={
                 "ip": "192.168.178.25",
                 "latitude": 52.4567,
@@ -63,6 +64,7 @@ def test_config_dataclass():
         ComponentConfig(
             type="influxdb",
             enabled=True,
+            interval=None,
             attributes={
                 "url": "http://localhost:8086",
                 "token": "token",
@@ -88,7 +90,9 @@ def test_config_dataclass():
     assert config.databases == databases
 
     assert config.collectors[0].type == "fronius"
+    assert config.collectors[0].interval == 30
     assert config.collectors[0].attributes["latitude"] == 52.4567
 
     assert config.databases[0].type == "influxdb"
+    assert config.databases[0].interval is None
     assert config.databases[0].attributes["token"] == "token"

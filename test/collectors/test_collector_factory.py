@@ -9,11 +9,13 @@ def make_collector_config(
     collector_type,
     attributes=None,
     enabled=True,
+    interval=300,
 ):
     config = Mock()
     config.type = collector_type
     config.attributes = attributes or {}
     config.enabled = enabled
+    config.interval = interval
     return config
 
 
@@ -65,6 +67,7 @@ def test_create_fronius_collector():
 
     fronius_cls.assert_called_once_with(
         timezone=config.collection.timezone,
+        interval=collector_config.interval,
         inverter_ip="192.168.178.25",
         latitude=52.4567,
         longitude=13.7213,
@@ -86,6 +89,7 @@ def test_create_iec_collector():
 
     iec_cls.assert_called_once_with(
         timezone=config.collection.timezone,
+        interval=collector_config.interval,
         device="/dev/ttyUSB0",
     )
     assert result == [iec_cls.return_value]
@@ -106,6 +110,7 @@ def test_create_environment_collector():
 
     environment_cls.assert_called_once_with(
         timezone=config.collection.timezone,
+        interval=collector_config.interval,
         smart_home_box_ip="192.168.178.19",
         device_id="50",
     )
@@ -127,6 +132,7 @@ def test_create_weather_collector():
 
     weather_cls.assert_called_once_with(
         timezone=config.collection.timezone,
+        interval=collector_config.interval,
         latitude=52.4567,
         longitude=13.7213,
     )

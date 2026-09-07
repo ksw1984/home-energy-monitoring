@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
@@ -14,6 +15,7 @@ METER_DAILY_METRICS = {
     "grid_import_energy_total",
     "grid_export_energy_total",
 }
+
 METER_CURRENT_METRICS = {
     "grid_import_power",
     "grid_export_power",
@@ -21,9 +23,9 @@ METER_CURRENT_METRICS = {
 
 
 class CollectorManager:
-    """Run all collectors and store their measurements.
+    """Run all collectors independently and store their measurements.
 
-    All collectors are executed every ``interval`` seconds.
+    Each collector is executed at its own configured interval.
 
     Collectors are independent of each other. A failure to connect to
     or collect from one collector does not prevent the remaining
@@ -37,7 +39,8 @@ class CollectorManager:
     Daily meter energy values are stored only once during hour 00:00,
     after the required values from both meter sources are available.
 
-    All other measurements are stored on every collection cycle.
+    All other measurements are stored immediately after each successful
+    collection.
     """
 
     def __init__(
@@ -45,63 +48,158 @@ class CollectorManager:
         collectors: list[BaseCollector],
         databases: list[BaseDatabase] | None = None,
         interval: int = 300,
+        timezone: str = "UTC",
     ):
         """Initialize the collector manager.
 
         Args:
-            collectors: Collectors to execute during each collection cycle.
+            collectors: Collectors to execute independently.
             databases: Databases receiving the collected measurements.
-            interval: Delay in seconds between collection cycles.
+            interval: Default delay in seconds between collection cycles.
+                Used when a collector does not define its own interval.
+            timezone: Timezone used for daily measurement handling.
         """
         self.collectors = collectors
         self.databases = databases
         self.interval = interval
+        self.timezone = ZoneInfo(timezone)
 
         # True after the daily meter snapshot has been stored during
         # the current midnight hour.
         self._daily_values_stored = False
 
+        # Protects the daily measurement state when multiple collectors
+        # finish at approximately the same time.
+        self._filter_lock = asyncio.Lock()
+
     async def run(self) -> None:
-        """Run the collection loop until the task is cancelled.
+        """Run all collectors until the task is cancelled.
 
         All configured collectors are initially connected before the
-        collection loop starts. A connection failure of an individual
+        collection loops start. A connection failure of an individual
         collector does not stop the other collectors from starting.
 
-        The collectors are then executed repeatedly at the configured
-        interval. Cleanup is performed for all collectors when the
-        collection loop exits.
+        Each collector is then executed independently at its configured
+        interval. Measurements are written to the configured databases
+        immediately after each successful collection.
+
+        Cleanup is performed for all collectors when the collection
+        manager exits.
         """
         logger.info("CollectorManager.run()")
 
         try:
             await self.connect()
 
-            while True:
-                measurements = await self.collect_all()
-
-                self.output(measurements)
-
-                measurements_to_store = self._filter_measurements(
-                    measurements,
+            tasks = [
+                asyncio.create_task(
+                    self._run_collector(collector),
+                    name=f"collector-{collector.__class__.__name__}",
                 )
+                for collector in self.collectors
+            ]
 
-                if self.databases is not None and measurements_to_store:
-                    logger.info("Write to dbs")
-
-                    for db in self.databases:
-                        try:
-                            await db.store(measurements_to_store)
-                        except Exception:
-                            logger.exception(
-                                "Failed to store measurements in %s",
-                                db.__class__.__name__,
-                            )
-
-                await asyncio.sleep(self.interval)
+            await asyncio.gather(*tasks)
 
         finally:
             await self.disconnect()
+
+    async def _run_collector(
+        self,
+        collector: BaseCollector,
+    ) -> None:
+        """Run one collector continuously at its configured interval.
+
+        The collector is executed in a worker thread so that blocking
+        collector implementations do not block the asyncio event loop.
+
+        Measurements are filtered and written to the databases immediately
+        after a successful collection. A failure of this collector does
+        not affect any other collector.
+
+        Args:
+            collector: Collector to execute.
+        """
+        interval = collector.interval
+
+        logger.info(
+            "Starting collector %s with interval=%ss",
+            collector.__class__.__name__,
+            interval,
+        )
+
+        while True:
+            started = asyncio.get_running_loop().time()
+
+            try:
+                measurements = await asyncio.to_thread(
+                    collector.collect,
+                )
+
+                if measurements:
+                    await self._store_measurements(measurements)
+
+                else:
+                    logger.warning(
+                        "Collector %s unavailable: %s",
+                        collector.__class__.__name__,
+                        measurements,
+                    )
+
+            except serial.SerialException as exc:
+                logger.warning(
+                    "Collector %s unavailable: %s",
+                    collector.__class__.__name__,
+                    exc,
+                )
+
+            except Exception:
+                logger.exception(
+                    "Collector %s failed",
+                    collector.__class__.__name__,
+                )
+
+            elapsed = asyncio.get_running_loop().time() - started
+            delay = max(0, interval - elapsed)
+
+            await asyncio.sleep(delay)
+
+    async def _store_measurements(
+        self,
+        measurements: list[Measurement],
+    ) -> None:
+        """Filter and store measurements in all configured databases.
+
+        Measurements are written immediately after the collector has
+        successfully returned them.
+
+        Args:
+            measurements: Measurements returned by a collector.
+        """
+        self.output(measurements)
+
+        async with self._filter_lock:
+            measurements_to_store = self._filter_measurements(
+                measurements,
+            )
+
+        if not measurements_to_store:
+            return
+
+        if self.databases is None:
+            return
+
+        logger.info("Write to dbs")
+
+        for database in self.databases:
+            try:
+                await database.store(measurements_to_store)
+
+            except Exception:
+                logger.exception(
+                    "Failed to store measurements in %s",
+                    database.__class__.__name__,
+                )
 
     async def connect(self) -> None:
         """Attempt to connect all configured collectors.
@@ -120,9 +218,16 @@ class CollectorManager:
             return_exceptions=True,
         )
 
-        for collector, result in zip(self.collectors, results, strict=True):
+        for collector, result in zip(
+            self.collectors,
+            results,
+            strict=True,
+        ):
             if isinstance(result, BaseException):
-                self._log_collector_error(collector, result)
+                self._log_collector_error(
+                    collector,
+                    result,
+                )
 
     async def disconnect(self) -> None:
         """Disconnect all configured collectors.
@@ -138,13 +243,21 @@ class CollectorManager:
             return_exceptions=True,
         )
 
-        for collector, result in zip(self.collectors, results, strict=True):
+        for collector, result in zip(
+            self.collectors,
+            results,
+            strict=True,
+        ):
             if isinstance(result, BaseException):
                 logger.error(
                     "Failed to disconnect collector %s: %s",
                     collector.__class__.__name__,
                     result,
-                    exc_info=(type(result), result, result.__traceback__),
+                    exc_info=(
+                        type(result),
+                        result,
+                        result.__traceback__,
+                    ),
                 )
 
     async def collect_all(self) -> list[Measurement]:
@@ -157,6 +270,10 @@ class CollectorManager:
         Expected serial connection failures are ignored here because the
         collector is responsible for retrying the connection during a
         subsequent collection cycle.
+
+        This method is retained as a convenience method for collecting
+        all collectors once. The main :meth:`run` loop uses independent
+        collection loops for each collector.
 
         Returns:
             All measurements successfully returned by the collectors.
@@ -172,7 +289,11 @@ class CollectorManager:
 
         measurements: list[Measurement] = []
 
-        for collector, result in zip(self.collectors, results, strict=True):
+        for collector, result in zip(
+            self.collectors,
+            results,
+            strict=True,
+        ):
             if isinstance(result, BaseException):
                 if isinstance(result, serial.SerialException):
                     continue
@@ -248,7 +369,7 @@ class CollectorManager:
         hour 00:00, after the required values from both meter sources
         are available.
 
-        All other measurements are stored every collection cycle.
+        All other measurements are stored immediately after collection.
 
         Args:
             measurements: Measurements collected during the current cycle.
@@ -256,7 +377,7 @@ class CollectorManager:
         Returns:
             Measurements that should be written to the databases.
         """
-        now = datetime.now().astimezone()
+        now = datetime.now(self.timezone)
 
         #
         # Reset the daily flag once we leave midnight.
@@ -277,8 +398,12 @@ class CollectorManager:
 
             daily_metrics_received = {measurement.metric for measurement in daily_measurements}
 
-            if METER_DAILY_METRICS.issubset(daily_metrics_received):
-                measurements_to_store.extend(daily_measurements)
+            if METER_DAILY_METRICS.issubset(
+                daily_metrics_received,
+            ):
+                measurements_to_store.extend(
+                    daily_measurements,
+                )
                 self._daily_values_stored = True
 
         #
@@ -293,7 +418,9 @@ class CollectorManager:
         return measurements_to_store
 
     @staticmethod
-    def output(measurements: list[Measurement]) -> None:
+    def output(
+        measurements: list[Measurement],
+    ) -> None:
         """Log all collected measurements.
 
         Args:
@@ -301,5 +428,5 @@ class CollectorManager:
         """
         for measurement in measurements:
             logger.info(
-                f"{measurement.timestamp.isoformat()} {measurement.source:10} {measurement.metric:20} {measurement.value:<10.3f} {measurement.unit} ",
+                f"{measurement.timestamp.isoformat()} {measurement.source:10} {measurement.metric:20} {measurement.value:<10.3f} {measurement.unit}",
             )

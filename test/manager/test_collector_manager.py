@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 from src.collectors.definitions.measurement import Measurement
 from src.manager.collector_manager import CollectorManager
@@ -30,11 +31,13 @@ def test_init():
         collectors=collectors,
         databases=databases,
         interval=15,
+        timezone="Europe/Berlin",
     )
 
     assert manager.collectors is collectors
     assert manager.databases is databases
     assert manager.interval == 15
+    assert manager.timezone == ZoneInfo("Europe/Berlin")
 
 
 def test_connect_connects_all_collectors():
@@ -150,100 +153,7 @@ def test_output(caplog):
     assert "temperature" in caplog.text
     assert "20.500" in caplog.text
     assert "°C" in caplog.text
-
     assert "src.manager.collector_manager" in caplog.text
-
-
-def test_run_without_database_disconnects_on_shutdown():
-    manager = CollectorManager(
-        collectors=[],
-        databases=None,
-        interval=10,
-    )
-
-    manager.connect = AsyncMock()
-    manager.collect_all = AsyncMock(
-        side_effect=asyncio.CancelledError,
-    )
-    manager.output = Mock()
-    manager.disconnect = AsyncMock()
-
-    with pytest.raises(asyncio.CancelledError):
-        asyncio.run(manager.run())
-
-    manager.connect.assert_awaited_once()
-    manager.collect_all.assert_awaited_once()
-    manager.output.assert_not_called()
-    manager.disconnect.assert_awaited_once()
-
-
-def test_run_stores_measurements_when_database_is_configured():
-    measurement = make_measurement()
-
-    database = Mock()
-    database.store = AsyncMock()
-
-    manager = CollectorManager(
-        collectors=[],
-        databases=[database],
-        interval=10,
-    )
-
-    manager.connect = AsyncMock()
-    manager.collect_all = AsyncMock(
-        side_effect=[
-            [measurement],
-            asyncio.CancelledError(),
-        ],
-    )
-    manager.output = Mock()
-    manager.disconnect = AsyncMock()
-
-    with (
-        patch(
-            "src.manager.collector_manager.asyncio.sleep",
-            new_callable=AsyncMock,
-        ),
-        pytest.raises(asyncio.CancelledError),
-    ):
-        asyncio.run(manager.run())
-
-    manager.connect.assert_awaited_once()
-    manager.output.assert_called_once_with([measurement])
-    database.store.assert_awaited_once_with([measurement])
-    manager.disconnect.assert_awaited_once()
-
-
-def test_run_sleeps_between_collection_cycles():
-    measurement = make_measurement()
-
-    manager = CollectorManager(
-        collectors=[],
-        databases=None,
-        interval=15,
-    )
-
-    manager.connect = AsyncMock()
-    manager.collect_all = AsyncMock(
-        side_effect=[
-            [measurement],
-            asyncio.CancelledError(),
-        ],
-    )
-    manager.output = Mock()
-    manager.disconnect = AsyncMock()
-
-    with (
-        patch(
-            "src.manager.collector_manager.asyncio.sleep",
-            new_callable=AsyncMock,
-        ) as sleep,
-        pytest.raises(asyncio.CancelledError),
-    ):
-        asyncio.run(manager.run())
-
-    sleep.assert_awaited_once_with(15)
-    manager.disconnect.assert_awaited_once()
 
 
 def test_filter_measurements_stores_current_meter_values():
@@ -293,7 +203,7 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+        datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
 
@@ -313,7 +223,7 @@ def test_filter_measurements_stores_daily_values_when_both_are_available():
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+        datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
 
@@ -333,7 +243,7 @@ def test_filter_measurements_stores_daily_values_only_once():
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+        datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(measurements)
         second_result = manager._filter_measurements(measurements)
@@ -354,7 +264,7 @@ def test_filter_measurements_does_not_store_daily_values_outside_midnight():
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 12
+        datetime_mock.now.return_value.hour = 12
 
         result = manager._filter_measurements(measurements)
 
@@ -397,7 +307,7 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+        datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
 
@@ -435,7 +345,7 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.astimezone.return_value.hour = 0
+        datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
 
@@ -443,7 +353,67 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
     assert manager._daily_values_stored is True
 
 
-def test_run_continues_with_next_database_when_database_fails(caplog):
+# ---------------------------------------------------------------------------
+# Independent collector timing / database tests
+# ---------------------------------------------------------------------------
+
+
+def test_run_collector_uses_collector_interval():
+    collector = Mock()
+    collector.interval = 10
+    collector.collect.return_value = []
+
+    manager = CollectorManager(
+        collectors=[collector],
+    )
+
+    sleep_calls = []
+
+    async def fake_sleep(delay):
+        sleep_calls.append(delay)
+        raise asyncio.CancelledError
+
+    with (
+        patch(
+            "src.manager.collector_manager.asyncio.sleep",
+            side_effect=fake_sleep,
+        ),
+        patch(
+            "src.manager.collector_manager.asyncio.get_running_loop",
+        ) as get_loop,
+    ):
+        get_loop.return_value.time.side_effect = [0, 0]
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(manager._run_collector(collector))
+
+    collector.collect.assert_called_once()
+    assert sleep_calls == [10]
+
+
+def test_store_measurements_writes_to_database_immediately():
+    measurement = make_measurement()
+
+    database = Mock()
+    database.store = AsyncMock()
+
+    manager = CollectorManager(
+        collectors=[],
+        databases=[database],
+    )
+
+    with patch.object(manager, "output") as output:
+        asyncio.run(
+            manager._store_measurements([measurement]),
+        )
+
+    output.assert_called_once_with([measurement])
+    database.store.assert_awaited_once_with([measurement])
+
+
+def test_store_measurements_continues_with_next_database_when_database_fails(
+    caplog,
+):
     measurement = make_measurement()
 
     failing_database = Mock()
@@ -456,36 +426,99 @@ def test_run_continues_with_next_database_when_database_fails(caplog):
 
     manager = CollectorManager(
         collectors=[],
-        databases=[failing_database, working_database],
-        interval=10,
-    )
-
-    manager.connect = AsyncMock()
-    manager.collect_all = AsyncMock(
-        side_effect=[
-            [measurement],
-            asyncio.CancelledError(),
+        databases=[
+            failing_database,
+            working_database,
         ],
     )
-    manager.output = Mock()
-    manager.disconnect = AsyncMock()
 
     with (
-        patch(
-            "src.manager.collector_manager.asyncio.sleep",
-            new_callable=AsyncMock,
-        ),
+        patch.object(manager, "output"),
         caplog.at_level("ERROR"),
-        pytest.raises(asyncio.CancelledError),
     ):
-        asyncio.run(manager.run())
-
-    manager.connect.assert_awaited_once()
-    manager.output.assert_called_once_with([measurement])
+        asyncio.run(
+            manager._store_measurements([measurement]),
+        )
 
     failing_database.store.assert_awaited_once_with([measurement])
     working_database.store.assert_awaited_once_with([measurement])
 
     assert "Failed to store measurements in Mock" in caplog.text
 
-    manager.disconnect.assert_awaited_once()
+
+def test_run_collector_continues_after_collection_failure():
+    collector = Mock()
+    collector.interval = 10
+
+    collector.collect.side_effect = [
+        RuntimeError("collector failed"),
+        asyncio.CancelledError(),
+    ]
+
+    sleep = AsyncMock()
+
+    manager = CollectorManager(
+        collectors=[collector],
+    )
+
+    with (
+        patch(
+            "src.manager.collector_manager.asyncio.sleep",
+            sleep,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager._run_collector(collector))
+
+    assert collector.collect.call_count == 2
+    sleep.assert_awaited_once()
+    assert sleep.await_args is not None
+    sleep_time = sleep.await_args.args[0]
+    assert sleep_time == pytest.approx(10, abs=0.01)
+
+
+def test_run_creates_independent_task_for_each_collector():
+    collector1 = Mock()
+    collector1.interval = 10
+
+    collector2 = Mock()
+    collector2.interval = 60
+
+    manager = CollectorManager(
+        collectors=[collector1, collector2],
+    )
+
+    created_tasks = []
+
+    def fake_create_task(coro, name=None):
+        created_tasks.append((coro, name))
+        coro.close()
+        return Mock()
+
+    with (
+        patch.object(
+            manager,
+            "connect",
+            new_callable=AsyncMock,
+        ),
+        patch.object(
+            manager,
+            "disconnect",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "src.manager.collector_manager.asyncio.create_task",
+            side_effect=fake_create_task,
+        ),
+        patch(
+            "src.manager.collector_manager.asyncio.gather",
+            new_callable=AsyncMock,
+            side_effect=asyncio.CancelledError,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager.run())
+
+    assert len(created_tasks) == 2
+    assert created_tasks[0][1] == "collector-Mock"
+    assert created_tasks[1][1] == "collector-Mock"

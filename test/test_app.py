@@ -46,6 +46,7 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
         collectors=mock_collectors,
         databases=mock_databases,
         interval=5,
+        timezone=mocked_config.collection.timezone,
     )
 
     mock_manager.run.assert_awaited_once()

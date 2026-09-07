@@ -26,6 +26,7 @@ async def run():
         collectors=collectors,
         databases=databases,
         interval=config_obj.collection.interval,
+        timezone=config_obj.collection.timezone,
     )
 
     try:
