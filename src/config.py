@@ -49,6 +49,7 @@ def required_secret(name: str) -> str:
 class ComponentConfig:
     type: str
     enabled: bool
+    interval: int | None
     attributes: dict[str, Any]
 
 
@@ -77,6 +78,7 @@ def load_component_configs(
         ComponentConfig(
             type=item["type"],
             enabled=item.get("enabled", True),
+            interval=(int(item["interval"]) if item.get("interval") is not None else None),
             attributes=item.get("attributes", {}),
         )
         for item in config_data[key]

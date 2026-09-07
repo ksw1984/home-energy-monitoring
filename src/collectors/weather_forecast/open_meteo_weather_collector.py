@@ -51,6 +51,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
     def __init__(
         self,
         timezone: str = "UTC",
+        interval: int = 300,
         *,
         latitude: float,
         longitude: float,
@@ -61,7 +62,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
             latitude: Latitude of the weather location.
             longitude: Longitude of the weather location.
         """
-        super().__init__(timezone)
+        super().__init__(timezone, interval)
 
         self.latitude = latitude
         self.longitude = longitude
