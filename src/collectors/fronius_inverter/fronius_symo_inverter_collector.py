@@ -94,6 +94,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         prevents an inverter communication failure from being interpreted as
         actual 0 W PV production.
         """
+        # REST data
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:
@@ -103,7 +104,8 @@ class FroniusSymoInverterCollector(BaseCollector):
         timestamp = self.localize_timestamp(datetime.fromisoformat(data["Head"]["Timestamp"]))
         site = data["Body"]["Data"]["Site"]
 
-        pv_power = float(site["P_PV"])
+        pv_power_raw = site["P_PV"]
+        pv_power = float(pv_power_raw) if pv_power_raw is not None else 0.0
 
         measurements = [
             self._measurement(
