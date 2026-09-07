@@ -6,8 +6,13 @@ from src.collectors.definitions.measurement import Measurement
 
 
 class BaseCollector(ABC):
-    def __init__(self, timezone: str = "UTC"):
+    def __init__(
+        self,
+        timezone: str = "UTC",
+        interval: int = 300,
+    ) -> None:
         self.timezone = ZoneInfo(timezone)
+        self.interval = interval
 
     def now(self) -> datetime:
         return datetime.now(self.timezone)

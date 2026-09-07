@@ -1,17 +1,19 @@
 # Home Energy Monitoring configuration
 
 collection:
-   # Interval between collection cycles, in seconds.
-  interval: 300
-
   # Timezone used for all collected measurements.
   timezone: Europe/Berlin
+
+  # Optional default interval if a collector does not specify one.
+  interval: 300
+
 
 collectors:
 
   # IEC electricity meter for grid import/export
   - type: iec
     enabled: true
+    interval: 10
     attributes:
       port: /dev/ttyUSB0
       source: meter_grid
@@ -19,6 +21,7 @@ collectors:
   # IEC electricity meter for household consumption
   - type: iec
     enabled: true
+    interval: 10
     attributes:
       port: /dev/ttyUSB1
       source: meter_household
@@ -26,6 +29,7 @@ collectors:
   # Fronius Symo inverter
   - type: fronius
     enabled: true
+    interval: 10
     attributes:
       inverter_ip: 192.168.178.25
       latitude: 52.4
@@ -34,6 +38,7 @@ collectors:
   # Rademacher environment sensor
   - type: environment
     enabled: true
+    interval: 60
     attributes:
       smart_home_box_ip: 192.168.178.19
       device_id: 50
@@ -41,6 +46,7 @@ collectors:
   # Open-Meteo weather forecast
   - type: weather
     enabled: false
+    interval: 3600
     attributes:
       latitude: 52.4
       longitude: 13.7
