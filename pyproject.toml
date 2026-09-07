@@ -70,7 +70,7 @@ markers = [
 branch = true
 source = ["src"]
 omit = [
-    "src/check_collector_output.py",
+    "src/scripts/*",
 ]
 
 [tool.coverage.report]
