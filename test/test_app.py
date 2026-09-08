@@ -10,6 +10,8 @@ import pytest
 def mocked_config():
     config = Mock()
     config.collection.interval = 5
+    config.collection.timezone = "Europe/Berlin"
+    config.storage = Mock()
     return config
 
 
@@ -47,6 +49,7 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
         databases=mock_databases,
         interval=5,
         timezone=mocked_config.collection.timezone,
+        storage_config=mocked_config.storage,
     )
 
     mock_manager.run.assert_awaited_once()
