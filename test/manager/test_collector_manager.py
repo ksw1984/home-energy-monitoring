@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from src.collectors.definitions.measurement import Measurement
+from src.config.config import StorageConfig, StorageMeasurementConfig
 from src.manager.collector_manager import CollectorManager
 
 import pytest
@@ -23,15 +24,51 @@ def make_measurement(
     )
 
 
+def make_storage_config(*measurements):
+    return StorageConfig(
+        enabled=True,
+        measurements=[
+            StorageMeasurementConfig(
+                source=source,
+                metric=metric,
+                measurement_type=measurement_type,
+            )
+            for source, metric, measurement_type in measurements
+        ],
+    )
+
+
+def make_manager(
+    *,
+    collectors=None,
+    databases=None,
+    interval=300,
+    timezone="UTC",
+    storage_measurements=(),
+):
+    return CollectorManager(
+        collectors=[] if collectors is None else collectors,
+        databases=databases,
+        interval=interval,
+        timezone=timezone,
+        storage_config=make_storage_config(*storage_measurements),
+    )
+
+
 def test_init():
     collectors = [Mock(), Mock()]
     databases = [Mock()]
+
+    storage_config = make_storage_config(
+        ("test", "temperature", "current"),
+    )
 
     manager = CollectorManager(
         collectors=collectors,
         databases=databases,
         interval=15,
         timezone="Europe/Berlin",
+        storage_config=storage_config,
     )
 
     assert manager.collectors is collectors
@@ -44,7 +81,7 @@ def test_connect_connects_all_collectors():
     collector1 = Mock()
     collector2 = Mock()
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector1, collector2],
     )
 
@@ -58,7 +95,7 @@ def test_disconnect_disconnects_all_collectors():
     collector1 = Mock()
     collector2 = Mock()
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector1, collector2],
     )
 
@@ -78,7 +115,7 @@ def test_collect_all_returns_measurements():
     collector2 = Mock()
     collector2.collect.return_value = [measurement2]
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector1, collector2],
     )
 
@@ -157,9 +194,12 @@ def test_output(caplog):
 
 
 def test_filter_measurements_stores_current_meter_values():
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         interval=10,
+        storage_measurements=(
+            ("test", "grid_import_power", "current"),
+            ("test", "grid_export_power", "current"),
+        ),
     )
 
     measurements = [
@@ -173,9 +213,12 @@ def test_filter_measurements_stores_current_meter_values():
 
 
 def test_filter_measurements_stores_current_meter_values_every_cycle():
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         interval=10,
+        storage_measurements=(
+            ("test", "grid_import_power", "current"),
+            ("test", "grid_export_power", "current"),
+        ),
     )
 
     first = [
@@ -193,13 +236,20 @@ def test_filter_measurements_stores_current_meter_values_every_cycle():
 
 
 def test_filter_measurements_does_not_store_daily_values_until_both_are_available():
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+        ),
     )
 
     measurements = [
-        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
     ]
 
     with patch("src.manager.collector_manager.datetime") as datetime_mock:
@@ -208,89 +258,17 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
         result = manager._filter_measurements(measurements)
 
     assert result == []
-    assert manager._daily_values_stored is False
+    assert manager._daily_values_stored == set()
 
 
 def test_filter_measurements_stores_daily_values_when_both_are_available():
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[],
         interval=10,
-    )
-
-    measurements = [
-        make_measurement("grid_import_energy_total", 100.0),
-        make_measurement("grid_export_energy_total", 50.0),
-    ]
-
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.hour = 0
-
-        result = manager._filter_measurements(measurements)
-
-    assert result == measurements
-    assert manager._daily_values_stored is True
-
-
-def test_filter_measurements_stores_daily_values_only_once():
-    manager = CollectorManager(
-        collectors=[],
-        interval=10,
-    )
-
-    measurements = [
-        make_measurement("grid_import_energy_total", 100.0),
-        make_measurement("grid_export_energy_total", 50.0),
-    ]
-
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.hour = 0
-
-        first_result = manager._filter_measurements(measurements)
-        second_result = manager._filter_measurements(measurements)
-
-    assert first_result == measurements
-    assert second_result == []
-
-
-def test_filter_measurements_does_not_store_daily_values_outside_midnight():
-    manager = CollectorManager(
-        collectors=[],
-        interval=10,
-    )
-
-    measurements = [
-        make_measurement("grid_import_energy_total", 100.0),
-        make_measurement("grid_export_energy_total", 50.0),
-    ]
-
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
-        datetime_mock.now.return_value.hour = 12
-
-        result = manager._filter_measurements(measurements)
-
-    assert result == []
-
-
-def test_filter_measurements_stores_normal_measurements_every_cycle():
-    manager = CollectorManager(
-        collectors=[],
-        interval=10,
-    )
-
-    measurement = make_measurement(
-        metric="temperature",
-        value=20.5,
-    )
-
-    result = manager._filter_measurements([measurement])
-
-    assert result == [measurement]
-
-
-def test_filter_measurements_stores_daily_values_from_one_meter():
-    manager = CollectorManager(
-        collectors=[],
-        interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+        ),
     )
 
     measurements = [
@@ -312,13 +290,142 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
         result = manager._filter_measurements(measurements)
 
     assert result == measurements
-    assert manager._daily_values_stored is True
+    assert manager._daily_values_stored == {"meter_grid"}
+
+
+def test_filter_measurements_stores_daily_values_only_once():
+    manager = make_manager(
+        interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+        ),
+    )
+
+    measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.hour = 0
+
+        first_result = manager._filter_measurements(measurements)
+        second_result = manager._filter_measurements(measurements)
+
+    assert first_result == measurements
+    assert second_result == []
+    assert manager._daily_values_stored == {"meter_grid"}
+
+
+def test_filter_measurements_does_not_store_daily_values_outside_midnight():
+    manager = make_manager(
+        interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+        ),
+    )
+
+    measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.hour = 12
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == []
+
+
+def test_filter_measurements_stores_normal_measurements_every_cycle():
+    measurement = make_measurement(
+        metric="temperature",
+        value=20.5,
+    )
+
+    manager = make_manager(
+        storage_measurements=(("test", "temperature", "current"),),
+    )
+
+    result = manager._filter_measurements([measurement])
+
+    assert result == [measurement]
+
+
+def test_filter_measurements_excludes_unconfigured_measurements():
+    measurement = make_measurement(
+        metric="temperature",
+        value=20.5,
+    )
+
+    manager = make_manager(
+        storage_measurements=(),
+    )
+
+    result = manager._filter_measurements([measurement])
+
+    assert result == []
+
+
+def test_filter_measurements_stores_daily_values_from_one_meter():
+    manager = make_manager(
+        interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+        ),
+    )
+
+    measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.hour = 0
+
+        result = manager._filter_measurements(measurements)
+
+    assert result == measurements
+    assert manager._daily_values_stored == {"meter_grid"}
 
 
 def test_filter_measurements_stores_daily_values_from_both_meters():
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+            ("meter_household", "grid_import_energy_total", "current"),
+            ("meter_household", "grid_export_energy_total", "current"),
+        ),
     )
 
     measurements = [
@@ -350,7 +457,61 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
         result = manager._filter_measurements(measurements)
 
     assert result == measurements
-    assert manager._daily_values_stored is True
+    assert manager._daily_values_stored == {
+        "meter_grid",
+        "meter_household",
+    }
+
+
+def test_filter_measurements_stores_each_meter_independently():
+    manager = make_manager(
+        interval=10,
+        storage_measurements=(
+            ("meter_grid", "grid_import_energy_total", "current"),
+            ("meter_grid", "grid_export_energy_total", "current"),
+            ("meter_household", "grid_import_energy_total", "current"),
+            ("meter_household", "grid_export_energy_total", "current"),
+        ),
+    )
+
+    grid_measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            100.0,
+            source="meter_grid",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            50.0,
+            source="meter_grid",
+        ),
+    ]
+
+    household_measurements = [
+        make_measurement(
+            "grid_import_energy_total",
+            200.0,
+            source="meter_household",
+        ),
+        make_measurement(
+            "grid_export_energy_total",
+            25.0,
+            source="meter_household",
+        ),
+    ]
+
+    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+        datetime_mock.now.return_value.hour = 0
+
+        first_result = manager._filter_measurements(grid_measurements)
+        second_result = manager._filter_measurements(household_measurements)
+
+    assert first_result == grid_measurements
+    assert second_result == household_measurements
+    assert manager._daily_values_stored == {
+        "meter_grid",
+        "meter_household",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +524,7 @@ def test_run_collector_uses_collector_interval():
     collector.interval = 10
     collector.collect.return_value = []
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector],
     )
 
@@ -397,9 +558,9 @@ def test_store_measurements_writes_to_database_immediately():
     database = Mock()
     database.store = AsyncMock()
 
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         databases=[database],
+        storage_measurements=(("test", "temperature", "current"),),
     )
 
     with patch.object(manager, "output") as output:
@@ -424,12 +585,12 @@ def test_store_measurements_continues_with_next_database_when_database_fails(
     working_database = Mock()
     working_database.store = AsyncMock()
 
-    manager = CollectorManager(
-        collectors=[],
+    manager = make_manager(
         databases=[
             failing_database,
             working_database,
         ],
+        storage_measurements=(("test", "temperature", "current"),),
     )
 
     with (
@@ -457,7 +618,7 @@ def test_run_collector_continues_after_collection_failure():
 
     sleep = AsyncMock()
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector],
     )
 
@@ -484,7 +645,7 @@ def test_run_creates_independent_task_for_each_collector():
     collector2 = Mock()
     collector2.interval = 60
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector1, collector2],
     )
 

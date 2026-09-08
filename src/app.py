@@ -3,7 +3,7 @@ import logging
 import signal
 
 from src.collectors.collector_factory import create_collectors
-from src.config import config_obj
+from src.config.config import config_obj
 from src.databases.database_factory import create_databases
 from src.logger.logging_config import setup_logging
 from src.manager.collector_manager import CollectorManager
@@ -27,6 +27,7 @@ async def run():
         databases=databases,
         interval=config_obj.collection.interval,
         timezone=config_obj.collection.timezone,
+        storage_config=config_obj.storage,
     )
 
     try:

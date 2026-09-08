@@ -64,3 +64,40 @@ databases:
     enabled: true
     attributes:
       directory: ./data/backup
+
+storage:
+  measurements:
+    meter_grid:
+      - grid_import_power
+      - grid_export_power
+      - grid_import_energy_total
+      - grid_export_energy_total
+
+    meter_household:
+      - grid_import_power
+      - grid_export_power
+      - grid_import_energy_total
+      - grid_export_energy_total
+
+    fronius:
+      - pv_power
+      - pv_energy_day
+      - pv_energy_year
+      - pv_energy_total
+
+    rademacher:
+      - temperature
+      - light
+      - wind_speed
+      - rain_detected
+
+    open_meteo:
+      current:
+        - temperature
+        - cloud_cover
+        - shortwave_radiation
+
+      forecast:
+        - temperature
+        - precipitation_probability
+        - cloud_cover
