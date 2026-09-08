@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
-from src.config.config import StorageConfig
+from src.config.config import CONFIG_FILE, load_config, StorageConfig
 from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
 
@@ -49,10 +49,10 @@ class CollectorManager:
     def __init__(
         self,
         collectors: list[BaseCollector],
-        databases: list[BaseDatabase] | None = None,
-        interval: int = 300,
-        timezone: str = "UTC",
-        storage_config: StorageConfig | None = None,
+        databases: list[BaseDatabase],
+        interval: int,
+        timezone: str,
+        storage_config: StorageConfig,
     ):
         """Initialize the collector manager.
 
@@ -67,14 +67,10 @@ class CollectorManager:
         self.databases = databases
         self.interval = interval
         self.timezone = ZoneInfo(timezone)
-        self.storage_filter = StorageFilter(
-            storage_config
-            if storage_config is not None
-            else StorageConfig(
-                enabled=True,
-                measurements=[],
-            ),
-        )
+        self.storage_filter = StorageFilter(storage_config)
+
+        self._config_mod_time = CONFIG_FILE.stat().st_mtime
+        self._config_reload_lock = asyncio.Lock()
 
         # True after the daily meter snapshot has been stored during
         # the current midnight hour.
@@ -83,6 +79,32 @@ class CollectorManager:
         # Protects the daily measurement state when multiple collectors
         # finish at approximately the same time.
         self._filter_lock = asyncio.Lock()
+
+    async def _reload_config_if_changed(self) -> None:
+        async with self._config_reload_lock:
+            try:
+                mtime = CONFIG_FILE.stat().st_mtime
+            except OSError:
+                logger.exception("Failed to stat configuration file")
+                return
+
+            if mtime == self._config_mod_time:
+                return
+
+            logger.info("Configuration file changed, reloading")
+
+            try:
+                config = load_config()
+            except Exception:
+                logger.exception("Failed to reload configuration")
+                return
+
+            async with self._filter_lock:
+                self.storage_filter.update(config.storage)
+
+            self._config_mod_time = mtime
+
+            logger.info("Configuration reloaded")
 
     async def run(self) -> None:
         """Run all collectors until the task is cancelled.
@@ -144,6 +166,8 @@ class CollectorManager:
             started = asyncio.get_running_loop().time()
 
             try:
+                await self._reload_config_if_changed()
+
                 measurements = await asyncio.to_thread(
                     collector.collect,
                 )
