@@ -5,6 +5,8 @@ from zoneinfo import ZoneInfo
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
+from src.config.config import StorageConfig
+from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
 
 import serial
@@ -34,13 +36,14 @@ class CollectorManager:
     Collectors that are temporarily unavailable may retry their
     connection during subsequent collection cycles.
 
-    Current meter power values are stored on every collection cycle.
+    Measurements are collected independently of storage configuration.
+    The storage filter determines which measurements are persisted.
 
-    Daily meter energy values are stored only once during hour 00:00,
-    after the required values from both meter sources are available.
+    Daily meter energy values are stored at most once during hour 00:00,
+    after the required values are available.
 
-    All other measurements are stored immediately after each successful
-    collection.
+    All other configured measurements are stored immediately after
+    successful collection.
     """
 
     def __init__(
@@ -49,6 +52,7 @@ class CollectorManager:
         databases: list[BaseDatabase] | None = None,
         interval: int = 300,
         timezone: str = "UTC",
+        storage_config: StorageConfig | None = None,
     ):
         """Initialize the collector manager.
 
@@ -63,10 +67,18 @@ class CollectorManager:
         self.databases = databases
         self.interval = interval
         self.timezone = ZoneInfo(timezone)
+        self.storage_filter = StorageFilter(
+            storage_config
+            if storage_config is not None
+            else StorageConfig(
+                enabled=True,
+                measurements=[],
+            ),
+        )
 
         # True after the daily meter snapshot has been stored during
         # the current midnight hour.
-        self._daily_values_stored = False
+        self._daily_values_stored: set[str] = set()
 
         # Protects the daily measurement state when multiple collectors
         # finish at approximately the same time.
@@ -363,56 +375,64 @@ class CollectorManager:
     ) -> list[Measurement]:
         """Return measurements that should be written to the databases.
 
-        Current meter power measurements are always stored.
+        Storage configuration determines which measurements are eligible for
+        persistence. Daily meter measurements are stored once per source
+        during the midnight hour. All other configured measurements are stored
+        on every collection cycle.
 
-        Daily meter energy measurements are stored only once during
-        hour 00:00, after the required values from both meter sources
-        are available.
+            Args:
+                measurements: Measurements collected during the current cycle.
 
-        All other measurements are stored immediately after collection.
-
-        Args:
-            measurements: Measurements collected during the current cycle.
-
-        Returns:
-            Measurements that should be written to the databases.
+            Returns:
+                Measurements that should be written to the databases.
         """
+        # 1. What is configured to be stored?
+        measurements = self.storage_filter.filter(measurements)
+
+        if not measurements:
+            return []
+
         now = datetime.now(self.timezone)
 
-        #
-        # Reset the daily flag once we leave midnight.
-        #
+        # Reset the daily state once we leave midnight.
         if now.hour != 0:
-            self._daily_values_stored = False
+            self._daily_values_stored.clear()
 
         #
-        # Current measurements are always stored.
+        # Current measurements are stored on every collection cycle.
         #
         measurements_to_store = [measurement for measurement in measurements if measurement.metric in METER_CURRENT_METRICS]
 
         #
-        # Daily measurements are stored only once at midnight.
+        # Daily measurements are stored once per source during midnight.
         #
-        if now.hour == 0 and not self._daily_values_stored:
-            daily_measurements = [measurement for measurement in measurements if measurement.metric in METER_DAILY_METRICS]
+        if now.hour == 0:
+            daily_measurements_by_source: dict[str, list[Measurement]] = {}
 
-            daily_metrics_received = {measurement.metric for measurement in daily_measurements}
+            for measurement in measurements:
+                if measurement.metric in METER_DAILY_METRICS:
+                    daily_measurements_by_source.setdefault(
+                        measurement.source,
+                        [],
+                    ).append(measurement)
 
-            if METER_DAILY_METRICS.issubset(
-                daily_metrics_received,
-            ):
-                measurements_to_store.extend(
-                    daily_measurements,
-                )
-                self._daily_values_stored = True
+            for source, daily_measurements in daily_measurements_by_source.items():
+                if source in self._daily_values_stored:
+                    continue
+
+                daily_metrics_received = {measurement.metric for measurement in daily_measurements}
+
+                if METER_DAILY_METRICS.issubset(daily_metrics_received):
+                    measurements_to_store.extend(daily_measurements)
+                    self._daily_values_stored.add(source)
 
         #
-        # All other measurements are stored every cycle.
+        # All other measurements are stored on every collection cycle.
         #
         measurements_to_store.extend(
             measurement
             for measurement in measurements
-            if measurement.metric not in METER_CURRENT_METRICS and measurement.metric not in METER_DAILY_METRICS
+            if (measurement.metric not in METER_CURRENT_METRICS and measurement.metric not in METER_DAILY_METRICS)
         )
 
         return measurements_to_store

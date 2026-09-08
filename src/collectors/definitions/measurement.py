@@ -58,7 +58,7 @@ class Measurement:
     measurement_type: str = "current"
 
     @property
-    def key(self) -> tuple[str, str, str]:
+    def storage_key(self) -> tuple[str, str, str]:
         return (
             self.source,
             self.metric,

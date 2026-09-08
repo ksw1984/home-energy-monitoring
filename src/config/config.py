@@ -65,6 +65,14 @@ class StorageMeasurementConfig:
     metric: str
     measurement_type: str = "current"
 
+    @property
+    def storage_key(self) -> tuple[str, str, str]:
+        return (
+            self.source,
+            self.metric,
+            self.measurement_type,
+        )
+
 
 @dataclass(frozen=True)
 class StorageConfig:
