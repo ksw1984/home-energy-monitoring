@@ -9,6 +9,9 @@ repos:
         args: [ --unsafe ]
       - id: check-added-large-files
         args: [ "--maxkb=5000" ]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   # Ruff linting and import sorting
   - repo: https://github.com/astral-sh/ruff-pre-commit
