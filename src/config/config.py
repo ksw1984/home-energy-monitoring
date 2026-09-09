@@ -17,9 +17,6 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 CONFIG_FILE = PROJECT_ROOT / "config.yaml"
 
-with CONFIG_FILE.open(encoding="utf-8") as file:
-    config_data = yaml.safe_load(file)
-
 
 # ---------------------------------------------------------
 # Helpers
@@ -55,7 +52,6 @@ class ComponentConfig:
 
 @dataclass(frozen=True)
 class CollectionConfig:
-    interval: int
     timezone: str
 
 
@@ -93,7 +89,9 @@ class Config:
 # ---------------------------------------------------------
 
 
-def load_storage_measurements() -> list[StorageMeasurementConfig]:
+def load_storage_measurements(
+    config_data: dict[str, Any],
+) -> list[StorageMeasurementConfig]:
     measurements = []
 
     for source, measurement_types in config_data["storage"]["measurements"].items():
@@ -135,6 +133,7 @@ def load_storage_measurements() -> list[StorageMeasurementConfig]:
 
 
 def load_component_configs(
+    config_data: dict[str, Any],
     key: str,
 ) -> list[ComponentConfig]:
     return [
@@ -152,15 +151,22 @@ def load_component_configs(
 # Load configuration
 # ---------------------------------------------------------
 
-config_obj = Config(
-    collection=CollectionConfig(
-        interval=int(config_data["collection"]["interval"]),
-        timezone=config_data["collection"]["timezone"],
-    ),
-    collectors=load_component_configs("collectors"),
-    databases=load_component_configs("databases"),
-    storage=StorageConfig(
-        enabled=config_data.get("storage", {}).get("enabled", True),
-        measurements=load_storage_measurements(),
-    ),
-)
+
+def load_config() -> Config:
+    with CONFIG_FILE.open(encoding="utf-8") as file:
+        config_data = yaml.safe_load(file)
+
+    return Config(
+        collection=CollectionConfig(
+            timezone=config_data["collection"]["timezone"],
+        ),
+        collectors=load_component_configs(config_data, "collectors"),
+        databases=load_component_configs(config_data, "databases"),
+        storage=StorageConfig(
+            enabled=config_data.get("storage", {}).get("enabled", True),
+            measurements=load_storage_measurements(config_data),
+        ),
+    )
+
+
+config_obj = load_config()

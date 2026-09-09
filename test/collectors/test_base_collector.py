@@ -4,6 +4,9 @@ import pytest
 
 
 class MockCollector(BaseCollector):
+    def __init__(self, **kwargs):
+        super().__init__(source="mock", **kwargs)
+
     def collect(self):
         return super().collect()
 

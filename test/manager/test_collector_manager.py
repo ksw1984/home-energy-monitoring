@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, UTC
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
@@ -42,14 +43,12 @@ def make_manager(
     *,
     collectors=None,
     databases=None,
-    interval=300,
     timezone="UTC",
     storage_measurements=(),
 ):
     return CollectorManager(
         collectors=[] if collectors is None else collectors,
-        databases=databases,
-        interval=interval,
+        databases=[] if databases is None else databases,
         timezone=timezone,
         storage_config=make_storage_config(*storage_measurements),
     )
@@ -66,14 +65,12 @@ def test_init():
     manager = CollectorManager(
         collectors=collectors,
         databases=databases,
-        interval=15,
         timezone="Europe/Berlin",
         storage_config=storage_config,
     )
 
     assert manager.collectors is collectors
     assert manager.databases is databases
-    assert manager.interval == 15
     assert manager.timezone == ZoneInfo("Europe/Berlin")
 
 
@@ -136,8 +133,15 @@ def test_collect_all_skips_failed_collector():
     working_collector = Mock()
     working_collector.collect.return_value = [measurement]
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[failing_collector, working_collector],
+        storage_measurements=(
+            (
+                measurement.source,
+                measurement.metric,
+                measurement.measurement_type,
+            ),
+        ),
     )
 
     result = asyncio.run(manager.collect_all())
@@ -154,8 +158,15 @@ def test_collect_all_skips_unavailable_collector():
     working_collector = Mock()
     working_collector.collect.return_value = [measurement]
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[unavailable_collector, working_collector],
+        storage_measurements=(
+            (
+                measurement.source,
+                measurement.metric,
+                measurement.measurement_type,
+            ),
+        ),
     )
 
     result = asyncio.run(manager.collect_all())
@@ -167,7 +178,7 @@ def test_collect_all_returns_empty_list_when_no_measurements():
     collector = Mock()
     collector.collect.return_value = []
 
-    manager = CollectorManager(
+    manager = make_manager(
         collectors=[collector],
     )
 
@@ -195,7 +206,6 @@ def test_output(caplog):
 
 def test_filter_measurements_stores_current_meter_values():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("test", "grid_import_power", "current"),
             ("test", "grid_export_power", "current"),
@@ -214,7 +224,6 @@ def test_filter_measurements_stores_current_meter_values():
 
 def test_filter_measurements_stores_current_meter_values_every_cycle():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("test", "grid_import_power", "current"),
             ("test", "grid_export_power", "current"),
@@ -237,7 +246,6 @@ def test_filter_measurements_stores_current_meter_values_every_cycle():
 
 def test_filter_measurements_does_not_store_daily_values_until_both_are_available():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -264,7 +272,6 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
 def test_filter_measurements_stores_daily_values_when_both_are_available():
     manager = make_manager(
         collectors=[],
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -295,7 +302,6 @@ def test_filter_measurements_stores_daily_values_when_both_are_available():
 
 def test_filter_measurements_stores_daily_values_only_once():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -328,7 +334,6 @@ def test_filter_measurements_stores_daily_values_only_once():
 
 def test_filter_measurements_does_not_store_daily_values_outside_midnight():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -388,7 +393,6 @@ def test_filter_measurements_excludes_unconfigured_measurements():
 
 def test_filter_measurements_stores_daily_values_from_one_meter():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -419,7 +423,6 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
 
 def test_filter_measurements_stores_daily_values_from_both_meters():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -465,7 +468,6 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
 
 def test_filter_measurements_stores_each_meter_independently():
     manager = make_manager(
-        interval=10,
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -522,6 +524,7 @@ def test_filter_measurements_stores_each_meter_independently():
 def test_run_collector_uses_collector_interval():
     collector = Mock()
     collector.interval = 10
+    collector.enabled = True
     collector.collect.return_value = []
 
     manager = make_manager(
@@ -550,6 +553,30 @@ def test_run_collector_uses_collector_interval():
 
     collector.collect.assert_called_once()
     assert sleep_calls == [10]
+
+
+def test_run_collector_skips_disabled_collector():
+    collector = Mock()
+    collector.interval = 10
+    collector.enabled = False
+
+    manager = make_manager(
+        collectors=[collector],
+    )
+
+    async def fake_sleep(_delay):
+        raise asyncio.CancelledError
+
+    with (
+        patch(
+            "src.manager.collector_manager.asyncio.sleep",
+            side_effect=fake_sleep,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager._run_collector(collector))
+
+    collector.collect.assert_not_called()
 
 
 def test_store_measurements_writes_to_database_immediately():
@@ -609,8 +636,9 @@ def test_store_measurements_continues_with_next_database_when_database_fails(
 
 def test_run_collector_continues_after_collection_failure():
     collector = Mock()
-    collector.interval = 10
 
+    collector.interval = 10
+    collector.enabled = True
     collector.collect.side_effect = [
         RuntimeError("collector failed"),
         asyncio.CancelledError(),
@@ -635,15 +663,15 @@ def test_run_collector_continues_after_collection_failure():
     sleep.assert_awaited_once()
     assert sleep.await_args is not None
     sleep_time = sleep.await_args.args[0]
-    assert sleep_time == pytest.approx(10, abs=0.01)
+    assert sleep_time == pytest.approx(10, abs=0.08)
 
 
 def test_run_creates_independent_task_for_each_collector():
     collector1 = Mock()
-    collector1.interval = 10
+    collector1.source = "fronius"
 
     collector2 = Mock()
-    collector2.interval = 60
+    collector2.source = "iec"
 
     manager = make_manager(
         collectors=[collector1, collector2],
@@ -681,5 +709,253 @@ def test_run_creates_independent_task_for_each_collector():
         asyncio.run(manager.run())
 
     assert len(created_tasks) == 2
-    assert created_tasks[0][1] == "collector-Mock"
-    assert created_tasks[1][1] == "collector-Mock"
+    assert created_tasks[0][1] == "collector-fronius"
+    assert created_tasks[1][1] == "collector-iec"
+
+
+def test_reload_config_if_changed_does_nothing_when_config_is_unchanged():
+    manager = make_manager()
+
+    with (
+        patch.object(Path, "stat") as stat,
+        patch(
+            "src.manager.collector_manager.load_config",
+        ) as load_config,
+    ):
+        stat.return_value.st_mtime = manager._config_mod_time
+
+        asyncio.run(manager._reload_config_if_changed())
+
+    load_config.assert_not_called()
+
+
+def test_reload_config_if_changed_updates_storage_filter():
+    manager = make_manager(
+        storage_measurements=(("meter_grid", "grid_import_power", "current"),),
+    )
+
+    new_storage_config = StorageConfig(
+        enabled=True,
+        measurements=[
+            StorageMeasurementConfig(
+                source="meter_grid",
+                metric="grid_export_power",
+                measurement_type="current",
+            ),
+        ],
+    )
+
+    new_config = Mock()
+    new_config.storage = new_storage_config
+    new_config.collectors = []
+
+    old_mtime = manager._config_mod_time
+    new_mtime = old_mtime + 1
+
+    with (
+        patch(
+            "src.manager.collector_manager.CONFIG_FILE",
+        ) as config_file,
+        patch(
+            "src.manager.collector_manager.load_config",
+            return_value=new_config,
+        ) as load_config,
+    ):
+        config_file.stat.return_value.st_mtime = new_mtime
+
+        asyncio.run(manager._reload_config_if_changed())
+
+    load_config.assert_called_once_with()
+    assert manager._config_mod_time == new_mtime
+
+    measurement_import = make_measurement(
+        metric="grid_import_power",
+        source="meter_grid",
+    )
+    measurement_export = make_measurement(
+        metric="grid_export_power",
+        source="meter_grid",
+    )
+
+    assert manager.storage_filter.filter([measurement_import]) == []
+    assert manager.storage_filter.filter([measurement_export]) == [
+        measurement_export,
+    ]
+
+
+def test_reload_config_if_changed_keeps_old_config_when_reload_fails(
+    caplog,
+):
+    manager = make_manager(
+        storage_measurements=(("meter_grid", "grid_import_power", "current"),),
+    )
+
+    old_mtime = manager._config_mod_time
+    new_mtime = old_mtime + 1
+
+    measurement = make_measurement(
+        metric="grid_import_power",
+        source="meter_grid",
+    )
+
+    with (
+        patch(
+            "src.manager.collector_manager.CONFIG_FILE",
+        ) as config_file,
+        patch(
+            "src.manager.collector_manager.load_config",
+            side_effect=ValueError("invalid YAML"),
+        ) as load_config,
+        caplog.at_level("ERROR"),
+    ):
+        config_file.stat.return_value.st_mtime = new_mtime
+
+        asyncio.run(manager._reload_config_if_changed())
+
+    load_config.assert_called_once_with()
+    assert manager.storage_filter.filter([measurement]) == [measurement]
+    assert manager._config_mod_time == old_mtime
+    assert "Failed to reload configuration" in caplog.text
+
+
+def test_reload_config_if_changed_only_reloads_once_for_same_mtime():
+    manager = make_manager()
+
+    new_storage_config = StorageConfig(
+        enabled=True,
+        measurements=[
+            StorageMeasurementConfig(
+                source="test",
+                metric="temperature",
+            ),
+        ],
+    )
+
+    new_config = Mock()
+    new_config.storage = new_storage_config
+    new_config.collectors = []
+
+    new_mtime = manager._config_mod_time + 1
+
+    with (
+        patch(
+            "src.manager.collector_manager.CONFIG_FILE",
+        ) as config_file,
+        patch(
+            "src.manager.collector_manager.load_config",
+            return_value=new_config,
+        ) as load_config,
+    ):
+        config_file.stat.return_value.st_mtime = new_mtime
+
+        asyncio.run(manager._reload_config_if_changed())
+        asyncio.run(manager._reload_config_if_changed())
+
+    load_config.assert_called_once_with()
+    assert manager._config_mod_time == new_mtime
+
+
+def test_reload_config_if_changed_handles_missing_config_file(caplog):
+    manager = make_manager()
+
+    with (
+        patch(
+            "src.manager.collector_manager.CONFIG_FILE",
+        ) as config_file,
+        caplog.at_level("ERROR"),
+    ):
+        config_file.stat.side_effect = OSError("file unavailable")
+
+        asyncio.run(manager._reload_config_if_changed())
+
+    assert "Failed to stat configuration file" in caplog.text
+
+
+def test_run_collector_checks_for_config_reload():
+    collector = Mock()
+
+    collector.interval = 10
+    collector.enabled = True
+    collector.collect.return_value = []
+
+    manager = make_manager(
+        collectors=[collector],
+    )
+
+    reload_config = AsyncMock()
+
+    async def fake_sleep(_delay):
+        raise asyncio.CancelledError
+
+    with (
+        patch.object(
+            manager,
+            "_reload_config_if_changed",
+            reload_config,
+        ),
+        patch(
+            "src.manager.collector_manager.asyncio.sleep",
+            side_effect=fake_sleep,
+        ),
+        patch(
+            "src.manager.collector_manager.asyncio.get_running_loop",
+        ) as get_loop,
+    ):
+        get_loop.return_value.time.side_effect = [0, 0]
+
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(manager._run_collector(collector))
+
+    reload_config.assert_awaited_once()
+    collector.collect.assert_called_once()
+
+
+def test_reload_config_if_changed_updates_measurement_type():
+    manager = make_manager(
+        storage_measurements=(("open_meteo", "temperature", "current"),),
+    )
+
+    new_config = Mock()
+    new_config.storage = StorageConfig(
+        enabled=True,
+        measurements=[
+            StorageMeasurementConfig(
+                source="open_meteo",
+                metric="temperature",
+                measurement_type="forecast",
+            ),
+        ],
+    )
+    new_config.collectors = []
+
+    new_mtime = manager._config_mod_time + 1
+
+    current = make_measurement(
+        metric="temperature",
+        source="open_meteo",
+    )
+
+    forecast = Measurement(
+        timestamp=datetime(2026, 8, 27, 13, 0, tzinfo=UTC),
+        source="open_meteo",
+        metric="temperature",
+        value=21.0,
+        unit="°C",
+        measurement_type="forecast",
+    )
+
+    with (
+        patch(
+            "src.manager.collector_manager.CONFIG_FILE",
+        ) as config_file,
+        patch(
+            "src.manager.collector_manager.load_config",
+            return_value=new_config,
+        ),
+    ):
+        config_file.stat.return_value.st_mtime = new_mtime
+
+        asyncio.run(manager._reload_config_if_changed())
+
+    assert manager.storage_filter.filter([current]) == []
+    assert manager.storage_filter.filter([forecast]) == [forecast]

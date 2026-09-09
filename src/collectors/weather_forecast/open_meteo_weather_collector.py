@@ -45,14 +45,15 @@ class OpenMeteoWeatherCollector(BaseCollector):
     into the common :class:`Measurement` format.
     """
 
-    SOURCE = "open_meteo"
     API_URL = "https://api.open-meteo.com/v1/forecast"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        *,
+        enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        *,
+        source: str = "open_meteo",
         latitude: float,
         longitude: float,
     ) -> None:
@@ -62,7 +63,12 @@ class OpenMeteoWeatherCollector(BaseCollector):
             latitude: Latitude of the weather location.
             longitude: Longitude of the weather location.
         """
-        super().__init__(timezone, interval)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         self.latitude = latitude
         self.longitude = longitude
@@ -198,7 +204,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
         return Measurement(
             timestamp=timestamp,
-            source=self.SOURCE,
+            source=self.source,
             metric=metric,
             value=value,
             unit=definition["unit"],

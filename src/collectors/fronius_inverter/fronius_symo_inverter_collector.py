@@ -35,15 +35,15 @@ class FroniusSymoInverterCollector(BaseCollector):
     inverter is unavailable, which is useful for power-control decisions.
     """
 
-    SOURCE = "fronius"
-
     ZERO_POWER_DURATION = timedelta(minutes=5)
 
     def __init__(  # noqa: PLR0913
         self,
+        *,
+        enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        *,
+        source: str = "fronius",
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
         latitude: float = 54.3217,
@@ -60,7 +60,12 @@ class FroniusSymoInverterCollector(BaseCollector):
             longitude: Longitude of the PV installation, used to calculate
                 the local sunset time.
         """
-        super().__init__(timezone, interval)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         # REST call
         self.inverter_ip = inverter_ip
@@ -306,7 +311,7 @@ class FroniusSymoInverterCollector(BaseCollector):
 
         return Measurement(
             timestamp=timestamp,
-            source=self.SOURCE,
+            source=self.source,
             metric=metric,
             value=value,
             unit=definition["unit"],

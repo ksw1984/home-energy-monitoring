@@ -19,47 +19,29 @@ def create_collectors(config):
     collectors: list[BaseCollector] = []
 
     for collector_config in config.collectors:
-        if not collector_config.enabled:
-            continue
-
         attributes = collector_config.attributes
         timezone = config.collection.timezone
 
+        interval = collector_config.interval if collector_config.interval is not None else config.collection.interval
+
+        common_kwargs = {
+            "timezone": timezone,
+            "interval": interval,
+            "enabled": collector_config.enabled,
+            **attributes,
+        }
+
         if collector_config.type == "fronius":
-            collectors.append(
-                FroniusSymoInverterCollector(
-                    timezone=timezone,
-                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
-                    **attributes,
-                )
-            )
+            collectors.append(FroniusSymoInverterCollector(**common_kwargs))
 
         elif collector_config.type == "iec":
-            collectors.append(
-                IecCollector(
-                    timezone=timezone,
-                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
-                    **attributes,
-                )
-            )
+            collectors.append(IecCollector(**common_kwargs))
 
         elif collector_config.type == "environment":
-            collectors.append(
-                RademacherEnvironmentSensorCollector(
-                    timezone=timezone,
-                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
-                    **attributes,
-                )
-            )
+            collectors.append(RademacherEnvironmentSensorCollector(**common_kwargs))
 
         elif collector_config.type == "weather":
-            collectors.append(
-                OpenMeteoWeatherCollector(
-                    timezone=timezone,
-                    interval=(collector_config.interval if collector_config.interval is not None else config.collection.interval),
-                    **attributes,
-                )
-            )
+            collectors.append(OpenMeteoWeatherCollector(**common_kwargs))
 
         else:
             raise ValueError(f"Unknown collector type: {collector_config.type}")

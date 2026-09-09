@@ -60,8 +60,6 @@ def test_storage_measurement_config_storage_key():
 # ============================================================================
 # Config
 # ============================================================================
-
-
 def test_config_dataclass():
     collectors = [
         ComponentConfig(
@@ -102,7 +100,6 @@ def test_config_dataclass():
 
     config = Config(
         collection=CollectionConfig(
-            interval=10,
             timezone="Europe/Berlin",
         ),
         collectors=collectors,
@@ -110,7 +107,6 @@ def test_config_dataclass():
         storage=storage,
     )
 
-    assert config.collection.interval == 10
     assert config.collection.timezone == "Europe/Berlin"
 
     assert config.collectors == collectors
@@ -118,10 +114,12 @@ def test_config_dataclass():
     assert config.storage == storage
 
     assert config.collectors[0].type == "fronius"
+    assert config.collectors[0].enabled is True
     assert config.collectors[0].interval == 30
     assert config.collectors[0].attributes["latitude"] == 52.4567
 
     assert config.databases[0].type == "influxdb"
+    assert config.databases[0].enabled is True
     assert config.databases[0].interval is None
     assert config.databases[0].attributes["token"] == "token"
 
