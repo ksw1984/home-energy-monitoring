@@ -50,7 +50,6 @@ class CollectorManager:
         self,
         collectors: list[BaseCollector],
         databases: list[BaseDatabase],
-        interval: int,
         timezone: str,
         storage_config: StorageConfig,
     ):
@@ -65,7 +64,6 @@ class CollectorManager:
         """
         self.collectors = collectors
         self.databases = databases
-        self.interval = interval
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
 
@@ -102,6 +100,41 @@ class CollectorManager:
             async with self._filter_lock:
                 self.storage_filter.update(config.storage)
 
+                # Build lookup by collector source.
+                collector_configs = {item.attributes["source"]: item for item in config.collectors}
+
+                for collector in self.collectors:
+                    collector_config = collector_configs.get(collector.source)
+
+                    if collector_config is None:
+                        logger.warning(
+                            "No configuration found for collector %s (source=%s)",
+                            collector.__class__.__name__,
+                            collector.source,
+                        )
+                        continue
+
+                    if collector_config.interval is None:
+                        logger.warning(
+                            "No interval configured for collector %s (source=%s)",
+                            collector.__class__.__name__,
+                            collector.source,
+                        )
+                        continue
+
+                    collector.configure_runtime(
+                        interval=collector_config.interval,
+                        enabled=collector_config.enabled,
+                    )
+
+                    logger.info(
+                        "Configured collector %s (source=%s): enabled=%s interval=%ss",
+                        collector.__class__.__name__,
+                        collector.source,
+                        collector.enabled,
+                        collector.interval,
+                    )
+
             self._config_mod_time = mtime
 
             logger.info("Configuration reloaded")
@@ -128,7 +161,7 @@ class CollectorManager:
             tasks = [
                 asyncio.create_task(
                     self._run_collector(collector),
-                    name=f"collector-{collector.__class__.__name__}",
+                    name=f"collector-{collector.source}",
                 )
                 for collector in self.collectors
             ]
@@ -154,12 +187,12 @@ class CollectorManager:
         Args:
             collector: Collector to execute.
         """
-        interval = collector.interval
 
         logger.info(
-            "Starting collector %s with interval=%ss",
+            "Starting collector %s with interval=%ss enabled=%s",
             collector.__class__.__name__,
-            interval,
+            collector.interval,
+            collector.enabled,
         )
 
         while True:
@@ -167,6 +200,10 @@ class CollectorManager:
 
             try:
                 await self._reload_config_if_changed()
+
+                if not collector.enabled:
+                    await asyncio.sleep(1)
+                    continue
 
                 measurements = await asyncio.to_thread(
                     collector.collect,
@@ -196,7 +233,7 @@ class CollectorManager:
                 )
 
             elapsed = asyncio.get_running_loop().time() - started
-            delay = max(0, interval - elapsed)
+            delay = max(0.0, collector.interval - elapsed)
 
             await asyncio.sleep(delay)
 

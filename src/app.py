@@ -25,7 +25,6 @@ async def run():
     manager = CollectorManager(
         collectors=collectors,
         databases=databases,
-        interval=config_obj.collection.interval,
         timezone=config_obj.collection.timezone,
         storage_config=config_obj.storage,
     )

@@ -52,7 +52,6 @@ class ComponentConfig:
 
 @dataclass(frozen=True)
 class CollectionConfig:
-    interval: int
     timezone: str
 
 
@@ -159,7 +158,6 @@ def load_config() -> Config:
 
     return Config(
         collection=CollectionConfig(
-            interval=int(config_data["collection"]["interval"]),
             timezone=config_data["collection"]["timezone"],
         ),
         collectors=load_component_configs(config_data, "collectors"),

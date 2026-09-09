@@ -33,11 +33,12 @@ class IecCollector(BaseCollector):
 
     def __init__(
         self,
+        *,
+        enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        *,
-        port="/dev/ttyUSB0",
-        source="iec",
+        source: str = "iec",
+        port: str = "/dev/ttyUSB0",
     ) -> None:
         """Initialize the IEC meter collector.
 
@@ -46,11 +47,15 @@ class IecCollector(BaseCollector):
             port: Serial device used to communicate with the IEC meter.
             source: Source identifier stored with generated measurements.
         """
-        super().__init__(timezone, interval)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         self.port = port
         self.protocol = IecProtocol(port)
-        self.source = source
         self.connected = False
 
     def connect(self) -> None:

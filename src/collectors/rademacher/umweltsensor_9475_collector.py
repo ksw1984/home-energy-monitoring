@@ -38,13 +38,13 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
     default values.
     """
 
-    SOURCE = "rademacher"
-
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        *,
+        enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        *,
+        source: str = "sensor_rademacher",
         smart_home_box_ip="192.168.178.19",
         device_id=50,
     ) -> None:
@@ -54,7 +54,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             smart_home_box_ip: IP address of the Rademacher Smart Home Box.
             device_id: Rademacher device ID of the environment sensor in the Smart Home Box.
         """
-        super().__init__(timezone, interval)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         self.smart_home_box_ip = smart_home_box_ip
         self.device_id = device_id
@@ -232,7 +237,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
         return Measurement(
             timestamp=timestamp,
-            source=self.SOURCE,
+            source=self.source,
             metric=metric,
             value=value,
             unit=definition["unit"],
