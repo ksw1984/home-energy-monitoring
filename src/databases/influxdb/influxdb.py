@@ -1,11 +1,11 @@
 import asyncio
 import logging
 
-from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client.write_api import SYNCHRONOUS
-
 from src.collectors.definitions.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+
+from influxdb_client import InfluxDBClient, Point
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +31,7 @@ class InfluxDatabase(BaseDatabase):
 
     async def store(self, measurements: list[Measurement]) -> None:
         points = [
-            Point(measurement.metric)
-            .tag("source", measurement.source)
-            .field("value", measurement.value)
-            .time(measurement.timestamp)
+            Point(measurement.metric).tag("source", measurement.source).field("value", measurement.value).time(measurement.timestamp)
             for measurement in measurements
         ]
         logger.info("Points: %s", points)

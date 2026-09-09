@@ -1,15 +1,16 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import pytest
-
 import src.app
+
+import pytest
 
 
 @pytest.fixture
 def mocked_config():
     config = Mock()
-    config.collection.interval = 5
+    config.collection.timezone = "Europe/Berlin"
+    config.storage = Mock()
     return config
 
 
@@ -45,7 +46,8 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
     manager_cls.assert_called_once_with(
         collectors=mock_collectors,
         databases=mock_databases,
-        interval=5,
+        timezone=mocked_config.collection.timezone,
+        storage_config=mocked_config.storage,
     )
 
     mock_manager.run.assert_awaited_once()
@@ -83,16 +85,27 @@ def test_run_closes_database_when_manager_fails(mocked_config):
     mock_databases[0].close.assert_called_once()
 
 
-def test_main_calls_asyncio_run():
-    with patch.object(src.app.asyncio, "run") as asyncio_run:
+def test_main_sets_up_event_loop():
+    loop = Mock()
+
+    with (
+        patch.object(src.app, "asyncio") as asyncio_mock,
+        patch.object(src.app, "signal") as signal_mock,
+    ):
+        asyncio_mock.new_event_loop.return_value = loop
+
         src.app.main()
 
-    asyncio_run.assert_called_once()
-
-    coroutine = asyncio_run.call_args.args[0]
-
-    assert asyncio.iscoroutine(coroutine)
+    coroutine = loop.run_until_complete.call_args.args[0]
     coroutine.close()
+
+    asyncio_mock.new_event_loop.assert_called_once()
+    asyncio_mock.set_event_loop.assert_called_once_with(loop)
+
+    loop.run_until_complete.assert_called_once()
+    loop.close.assert_called_once()
+
+    assert signal_mock.signal.call_count == 2
 
 
 def test_module_entry_point():

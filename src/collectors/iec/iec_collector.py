@@ -5,6 +5,7 @@ from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.obis import CURRENT_OBIS, get_obis_definition
 
+import serial
 from .iec_protocol import IecProtocol
 
 logger = logging.getLogger(__name__)
@@ -24,53 +25,84 @@ class IecCollector(BaseCollector):
 
     The serial connection is established lazily when ``collect()`` is
     called if it has not already been established through ``connect()``.
+
+    If the serial connection is lost during normal operation, the
+    collector marks itself as disconnected. A subsequent collection
+    cycle will attempt to reconnect automatically.
     """
 
     def __init__(
         self,
-        timezone: str = "UTC",
         *,
-        port="/dev/ttyUSB0",
-        source="iec",
+        enabled: bool = True,
+        timezone: str = "UTC",
+        interval: int = 300,
+        source: str = "iec",
+        port: str = "/dev/ttyUSB0",
     ) -> None:
         """Initialize the IEC meter collector.
 
         Args:
+            timezone: Timezone used for measurement timestamps.
             port: Serial device used to communicate with the IEC meter.
+            source: Source identifier stored with generated measurements.
         """
-        super().__init__(timezone)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
+        self.port = port
         self.protocol = IecProtocol(port)
-        self.source = source
         self.connected = False
 
     def connect(self) -> None:
-        """Establish the IEC meter connection."""
-        self.protocol.connect()
+        """Open the physical IEC serial connection.
+
+        The IEC protocol handshake is performed for each collection by
+        ``IecProtocol.read()``.
+
+        Raises:
+            serial.SerialException: If the serial port cannot be opened.
+        """
+
+        try:
+            self.protocol.connect()
+        except serial.SerialException:
+            self.connected = False
+            raise
+
         self.connected = True
+        logger.info("IEC meter connected on %s", self.port)
 
     def disconnect(self) -> None:
-        """Close the IEC meter connection."""
+        """Close the IEC meter connection.
+
+        Calling this method when the collector is already disconnected
+        has no effect.
+        """
         self.protocol.disconnect()
         self.connected = False
 
     def collect(self) -> list[Measurement]:
         """Read and return the current measurements from the meter.
 
-        If the collector is not connected, the IEC connection is
-        established automatically before reading the meter telegram.
-
-        Returns:
-            A list of measurements for the supported current OBIS codes.
-
-        Raises:
-            RuntimeError: If the IEC protocol cannot read because the
-                connection is not available.
+        A fresh IEC 62056-21 protocol session is established for every
+        collection. The underlying physical serial connection remains open
+        between collections.
         """
+
         if not self.connected:
             self.connect()
 
-        text = self.protocol.read()
+        try:
+            text = self.protocol.read()
+        except serial.SerialException:
+            self.connected = False
+            self.protocol.disconnect()
+            raise
 
         return self._parse(text)
 
@@ -97,7 +129,9 @@ class IecCollector(BaseCollector):
 
         measurements: list[Measurement] = []
 
-        pattern = re.compile(r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)")
+        pattern = re.compile(
+            r"([0-9]+-[0-9]+:)?" r"([0-9]+\.[0-9]+\.[0-9]+)" r"\(([^)]*)\)",
+        )
 
         for match in pattern.finditer(text):
             obis = match.group(2)
@@ -132,10 +166,10 @@ class IecCollector(BaseCollector):
 
         Examples::
 
-            07.417*kW
-            243.1*V
-            -8.77*kW
-            +0.59*kvar
+            07.417 * kW
+            243.1 * V
+            -8.77 * kW
+            +0.59 * kvar
 
         Args:
             raw_value: Raw value including the optional unit.

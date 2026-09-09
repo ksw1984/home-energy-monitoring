@@ -1,13 +1,13 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-import pytest
-import requests
-
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
+
+import pytest
+import requests
 
 # ============================================================================
 # Test data
@@ -80,6 +80,42 @@ def mock_get():
         yield mock
 
 
+@pytest.fixture
+def mock_sunspec_device():
+    device = Mock()
+
+    # Model 113 - inverter, AC side
+    inverter = Mock()
+    inverter.W.cvalue = 11057.0
+    inverter.WH.cvalue = 91809800.0
+
+    # Model 160 - MPPT, DC side
+    mppt = Mock()
+
+    mppt_1 = Mock()
+    mppt_1.DCW.cvalue = 5549.8
+    mppt_1.DCWH.cvalue = 54116104.0
+
+    mppt_2 = Mock()
+    mppt_2.DCW.cvalue = 5875.8
+    mppt_2.DCWH.cvalue = 37693700.0
+
+    mppt.module = [mppt_1, mppt_2]
+
+    device.models = {
+        113: [inverter],
+        160: [mppt],
+    }
+
+    return device
+
+
+@pytest.fixture
+def disable_sunspec_collection(collector):
+    collector._collect_sunspec_measurements = Mock(return_value=[])
+    return collector
+
+
 # ============================================================================
 # Basic collection
 #
@@ -92,29 +128,44 @@ def test_collect_returns_measurements(
     collector,
     mock_response,
     mock_get,
+    mock_sunspec_device,
 ):
     mock_get.return_value = mock_response
+
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
 
     result = collector.collect()
 
     assert isinstance(result, list)
-    assert len(result) == 1
+    assert len(result) == 7
     assert all(isinstance(measurement, Measurement) for measurement in result)
 
 
-def test_collect_returns_only_pv_power(
+def test_collect_returns_rest_and_sunspec_measurements(
     collector,
     mock_response,
     mock_get,
+    mock_sunspec_device,
 ):
     mock_get.return_value = mock_response
 
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
     result = collector.collect()
 
-    assert len(result) == 1
-    assert result[0].metric == "pv_power"
-    assert result[0].value == 10924
-    assert result[0].unit == "W"
+    metrics = [measurement.metric for measurement in result]
+
+    assert metrics == [
+        "pv_power",
+        "mppt_1_power",
+        "mppt_1_energy_total",
+        "mppt_2_power",
+        "mppt_2_energy_total",
+        "ac_power",
+        "ac_energy_total",
+    ]
 
 
 # ============================================================================
@@ -129,18 +180,20 @@ def test_collect_returns_expected_source(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
 
     result = collector.collect()
 
-    assert all(measurement.source == "fronius" for measurement in result)
+    assert all(measurement.source == collector.source for measurement in result)
 
 
 def test_collect_returns_expected_units(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
 
@@ -155,6 +208,7 @@ def test_collect_returns_timestamp(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
 
@@ -169,6 +223,7 @@ def test_collect_timestamp_uses_configured_timezone(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
 
@@ -355,6 +410,7 @@ def test_daily_energy_is_recorded_after_five_minutes_zero_power(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
     collector._is_after_sunset = lambda timestamp: True
@@ -399,6 +455,7 @@ def test_daily_energy_is_only_recorded_once(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_get.return_value = mock_response
     collector._is_after_sunset = lambda timestamp: True
@@ -503,6 +560,7 @@ def test_http_error_does_not_create_measurement(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     mock_response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
 
@@ -514,7 +572,7 @@ def test_http_error_does_not_create_measurement(
 
 
 def test_is_after_sunset_rejects_naive_timestamp(collector):
-    timestamp = datetime(2026, 8, 15, 21, 00)
+    timestamp = datetime(2026, 8, 15, 21, 00, tzinfo=None)  # noqa: DTZ001
 
     with pytest.raises(
         ValueError,
@@ -527,6 +585,7 @@ def test_fronius_api_error_is_detected(
     collector,
     mock_response,
     mock_get,
+    disable_sunspec_collection,
 ):
     error_response = {
         **FRONIUS_RESPONSE,
@@ -597,3 +656,132 @@ def test_get_current_power_returns_zero_when_inverter_is_offline(
     )
 
     assert collector.get_current_power_watt() == 0.0
+
+
+def test_collect_ac_measurements(
+    collector,
+    mock_sunspec_device,
+):
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    result = collector._collect_ac_measurements(timestamp)
+
+    assert len(result) == 2
+
+    measurements = {measurement.metric: measurement for measurement in result}
+
+    assert measurements["ac_power"].value == 11057.0
+    assert measurements["ac_power"].unit == "W"
+
+    assert measurements["ac_energy_total"].value == 91809800.0
+    assert measurements["ac_energy_total"].unit == "Wh"
+
+
+def test_collect_mppt_measurements(
+    collector,
+    mock_sunspec_device,
+):
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    result = collector._collect_mppt_measurements(timestamp)
+
+    assert len(result) == 4
+
+    measurements = {measurement.metric: measurement for measurement in result}
+
+    assert measurements["mppt_1_power"].value == 5549.8
+    assert measurements["mppt_1_power"].unit == "W"
+
+    assert measurements["mppt_1_energy_total"].value == 54116104.0
+    assert measurements["mppt_1_energy_total"].unit == "Wh"
+
+    assert measurements["mppt_2_power"].value == 5875.8
+    assert measurements["mppt_2_power"].unit == "W"
+
+    assert measurements["mppt_2_energy_total"].value == 37693700.0
+    assert measurements["mppt_2_energy_total"].unit == "Wh"
+
+
+def test_collect_sunspec_measurements(
+    collector,
+    mock_sunspec_device,
+):
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    result = collector._collect_sunspec_measurements(timestamp)
+
+    assert len(result) == 6
+
+    metrics = [measurement.metric for measurement in result]
+
+    assert metrics == [
+        "mppt_1_power",
+        "mppt_1_energy_total",
+        "mppt_2_power",
+        "mppt_2_energy_total",
+        "ac_power",
+        "ac_energy_total",
+    ]
+
+
+def test_mppt_uses_scaled_cvalue(
+    collector,
+):
+    device = Mock()
+
+    mppt = Mock()
+
+    module = Mock()
+    module.DCW.cvalue = 5549.8
+    module.DCWH.cvalue = 54116104.0
+
+    # Deliberately different raw values.
+    module.DCW.value = 55498
+    module.DCWH.value = 54116104
+
+    mppt.module = [module]
+
+    device.models = {
+        160: [mppt],
+    }
+
+    collector._sunspec_device = device
+    collector._sunspec_scanned = True
+
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    result = collector._collect_mppt_measurements(timestamp)
+
+    measurements = {measurement.metric: measurement for measurement in result}
+
+    assert measurements["mppt_1_power"].value == 5549.8
+    assert measurements["mppt_1_energy_total"].value == 54116104.0
+
+
+def test_rest_and_modbus_ac_values_are_separate_measurements(
+    collector,
+    mock_response,
+    mock_get,
+    mock_sunspec_device,
+):
+    mock_get.return_value = mock_response
+
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
+    result = collector.collect()
+
+    measurements = {measurement.metric: measurement for measurement in result}
+
+    assert measurements["pv_power"].value == 10924
+    assert measurements["ac_power"].value == 11057.0
+    assert measurements["ac_energy_total"].value == 91809800.0

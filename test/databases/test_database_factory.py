@@ -1,8 +1,8 @@
 from unittest.mock import Mock, patch
 
-import pytest
-
 from src.databases.database_factory import create_databases
+
+import pytest
 
 
 def make_database_config(

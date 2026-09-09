@@ -1,12 +1,12 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from typing import Any
-
-import requests
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.rademacher import RADEMACHER_METRICS
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +38,13 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
     default values.
     """
 
-    SOURCE = "rademacher"
-
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        timezone: str = "UTC",
         *,
+        enabled: bool = True,
+        timezone: str = "UTC",
+        interval: int = 300,
+        source: str = "sensor_rademacher",
         smart_home_box_ip="192.168.178.19",
         device_id=50,
     ) -> None:
@@ -53,7 +54,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             smart_home_box_ip: IP address of the Rademacher Smart Home Box.
             device_id: Rademacher device ID of the environment sensor in the Smart Home Box.
         """
-        super().__init__(timezone)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         self.smart_home_box_ip = smart_home_box_ip
         self.device_id = device_id
@@ -79,12 +85,12 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         data = response.json()
 
         if data.get("error_code") != 0:
-            raise RuntimeError(f"Rademacher API error: " f"{data.get('error_description', 'Unknown error')}")
+            raise RuntimeError(f"Rademacher API error: {data.get('error_description', 'Unknown error')}")
 
         try:
             return data["payload"]["device"]
         except KeyError as exc:
-            raise RuntimeError("Invalid Rademacher API response: " "payload.device missing") from exc
+            raise RuntimeError("Invalid Rademacher API response: payload.device missing") from exc
 
     def collect(self) -> list[Measurement]:
         """Collect all supported measurements from the environment sensor.
@@ -201,7 +207,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
         return datetime.fromtimestamp(
             float(timestamp),
-            tz=timezone.utc,
+            tz=UTC,
         ).astimezone(self.timezone)
 
     def _measurement(
@@ -231,8 +237,8 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
 
         return Measurement(
             timestamp=timestamp,
-            source=self.SOURCE,
+            source=self.source,
             metric=metric,
-            value=float(value),
+            value=value,
             unit=definition["unit"],
         )

@@ -2,11 +2,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import requests
-
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.definitions.open_meteo import OPEN_METEO_METRICS
+
+import requests
 
 logger = logging.getLogger(__name__)
 CURRENT_FIELDS = {
@@ -45,13 +45,15 @@ class OpenMeteoWeatherCollector(BaseCollector):
     into the common :class:`Measurement` format.
     """
 
-    SOURCE = "open_meteo"
     API_URL = "https://api.open-meteo.com/v1/forecast"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        timezone: str = "UTC",
         *,
+        enabled: bool = True,
+        timezone: str = "UTC",
+        interval: int = 300,
+        source: str = "open_meteo",
         latitude: float,
         longitude: float,
     ) -> None:
@@ -61,7 +63,12 @@ class OpenMeteoWeatherCollector(BaseCollector):
             latitude: Latitude of the weather location.
             longitude: Longitude of the weather location.
         """
-        super().__init__(timezone)
+        super().__init__(
+            enabled=enabled,
+            timezone=timezone,
+            interval=interval,
+            source=source,
+        )
 
         self.latitude = latitude
         self.longitude = longitude
@@ -170,7 +177,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
             response.raise_for_status()
         except requests.exceptions.RequestException as exc:
             logger.error(f"HTTPError {exc}")
-            raise exc
+            raise
 
         return response.json()
 
@@ -197,7 +204,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
         return Measurement(
             timestamp=timestamp,
-            source=self.SOURCE,
+            source=self.source,
             metric=metric,
             value=value,
             unit=definition["unit"],

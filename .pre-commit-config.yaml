@@ -6,31 +6,29 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
-        args: [--unsafe]
+        args: [ --unsafe ]
       - id: check-added-large-files
-        args: ["--maxkb=5000"]
+        args: [ "--maxkb=5000" ]
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: detect-private-key
 
   # Ruff linting and import sorting
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.21
+    rev: v0.16.6
     hooks:
       - id: ruff-check
-        args: [--fix]
+        args: [ --fix ]
+        language_version: python3.13
+      - id: ruff-format
         language_version: python3.13
 
-  # Black formatting
-  - repo: https://github.com/psf/black
-    rev: 26.5.1
+  # Pyrefly type checking
+  - repo: https://github.com/facebook/pyrefly-pre-commit
+    rev: 1.2.0
     hooks:
-      - id: black
-        language_version: python3.13
-
-  # MyPy
-  - repo: local
-    hooks:
-      - id: mypy
-        name: MyPy
-        entry: poetry run mypy src
+      - id: pyrefly-check
+        name: Pyrefly
+        entry: poetry run pyrefly check
         language: system
-        types: [ python ]
         pass_filenames: false

@@ -1,10 +1,10 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-import pytest
-
 from src.collectors.definitions.measurement import Measurement
 from src.collectors.iec.iec_collector import IecCollector
+
+import pytest
 
 IEC_PAYLOAD = """
 1-1:F.F(00000000)
@@ -62,6 +62,44 @@ def collector():
     return IecCollector(
         port="/dev/ttyUSB0",
     )
+
+
+def test_connect_opens_protocol_connection(collector):
+    collector.protocol.connect = Mock()
+
+    collector.connect()
+
+    collector.protocol.connect.assert_called_once()
+    assert collector.connected is True
+
+
+def test_collect_connects_when_not_connected(collector):
+    collector.connected = False
+
+    collector.protocol.connect = Mock()
+    collector.protocol.read = Mock(return_value=IEC_PAYLOAD)
+
+    result = collector.collect()
+
+    collector.protocol.connect.assert_called_once()
+    collector.protocol.read.assert_called_once()
+
+    assert collector.connected is True
+    assert len(result) == 6
+
+
+def test_collect_reuses_physical_connection(collector):
+    collector.connected = True
+
+    collector.protocol.connect = Mock()
+    collector.protocol.read = Mock(return_value=IEC_PAYLOAD)
+
+    result = collector.collect()
+
+    collector.protocol.connect.assert_not_called()
+    collector.protocol.read.assert_called_once()
+
+    assert len(result) == 6
 
 
 def test_parse_returns_measurements(collector):
@@ -297,22 +335,6 @@ def test_parse_historical_value_is_not_returned_even_if_base_obis_is_current(col
     assert measurement.value == 18788.9
     assert measurement.unit == "kWh"
     assert measurement.measurement_type == "current"
-
-
-def test_collect_connects_when_not_connected(collector):
-    collector.connected = False
-
-    collector.protocol.connect = Mock()
-    collector.protocol.read = Mock(
-        return_value=IEC_PAYLOAD,
-    )
-
-    result = collector.collect()
-
-    collector.protocol.connect.assert_called_once()
-    collector.protocol.read.assert_called_once()
-
-    assert len(result) == 6
 
 
 def test_collect_does_not_reconnect_when_already_connected(collector):

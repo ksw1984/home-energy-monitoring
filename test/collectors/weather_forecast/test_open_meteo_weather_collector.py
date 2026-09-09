@@ -1,11 +1,12 @@
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
+
+import pytest
+import requests
 
 
 @pytest.fixture
@@ -105,7 +106,6 @@ def test_collect_hourly_forecast(mock_get):
 
 @patch("src.collectors.weather_forecast.open_meteo_weather_collector.requests.get")
 def test_collect_returns_empty_list_when_api_unavailable(mock_get):
-    import requests
 
     mock_get.side_effect = requests.exceptions.RequestException("Connection failed")
 
@@ -126,9 +126,14 @@ def test_open_meteo_api():
         longitude=13.405,
     )
 
-    measurements = collector.collect()
+    try:
+        data = collector._get_data()
+    except requests.exceptions.RequestException as exc:
+        pytest.skip(f"Open-Meteo unavailable: {exc}")
 
-    assert measurements
+    assert data
+    assert "current" in data
+    assert "hourly" in data
 
 
 def test_parse_current_ignores_none_values(collector):

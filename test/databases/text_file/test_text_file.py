@@ -1,6 +1,6 @@
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, UTC
 
 from src.collectors.definitions.measurement import Measurement
 from src.databases.text_file.textfiledb import TextFileDatabase
@@ -14,7 +14,7 @@ def make_measurement(
     unit="°C",
 ):
     return Measurement(
-        timestamp=timestamp or datetime(2026, 8, 27, 12, 0),
+        timestamp=timestamp or datetime(2026, 8, 27, 12, 0, tzinfo=UTC),
         source=source,
         metric=metric,
         value=value,
@@ -58,7 +58,7 @@ def test_store_writes_measurement_as_json_line(tmp_path):
     record = json.loads(lines[0])
 
     assert record == {
-        "timestamp": "2026-08-27T12:00:00",
+        "timestamp": "2026-08-27T12:00:00+00:00",
         "source": "sensor",
         "metric": "temperature",
         "value": 20.5,
@@ -101,10 +101,10 @@ def test_store_creates_separate_file_for_each_day(tmp_path):
 
     measurements = [
         make_measurement(
-            timestamp=datetime(2026, 8, 27, 23, 59),
+            timestamp=datetime(2026, 8, 27, 23, 59, tzinfo=UTC),
         ),
         make_measurement(
-            timestamp=datetime(2026, 8, 28, 0, 1),
+            timestamp=datetime(2026, 8, 28, 0, 1, tzinfo=UTC),
         ),
     ]
 
