@@ -3,7 +3,7 @@
 ################
 [project]
 name = "home-energy-monitoring"
-version = "0.5.0"
+version = "0.6.0"
 description = "Home energy monitoring using Gurux, smart meters and PV inverters"
 authors = [
     { name = "ksw1984" }

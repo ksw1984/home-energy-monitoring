@@ -96,6 +96,9 @@ def test_main_sets_up_event_loop():
 
         src.app.main()
 
+    coroutine = loop.run_until_complete.call_args.args[0]
+    coroutine.close()
+
     asyncio_mock.new_event_loop.assert_called_once()
     asyncio_mock.set_event_loop.assert_called_once_with(loop)
 
