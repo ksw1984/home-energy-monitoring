@@ -186,7 +186,7 @@ def test_collect_returns_expected_source(
 
     result = collector.collect()
 
-    assert all(measurement.source == "fronius" for measurement in result)
+    assert all(measurement.source == collector.source for measurement in result)
 
 
 def test_collect_returns_expected_units(
