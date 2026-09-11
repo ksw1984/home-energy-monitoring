@@ -1,3 +1,4 @@
+import logging
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -10,6 +11,8 @@ from src.estimators.kalman_filter import (
     KalmanHistoryEntry,
     KalmanState,
 )
+
+logger = logging.getLogger(__name__)
 
 SMOOTHER_DETERMINANT_EPSILON = 1e-12
 
@@ -87,6 +90,15 @@ class KalmanEstimator(BaseEstimator):
 
         if estimated is None:
             return []
+
+        logger.info(
+            "Estimated measurement: source=%s metric=%s timestamp=%s value=%.3f %s E",
+            estimated.source,
+            estimated.metric,
+            estimated.timestamp.isoformat(),
+            estimated.value,
+            estimated.unit or "",
+        )
 
         self._last_emitted_timestamp = target_timestamp
 

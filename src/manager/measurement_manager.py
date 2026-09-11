@@ -232,7 +232,7 @@ class MeasurementManager:
         self,
         measurements: list[Measurement],
     ) -> None:
-        """Process collected measurements through all estimators."""
+        """Process collected measurements through estimators and calculators."""
         estimated: list[Measurement] = []
 
         for estimator in self.estimators:
@@ -243,6 +243,18 @@ class MeasurementManager:
         measurements = [
             *measurements,
             *estimated,
+        ]
+
+        calculated: list[Measurement] = []
+
+        for calculator in self.calculators:
+            calculated.extend(
+                calculator.calculate(measurements),
+            )
+
+        measurements = [
+            *measurements,
+            *calculated,
         ]
 
         await self._store_measurements(measurements)

@@ -1,8 +1,12 @@
+import logging
+
 from src.calculators.base_calculator import BaseCalculator
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import CalculationConfig
 
 from simpleeval import simple_eval
+
+logger = logging.getLogger(__name__)
 
 
 class FormulaCalculator(BaseCalculator):
@@ -43,15 +47,24 @@ class FormulaCalculator(BaseCalculator):
                 )
             )
 
-            calculated.append(
-                Measurement(
-                    timestamp=timestamp,
-                    source=calculation.source,
-                    metric=calculation.metric,
-                    value=float(value),
-                    unit=calculation.unit,
-                )
+            calculated_measurement = Measurement(
+                timestamp=timestamp,
+                source=calculation.source,
+                metric=calculation.metric,
+                value=float(value),
+                unit=calculation.unit,
             )
+
+            logger.info(
+                "Calculated measurement: source=%s metric=%s timestamp=%s value=%.3f %s C",
+                calculated_measurement.source,
+                calculated_measurement.metric,
+                calculated_measurement.timestamp.isoformat(),
+                calculated_measurement.value,
+                calculated_measurement.unit or "",
+            )
+
+            calculated.append(calculated_measurement)
 
         return calculated
 

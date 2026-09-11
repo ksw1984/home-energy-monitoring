@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
+from src.calculators.base_calculator import BaseCalculator
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import StorageConfig, StorageMeasurementConfig
 from src.estimators.base_estimator import BaseEstimator
@@ -942,7 +943,7 @@ def test_reload_config_if_changed_updates_measurement_type():
     assert manager.storage_filter.filter([forecast]) == [forecast]
 
 
-def test_process_measurements_runs_estimators():
+def test_process_measurements_runs_estimators_and_calculators():
     raw_measurement = make_measurement(
         metric="power",
         value=100.0,
@@ -954,14 +955,25 @@ def test_process_measurements_runs_estimators():
         source="estimated",
     )
 
+    calculated_measurement = make_measurement(
+        metric="calculated_power",
+        value=5.0,
+        source="calculated",
+    )
+
     estimator = Mock(spec=BaseEstimator)
     estimator.estimate.return_value = [estimated_measurement]
 
+    calculator = Mock()
+    calculator.calculate.return_value = [calculated_measurement]
+
     manager = make_manager(
         estimators=[estimator],
+        calculators=[calculator],
         storage_measurements=(
             ("test", "power", "current"),
             ("estimated", "estimated_power", "current"),
+            ("calculated", "calculated_power", "current"),
         ),
     )
 
@@ -974,10 +986,99 @@ def test_process_measurements_runs_estimators():
             manager._process_measurements([raw_measurement]),
         )
 
-    estimator.estimate.assert_called_once_with([raw_measurement])
+    estimator.estimate.assert_called_once_with(
+        [raw_measurement],
+    )
+
+    calculator.calculate.assert_called_once_with(
+        [
+            raw_measurement,
+            estimated_measurement,
+        ],
+    )
+
     store_measurements.assert_awaited_once_with(
         [
             raw_measurement,
             estimated_measurement,
+            calculated_measurement,
+        ],
+    )
+
+
+def test_process_measurements_runs_estimator_then_calculator():
+    grid_measurement = make_measurement(
+        source="meter_grid",
+        metric="grid_import_power",
+        value=1000.0,
+    )
+
+    household_estimated = make_measurement(
+        source="meter_household",
+        metric="grid_import_power",
+        value=700.0,
+    )
+
+    calculated_measurement = make_measurement(
+        source="calculated",
+        metric="heat_pump_power",
+        value=300.0,
+    )
+
+    estimator = Mock(spec=BaseEstimator)
+    estimator.estimate.return_value = [household_estimated]
+
+    calculator = Mock(spec=BaseCalculator)
+    calculator.calculate.return_value = [calculated_measurement]
+
+    manager = make_manager(
+        estimators=[estimator],
+        calculators=[calculator],
+        storage_measurements=(
+            (
+                "meter_grid",
+                "grid_import_power",
+                "current",
+            ),
+            (
+                "meter_household",
+                "grid_import_power",
+                "current",
+            ),
+            (
+                "calculated",
+                "heat_pump_power",
+                "current",
+            ),
+        ),
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements(
+                [grid_measurement],
+            ),
+        )
+
+    estimator.estimate.assert_called_once_with(
+        [grid_measurement],
+    )
+
+    calculator.calculate.assert_called_once_with(
+        [
+            grid_measurement,
+            household_estimated,
+        ],
+    )
+
+    store_measurements.assert_awaited_once_with(
+        [
+            grid_measurement,
+            household_estimated,
+            calculated_measurement,
         ],
     )
