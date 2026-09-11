@@ -111,9 +111,17 @@ def mock_sunspec_device():
 
 
 @pytest.fixture
-def disable_sunspec_collection(collector):
-    collector._collect_sunspec_measurements = Mock(return_value=[])
-    return collector
+def disable_sunspec_collection(monkeypatch):
+    monkeypatch.setattr(
+        FroniusSymoInverterCollector,
+        "_collect_sunspec_measurements",
+        lambda self, timestamp: [],
+    )
+    monkeypatch.setattr(
+        FroniusSymoInverterCollector,
+        "_collect_mppt_energy_measurements",
+        lambda self, timestamp: [],
+    )
 
 
 # ============================================================================
@@ -138,7 +146,7 @@ def test_collect_returns_measurements(
     result = collector.collect()
 
     assert isinstance(result, list)
-    assert len(result) == 7
+    assert len(result) == 5
     assert all(isinstance(measurement, Measurement) for measurement in result)
 
 
@@ -160,9 +168,7 @@ def test_collect_returns_rest_and_sunspec_measurements(
     assert metrics == [
         "pv_power",
         "mppt_1_power",
-        "mppt_1_energy_total",
         "mppt_2_power",
-        "mppt_2_energy_total",
         "ac_power",
         "ac_energy_total",
     ]
@@ -406,6 +412,7 @@ def test_power_breaks_zero_power_period(
 # ============================================================================
 
 
+#####
 def test_daily_energy_is_recorded_after_five_minutes_zero_power(
     collector,
     mock_response,
@@ -691,21 +698,15 @@ def test_collect_mppt_measurements(
 
     result = collector._collect_mppt_measurements(timestamp)
 
-    assert len(result) == 4
+    assert len(result) == 2
 
     measurements = {measurement.metric: measurement for measurement in result}
 
     assert measurements["mppt_1_power"].value == 5549.8
     assert measurements["mppt_1_power"].unit == "W"
 
-    assert measurements["mppt_1_energy_total"].value == 54116104.0
-    assert measurements["mppt_1_energy_total"].unit == "Wh"
-
     assert measurements["mppt_2_power"].value == 5875.8
     assert measurements["mppt_2_power"].unit == "W"
-
-    assert measurements["mppt_2_energy_total"].value == 37693700.0
-    assert measurements["mppt_2_energy_total"].unit == "Wh"
 
 
 def test_collect_sunspec_measurements(
@@ -719,15 +720,13 @@ def test_collect_sunspec_measurements(
 
     result = collector._collect_sunspec_measurements(timestamp)
 
-    assert len(result) == 6
+    assert len(result) == 4
 
     metrics = [measurement.metric for measurement in result]
 
     assert metrics == [
         "mppt_1_power",
-        "mppt_1_energy_total",
         "mppt_2_power",
-        "mppt_2_energy_total",
         "ac_power",
         "ac_energy_total",
     ]
@@ -759,11 +758,10 @@ def test_mppt_uses_scaled_cvalue(
 
     timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
 
-    result = collector._collect_mppt_measurements(timestamp)
+    result = collector._collect_mppt_energy_measurements(timestamp)
 
     measurements = {measurement.metric: measurement for measurement in result}
 
-    assert measurements["mppt_1_power"].value == 5549.8
     assert measurements["mppt_1_energy_total"].value == 54116104.0
 
 

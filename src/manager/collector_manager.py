@@ -406,8 +406,8 @@ class CollectorManager:
 
         return measurements_to_store
 
-    @staticmethod
     def output(
+        self,
         measurements: list[Measurement],
     ) -> None:
         """Log all collected measurements.
@@ -416,6 +416,14 @@ class CollectorManager:
             measurements: Measurements collected during the current cycle.
         """
         for measurement in measurements:
+            selected = "X" if self.storage_filter.is_selected(measurement) else ""
+
             logger.info(
-                f"{measurement.timestamp.isoformat()} {measurement.source:10} {measurement.metric:20} {measurement.value:<10.3f} {measurement.unit}",
+                "%-25s %-25s %-25s %10.3f %-5s %s",
+                measurement.timestamp.isoformat(),
+                measurement.source,
+                measurement.metric,
+                measurement.value,
+                measurement.unit or "",
+                selected,
             )

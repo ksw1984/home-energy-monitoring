@@ -79,19 +79,23 @@ storage:
       - grid_import_energy_total
       - grid_export_energy_total
 
-    fronius:
+    inverter_fronius:
       - pv_power
       - pv_energy_day
       - pv_energy_year
       - pv_energy_total
+      - ac_power
+      - ac_energy_total
+      - mppt_1_energy_total
+      - mppt_2_energy_total
 
-    rademacher:
+    sensor_rademacher:
       - temperature
       - light
       - wind_speed
       - rain_detected
 
-    open_meteo:
+    online_open_meteo:
       current:
         - temperature
         - cloud_cover
