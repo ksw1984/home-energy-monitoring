@@ -16,12 +16,21 @@ logger = logging.getLogger(__name__)
 class TextFileDatabase(BaseDatabase):
     """Store measurements as JSON Lines files, one file per calendar day."""
 
-    def __init__(self, directory: str):
+    def __init__(
+        self,
+        *,
+        directory: str,
+        enabled: bool = True,
+    ):
         """Initialize the text-file database.
 
         Args:
             directory: Directory in which the daily JSONL files are stored.
         """
+        super().__init__(
+            type="text_file",
+            enabled=enabled,
+        )
         self.directory = Path(directory)
 
     async def store(self, measurements: list[Measurement]) -> None:
@@ -33,7 +42,13 @@ class TextFileDatabase(BaseDatabase):
         Args:
             measurements: Measurements to persist.
         """
-        await asyncio.to_thread(self._store, measurements)
+        if not self.enabled:
+            return
+
+        await asyncio.to_thread(
+            self._store,
+            measurements,
+        )
 
     def _store(self, measurements: list[Measurement]) -> None:
         """Write measurements to daily JSON Lines files.
