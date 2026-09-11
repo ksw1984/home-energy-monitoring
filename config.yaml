@@ -84,6 +84,8 @@ storage:
       - pv_energy_day
       - pv_energy_year
       - pv_energy_total
+      - ac_power
+      - ac_energy_total
       - mppt_1_energy_total
       - mppt_2_energy_total
 

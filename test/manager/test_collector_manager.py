@@ -165,8 +165,10 @@ def test_output(caplog):
         value=20.5,
     )
 
+    manager = make_manager()
+
     with caplog.at_level("INFO"):
-        CollectorManager.output([measurement])
+        manager.output([measurement])
 
     assert "2026-08-27T12:00:00" in caplog.text
     assert "test" in caplog.text

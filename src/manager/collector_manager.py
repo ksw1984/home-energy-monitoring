@@ -26,9 +26,6 @@ logger = logging.getLogger(__name__)
 METER_DAILY_METRICS = {
     "grid_import_energy_total",
     "grid_export_energy_total",
-    "pv_energy_day",
-    "mppt_1_energy_total",
-    "mppt_2_energy_total",
 }
 
 METER_CURRENT_METRICS = {
