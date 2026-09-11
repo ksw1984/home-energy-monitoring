@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.calculators.base_calculator import BaseCalculator
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import CONFIG_FILE, load_config, StorageConfig
@@ -63,7 +64,7 @@ class MeasurementManager:
         collectors: list[BaseCollector],
         databases: list[BaseDatabase],
         estimators: list[BaseEstimator],
-        calculators: list,
+        calculators: list[BaseCalculator],
         timezone: str,
         storage_config: StorageConfig,
     ):
@@ -78,6 +79,7 @@ class MeasurementManager:
         self.databases = databases
         self.estimators = estimators
         self.calculators = calculators
+
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
 
@@ -142,7 +144,7 @@ class MeasurementManager:
         Cleanup is performed for all collectors when the collection
         manager exits.
         """
-        logger.info("CollectorManager.run()")
+        logger.info("MeasurementManager.run()")
 
         try:
             await self.connect()
@@ -287,14 +289,14 @@ class MeasurementManager:
 
     async def connect(self) -> None:
         """Attempt to connect all configured collectors and databases."""
-        logger.info("CollectorManager.connect()")
+        logger.info("MeasurementManager.connect()")
 
         await connect_collectors(self.collectors)
         await connect_databases(self.databases)
 
     async def disconnect(self) -> None:
         """Disconnect all configured collectors and databases."""
-        logger.info("CollectorManager.disconnect()")
+        logger.info("MeasurementManager.disconnect()")
 
         await disconnect_collectors(self.collectors)
         await disconnect_databases(self.databases)
@@ -317,7 +319,7 @@ class MeasurementManager:
         Returns:
             All measurements successfully returned by the collectors.
         """
-        logger.info("CollectorManager.collect_all()")
+        logger.info("MeasurementManager.collect_all()")
 
         tasks = [asyncio.to_thread(collector.collect) for collector in self.collectors]
 

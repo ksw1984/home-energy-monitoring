@@ -2,6 +2,7 @@ import asyncio
 import logging
 import signal
 
+from src.calculators.calculator_factory import create_calculators
 from src.collectors.collector_factory import create_collectors
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
@@ -24,12 +25,13 @@ async def run():
     databases = create_databases(config_obj)
 
     estimators = create_estimators(config_obj.estimators)
+    calculators = create_calculators(config_obj.calculators)
 
     manager = MeasurementManager(
         collectors=collectors,
         databases=databases,
         estimators=estimators,
-        calculators=[],
+        calculators=calculators,
         timezone=config_obj.collection.timezone,
         storage_config=config_obj.storage,
     )
