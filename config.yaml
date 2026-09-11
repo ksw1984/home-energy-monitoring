@@ -105,3 +105,46 @@ storage:
         - temperature
         - precipitation_probability
         - cloud_cover
+
+estimators:
+  - type: kalman
+    enabled: true
+    latency: 2s
+
+    measurements:
+      - source: meter_household
+        metric: grid_import_power
+
+calculators:
+  - type: formula
+    enabled: true
+
+    calculations:
+      - source: calculated
+        metric: heat_pump_power
+        unit: W
+        formula: "grid - household"
+
+        inputs:
+          grid:
+            source: meter_grid
+            metric: grid_import_power
+          household:
+            source: meter_household
+            metric: grid_import_power
+
+      - source: calculated
+        metric: inverter_efficiency
+        unit: "%"
+        formula: "ac / (dc1 + dc2) * 100"
+
+        inputs:
+          ac:
+            source: inverter_fronius
+            metric: ac_power
+          dc1:
+            source: inverter_fronius
+            metric: mppt_1_power
+          dc2:
+            source: inverter_fronius
+            metric: mppt_2_power
