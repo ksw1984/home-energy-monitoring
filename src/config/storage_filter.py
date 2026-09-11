@@ -33,6 +33,13 @@ class StorageFilter:
 
         return [measurement for measurement in measurements if measurement.storage_key in self._measurements]
 
+    def is_selected(
+        self,
+        measurement: Measurement,
+    ) -> bool:
+        """Return whether a measurement is selected for persistent storage."""
+        return self._enabled and measurement.storage_key in self._measurements
+
     def update(self, config: StorageConfig) -> None:
         self._enabled = config.enabled
         self._measurements = {measurement.storage_key for measurement in config.measurements}
