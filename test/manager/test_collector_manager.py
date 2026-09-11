@@ -748,6 +748,7 @@ def test_reload_config_if_changed_updates_storage_filter():
     new_config = Mock()
     new_config.storage = new_storage_config
     new_config.collectors = []
+    new_config.databases = []
 
     old_mtime = manager._config_mod_time
     new_mtime = old_mtime + 1
@@ -834,6 +835,7 @@ def test_reload_config_if_changed_only_reloads_once_for_same_mtime():
     new_config = Mock()
     new_config.storage = new_storage_config
     new_config.collectors = []
+    new_config.databases = []
 
     new_mtime = manager._config_mod_time + 1
 
@@ -927,6 +929,7 @@ def test_reload_config_if_changed_updates_measurement_type():
         ],
     )
     new_config.collectors = []
+    new_config.databases = []
 
     new_mtime = manager._config_mod_time + 1
 
