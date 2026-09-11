@@ -182,7 +182,7 @@ def test_output(caplog):
     assert "temperature" in caplog.text
     assert "20.500" in caplog.text
     assert "°C" in caplog.text
-    assert "src.manager.collector_manager" in caplog.text
+    assert "src.manager.measurement_manager" in caplog.text
 
 
 def test_filter_measurements_stores_current_meter_values():
@@ -241,7 +241,7 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -271,7 +271,7 @@ def test_filter_measurements_stores_daily_values_when_both_are_available():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -301,7 +301,7 @@ def test_filter_measurements_stores_daily_values_only_once():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(measurements)
@@ -333,7 +333,7 @@ def test_filter_measurements_does_not_store_daily_values_outside_midnight():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 12
 
         result = manager._filter_measurements(measurements)
@@ -392,7 +392,7 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -434,7 +434,7 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -482,7 +482,7 @@ def test_filter_measurements_stores_each_meter_independently():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(grid_measurements)
@@ -514,11 +514,11 @@ def test_run_collector_uses_collector_interval():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.get_running_loop",
+            "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
         get_loop.return_value.time.side_effect = [0, 0]
@@ -544,7 +544,7 @@ def test_run_collector_skips_disabled_collector():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -630,7 +630,7 @@ def test_run_collector_continues_after_collection_failure():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             sleep,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -674,11 +674,11 @@ def test_run_creates_independent_task_for_each_collector():
             new_callable=AsyncMock,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.create_task",
+            "src.manager.measurement_manager.asyncio.create_task",
             side_effect=fake_create_task,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.gather",
+            "src.manager.measurement_manager.asyncio.gather",
             new_callable=AsyncMock,
             side_effect=asyncio.CancelledError,
         ),
@@ -697,7 +697,7 @@ def test_reload_config_if_changed_does_nothing_when_config_is_unchanged():
     with (
         patch.object(Path, "stat") as stat,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
         ) as load_config,
     ):
         stat.return_value.st_mtime = manager._config_mod_time
@@ -733,10 +733,10 @@ def test_reload_config_if_changed_updates_storage_filter():
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -779,10 +779,10 @@ def test_reload_config_if_changed_keeps_old_config_when_reload_fails(
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             side_effect=ValueError("invalid YAML"),
         ) as load_config,
         caplog.at_level("ERROR"),
@@ -819,10 +819,10 @@ def test_reload_config_if_changed_only_reloads_once_for_same_mtime():
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -840,7 +840,7 @@ def test_reload_config_if_changed_handles_missing_config_file(caplog):
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         caplog.at_level("ERROR"),
     ):
@@ -874,11 +874,11 @@ def test_run_collector_checks_for_config_reload():
             reload_config,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.get_running_loop",
+            "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
         get_loop.return_value.time.side_effect = [0, 0]
@@ -927,10 +927,10 @@ def test_reload_config_if_changed_updates_measurement_type():
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ),
     ):
