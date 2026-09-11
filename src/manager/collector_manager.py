@@ -8,6 +8,16 @@ from src.collectors.definitions.measurement import Measurement
 from src.config.config import CONFIG_FILE, load_config, StorageConfig
 from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
+from src.manager.connection_lifecycle import (
+    connect_collectors,
+    connect_databases,
+    disconnect_collectors,
+    disconnect_databases,
+)
+from src.manager.runtime_config import (
+    configure_collectors,
+    configure_databases,
+)
 
 import serial
 
@@ -78,91 +88,6 @@ class CollectorManager:
         # finish at approximately the same time.
         self._filter_lock = asyncio.Lock()
 
-    async def _configure_collectors(self, config) -> None:
-        collector_configs = {item.attributes["source"]: item for item in config.collectors}
-
-        for collector in self.collectors:
-            collector_config = collector_configs.get(collector.source)
-
-            if collector_config is None:
-                logger.warning(
-                    "No configuration found for collector %s (source=%s)",
-                    collector.__class__.__name__,
-                    collector.source,
-                )
-                continue
-
-            if collector_config.interval is None:
-                logger.warning(
-                    "No interval configured for collector %s (source=%s)",
-                    collector.__class__.__name__,
-                    collector.source,
-                )
-                continue
-
-            collector.configure_runtime(
-                interval=collector_config.interval,
-                enabled=collector_config.enabled,
-            )
-
-            logger.info(
-                "Configured collector %s (source=%s): enabled=%s interval=%ss",
-                collector.__class__.__name__,
-                collector.source,
-                collector.enabled,
-                collector.interval,
-            )
-
-    async def _configure_databases(self, config) -> None:
-        database_configs = {item.type: item for item in config.databases}
-
-        for database in self.databases:
-            database_config = database_configs.get(database.type)
-
-            if database_config is None:
-                logger.warning(
-                    "No configuration found for database %s (type=%s)",
-                    database.__class__.__name__,
-                    database.type,
-                )
-                continue
-
-            was_enabled = database.enabled
-            should_be_enabled = database_config.enabled
-
-            database.configure_runtime(
-                enabled=should_be_enabled,
-            )
-
-            if not was_enabled and should_be_enabled:
-                try:
-                    await asyncio.to_thread(database.connect)
-
-                except Exception:
-                    logger.exception(
-                        "Failed to connect database %s (type=%s)",
-                        database.__class__.__name__,
-                        database.type,
-                    )
-
-            elif was_enabled and not should_be_enabled:
-                try:
-                    database.close()
-
-                except Exception:
-                    logger.exception(
-                        "Failed to close database %s (type=%s)",
-                        database.__class__.__name__,
-                        database.type,
-                    )
-
-            logger.info(
-                "Configured database %s (type=%s): enabled=%s",
-                database.__class__.__name__,
-                database.type,
-                database.enabled,
-            )
-
     async def _reload_config_if_changed(self) -> None:
         async with self._config_reload_lock:
             try:
@@ -185,8 +110,15 @@ class CollectorManager:
             async with self._filter_lock:
                 self.storage_filter.update(config.storage)
 
-            await self._configure_collectors(config)
-            await self._configure_databases(config)
+            await configure_collectors(
+                self.collectors,
+                config,
+            )
+
+            await configure_databases(
+                self.databases,
+                config,
+            )
 
             self._config_mod_time = mtime
 
@@ -195,7 +127,7 @@ class CollectorManager:
     async def run(self) -> None:
         """Run all collectors until the task is cancelled.
 
-        All configured collectors are initially connected before the
+        All configured collectors and enabled databases are initially connected before the
         collection loops start. A connection failure of an individual
         collector does not stop the other collectors from starting.
 
@@ -312,12 +244,15 @@ class CollectorManager:
         if not measurements_to_store:
             return
 
-        if self.databases is None:
+        if not self.databases:
             return
 
         logger.info("Write to dbs")
 
         for database in self.databases:
+            if not database.enabled:
+                continue
+
             try:
                 await database.store(measurements_to_store)
 
@@ -328,63 +263,18 @@ class CollectorManager:
                 )
 
     async def connect(self) -> None:
-        """Attempt to connect all configured collectors.
-
-        Collector connections are established concurrently. A connection
-        failure in one collector is captured and logged without preventing
-        the remaining collectors from connecting.
-
-        Individual collectors may retry their connection during subsequent
-        collection cycles if they remain unavailable.
-        """
+        """Attempt to connect all configured collectors and databases."""
         logger.info("CollectorManager.connect()")
 
-        results = await asyncio.gather(
-            *[asyncio.to_thread(collector.connect) for collector in self.collectors],
-            return_exceptions=True,
-        )
-
-        for collector, result in zip(
-            self.collectors,
-            results,
-            strict=True,
-        ):
-            if isinstance(result, BaseException):
-                self._log_collector_error(
-                    collector,
-                    result,
-                )
+        await connect_collectors(self.collectors)
+        await connect_databases(self.databases)
 
     async def disconnect(self) -> None:
-        """Disconnect all configured collectors.
-
-        Collector disconnections are performed concurrently. A failure
-        while disconnecting one collector does not prevent the remaining
-        collectors from being disconnected.
-        """
+        """Disconnect all configured collectors and databases."""
         logger.info("CollectorManager.disconnect()")
 
-        results = await asyncio.gather(
-            *[asyncio.to_thread(collector.disconnect) for collector in self.collectors],
-            return_exceptions=True,
-        )
-
-        for collector, result in zip(
-            self.collectors,
-            results,
-            strict=True,
-        ):
-            if isinstance(result, BaseException):
-                logger.error(
-                    "Failed to disconnect collector %s: %s",
-                    collector.__class__.__name__,
-                    result,
-                    exc_info=(
-                        type(result),
-                        result,
-                        result.__traceback__,
-                    ),
-                )
+        await disconnect_collectors(self.collectors)
+        await disconnect_databases(self.databases)
 
     async def collect_all(self) -> list[Measurement]:
         """Collect measurements from all configured collectors.
@@ -447,41 +337,6 @@ class CollectorManager:
             measurements.extend(result)
 
         return measurements
-
-    @staticmethod
-    def _log_collector_error(
-        collector: BaseCollector,
-        result: BaseException,
-    ) -> None:
-        """Log a collector connection failure.
-
-        Expected serial connection failures are logged as warnings without
-        a traceback. Other failures are logged as errors with their
-        original traceback.
-
-        Args:
-            collector: Collector whose connection attempt failed.
-            result: Exception raised by the connection attempt.
-        """
-        name = collector.__class__.__name__
-
-        if isinstance(result, serial.SerialException):
-            logger.warning(
-                "Collector %s unavailable: %s",
-                name,
-                result,
-            )
-        else:
-            logger.error(
-                "Collector %s failed: %s",
-                name,
-                result,
-                exc_info=(
-                    type(result),
-                    result,
-                    result.__traceback__,
-                ),
-            )
 
     def _filter_measurements(
         self,

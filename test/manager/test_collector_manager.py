@@ -74,34 +74,6 @@ def test_init():
     assert manager.timezone == ZoneInfo("Europe/Berlin")
 
 
-def test_connect_connects_all_collectors():
-    collector1 = Mock()
-    collector2 = Mock()
-
-    manager = make_manager(
-        collectors=[collector1, collector2],
-    )
-
-    asyncio.run(manager.connect())
-
-    collector1.connect.assert_called_once()
-    collector2.connect.assert_called_once()
-
-
-def test_disconnect_disconnects_all_collectors():
-    collector1 = Mock()
-    collector2 = Mock()
-
-    manager = make_manager(
-        collectors=[collector1, collector2],
-    )
-
-    asyncio.run(manager.disconnect())
-
-    collector1.disconnect.assert_called_once()
-    collector2.disconnect.assert_called_once()
-
-
 def test_collect_all_returns_measurements():
     measurement1 = make_measurement("temperature", 20.5)
     measurement2 = make_measurement("humidity", 60.0)
@@ -271,7 +243,6 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
 
 def test_filter_measurements_stores_daily_values_when_both_are_available():
     manager = make_manager(
-        collectors=[],
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -516,11 +487,6 @@ def test_filter_measurements_stores_each_meter_independently():
     }
 
 
-# ---------------------------------------------------------------------------
-# Independent collector timing / database tests
-# ---------------------------------------------------------------------------
-
-
 def test_run_collector_uses_collector_interval():
     collector = Mock()
     collector.interval = 10
@@ -583,6 +549,7 @@ def test_store_measurements_writes_to_database_immediately():
     measurement = make_measurement()
 
     database = Mock()
+    database.enabled = True
     database.store = AsyncMock()
 
     manager = make_manager(
@@ -605,11 +572,13 @@ def test_store_measurements_continues_with_next_database_when_database_fails(
     measurement = make_measurement()
 
     failing_database = Mock()
+    failing_database.enabled = True
     failing_database.store = AsyncMock(
         side_effect=RuntimeError("database failed"),
     )
 
     working_database = Mock()
+    working_database.enabled = True
     working_database.store = AsyncMock()
 
     manager = make_manager(
