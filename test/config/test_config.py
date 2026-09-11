@@ -1,9 +1,12 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from src.config.config import (
     CollectionConfig,
     ComponentConfig,
     Config,
+    load_estimator_configs,
+    parse_duration,
     required_secret,
     StorageConfig,
     StorageMeasurementConfig,
@@ -57,6 +60,40 @@ def test_storage_measurement_config_storage_key():
     )
 
 
+def test_parse_duration():
+    assert parse_duration("2s") == timedelta(seconds=2)
+    assert parse_duration("500ms") == timedelta(milliseconds=500)
+    assert parse_duration("1m") == timedelta(minutes=1)
+
+
+# ============================================================================
+# Loaders
+# ============================================================================
+def test_load_estimator_config():
+    config_data = {
+        "estimators": [
+            {
+                "type": "kalman",
+                "enabled": True,
+                "latency": "2s",
+                "measurements": [
+                    {
+                        "source": "meter_household",
+                        "metric": "grid_import_power",
+                    }
+                ],
+            }
+        ]
+    }
+
+    result = load_estimator_configs(config_data)
+
+    assert len(result) == 1
+    assert result[0].type == "kalman"
+    assert result[0].latency == timedelta(seconds=2)
+    assert result[0].measurements[0].source == "meter_household"
+
+
 # ============================================================================
 # Config
 # ============================================================================
@@ -104,6 +141,8 @@ def test_config_dataclass():
         ),
         collectors=collectors,
         databases=databases,
+        estimators=[],
+        calculators=[],
         storage=storage,
     )
 
