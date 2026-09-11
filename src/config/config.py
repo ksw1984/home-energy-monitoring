@@ -107,6 +107,7 @@ class EstimatorConfig:
     type: str
     enabled: bool
     latency: timedelta
+    history_size: int
     measurements: list[EstimatorMeasurementConfig]
 
 
@@ -219,11 +220,17 @@ def load_estimator_configs(
             for measurement in item.get("measurements", [])
         ]
 
+        history_size = int(item.get("history_size", 10))
+
+        if history_size <= 0:
+            raise ValueError(f"Estimator history_size must be positive, got {history_size}")
+
         configs.append(
             EstimatorConfig(
                 type=item["type"],
                 enabled=item.get("enabled", True),
                 latency=parse_duration(item.get("latency", "0s")),
+                history_size=history_size,
                 measurements=measurements,
             )
         )
