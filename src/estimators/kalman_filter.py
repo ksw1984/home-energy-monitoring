@@ -9,13 +9,28 @@ class KalmanState:
 
 
 @dataclass
-class KalmanHistoryEntry:
-    timestamp: datetime
-    state: KalmanState
+class KalmanCovariance:
     p00: float
     p01: float
     p10: float
     p11: float
+
+
+@dataclass
+class KalmanPrediction:
+    state: KalmanState
+    covariance: KalmanCovariance
+
+
+@dataclass
+class KalmanHistoryEntry:
+    timestamp: datetime
+
+    state: KalmanState
+    covariance: KalmanCovariance
+
+    prediction: KalmanPrediction
+
     unit: str
 
 
@@ -32,6 +47,7 @@ class KalmanFilter:
         self.measurement_variance = measurement_variance
 
         self.state: KalmanState | None = None
+        self.last_prediction: KalmanPrediction | None = None
 
         # Covariance matrix P.
         self._p00 = 1.0
@@ -53,6 +69,22 @@ class KalmanFilter:
                 value=value,
                 slope=0.0,
             )
+
+            covariance = KalmanCovariance(
+                p00=self._p00,
+                p01=self._p01,
+                p10=self._p10,
+                p11=self._p11,
+            )
+
+            self.last_prediction = KalmanPrediction(
+                state=KalmanState(
+                    value=value,
+                    slope=0.0,
+                ),
+                covariance=covariance,
+            )
+
             return self.state
 
         x: float = self.state.value
@@ -81,6 +113,18 @@ class KalmanFilter:
         p10 += q * dt**3 / 2
         p11 += q * dt**2
 
+        self.last_prediction = KalmanPrediction(
+            state=KalmanState(
+                value=predicted_value,
+                slope=predicted_slope,
+            ),
+            covariance=KalmanCovariance(
+                p00=p00,
+                p01=p01,
+                p10=p10,
+                p11=p11,
+            ),
+        )
         # -------------------------------------------------
         # Measurement update
         # -------------------------------------------------
@@ -123,6 +167,7 @@ class KalmanFilter:
         *,
         timestamp: datetime,
         unit: str,
+        prediction: KalmanPrediction,
     ) -> KalmanHistoryEntry:
         if self.state is None:
             raise RuntimeError("Cannot create history entry before first update")
@@ -133,9 +178,23 @@ class KalmanFilter:
                 value=self.state.value,
                 slope=self.state.slope,
             ),
-            p00=self._p00,
-            p01=self._p01,
-            p10=self._p10,
-            p11=self._p11,
+            covariance=KalmanCovariance(
+                p00=self._p00,
+                p01=self._p01,
+                p10=self._p10,
+                p11=self._p11,
+            ),
+            prediction=KalmanPrediction(
+                state=KalmanState(
+                    value=prediction.state.value,
+                    slope=prediction.state.slope,
+                ),
+                covariance=KalmanCovariance(
+                    p00=prediction.covariance.p00,
+                    p01=prediction.covariance.p01,
+                    p10=prediction.covariance.p10,
+                    p11=prediction.covariance.p11,
+                ),
+            ),
             unit=unit,
         )
