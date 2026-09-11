@@ -110,6 +110,7 @@ estimators:
   - type: kalman
     enabled: true
     latency: 2s
+    history_size: 10
 
     measurements:
       - source: meter_household
