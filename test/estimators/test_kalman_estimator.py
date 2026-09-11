@@ -78,3 +78,48 @@ def test_estimator_waits_until_latency_is_available():
     result = estimator.estimate([measurement(0, 100)])
 
     assert result == []
+
+
+def test_fixed_lag_smoothing_uses_future_measurements():
+    estimator = KalmanEstimator(
+        source="test",
+        metric="power",
+        latency=timedelta(seconds=2),
+        history_size=10,
+        process_variance=1.0,
+        measurement_variance=0.01,
+    )
+
+    estimator.estimate(
+        [
+            measurement(0, 0),
+            measurement(4, 4),
+            measurement(8, 8),
+            measurement(10, 10),
+        ]
+    )
+
+    before = estimator._estimate_at(
+        datetime.fromtimestamp(
+            8,
+            tz=UTC,
+        )
+    )
+
+    estimator.estimate(
+        [
+            measurement(12, 20),
+        ]
+    )
+
+    after = estimator._estimate_at(
+        datetime.fromtimestamp(
+            8,
+            tz=UTC,
+        )
+    )
+
+    assert before is not None
+    assert after is not None
+
+    assert after.value != before.value
