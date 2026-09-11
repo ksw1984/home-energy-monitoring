@@ -5,8 +5,9 @@ import signal
 from src.collectors.collector_factory import create_collectors
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
+from src.estimators.estimator_factory import create_estimators
 from src.logger.logging_config import setup_logging
-from src.manager.collector_manager import CollectorManager
+from src.manager.measurement_manager import MeasurementManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +23,13 @@ async def run():
 
     databases = create_databases(config_obj)
 
-    manager = CollectorManager(
+    estimators = create_estimators(config_obj.estimators)
+
+    manager = MeasurementManager(
         collectors=collectors,
         databases=databases,
+        estimators=estimators,
+        calculators=[],
         timezone=config_obj.collection.timezone,
         storage_config=config_obj.storage,
     )

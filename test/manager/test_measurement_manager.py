@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import StorageConfig, StorageMeasurementConfig
-from src.manager.collector_manager import CollectorManager
+from src.estimators.base_estimator import BaseEstimator
+from src.manager.measurement_manager import MeasurementManager
 
 import pytest
 
@@ -39,18 +40,22 @@ def make_storage_config(*measurements):
     )
 
 
-def make_manager(
+def make_manager(  # noqa: PLR0913
     *,
     collectors=None,
     databases=None,
     timezone="UTC",
     storage_measurements=(),
+    estimators=None,
+    calculators=None,
 ):
-    return CollectorManager(
+    return MeasurementManager(
         collectors=[] if collectors is None else collectors,
         databases=[] if databases is None else databases,
         timezone=timezone,
         storage_config=make_storage_config(*storage_measurements),
+        estimators=[] if estimators is None else estimators,
+        calculators=[] if calculators is None else calculators,
     )
 
 
@@ -62,11 +67,13 @@ def test_init():
         ("test", "temperature", "current"),
     )
 
-    manager = CollectorManager(
+    manager = MeasurementManager(
         collectors=collectors,
         databases=databases,
         timezone="Europe/Berlin",
         storage_config=storage_config,
+        estimators=[],
+        calculators=[],
     )
 
     assert manager.collectors is collectors
@@ -933,3 +940,44 @@ def test_reload_config_if_changed_updates_measurement_type():
 
     assert manager.storage_filter.filter([current]) == []
     assert manager.storage_filter.filter([forecast]) == [forecast]
+
+
+def test_process_measurements_runs_estimators():
+    raw_measurement = make_measurement(
+        metric="power",
+        value=100.0,
+    )
+
+    estimated_measurement = make_measurement(
+        metric="estimated_power",
+        value=95.0,
+        source="estimated",
+    )
+
+    estimator = Mock(spec=BaseEstimator)
+    estimator.estimate.return_value = [estimated_measurement]
+
+    manager = make_manager(
+        estimators=[estimator],
+        storage_measurements=(
+            ("test", "power", "current"),
+            ("estimated", "estimated_power", "current"),
+        ),
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements([raw_measurement]),
+        )
+
+    estimator.estimate.assert_called_once_with([raw_measurement])
+    store_measurements.assert_awaited_once_with(
+        [
+            raw_measurement,
+            estimated_measurement,
+        ],
+    )

@@ -8,6 +8,7 @@ from src.collectors.definitions.measurement import Measurement
 from src.config.config import CONFIG_FILE, load_config, StorageConfig
 from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
+from src.estimators.base_estimator import BaseEstimator
 from src.manager.connection_lifecycle import (
     connect_collectors,
     connect_databases,
@@ -34,7 +35,7 @@ METER_CURRENT_METRICS = {
 }
 
 
-class CollectorManager:
+class MeasurementManager:
     """Run all collectors independently and store their measurements.
 
     Each collector is executed at its own configured interval.
@@ -56,10 +57,13 @@ class CollectorManager:
     successful collection.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        *,
         collectors: list[BaseCollector],
         databases: list[BaseDatabase],
+        estimators: list[BaseEstimator],
+        calculators: list,
         timezone: str,
         storage_config: StorageConfig,
     ):
@@ -68,12 +72,12 @@ class CollectorManager:
         Args:
             collectors: Collectors to execute independently.
             databases: Databases receiving the collected measurements.
-            interval: Default delay in seconds between collection cycles.
-                Used when a collector does not define its own interval.
             timezone: Timezone used for daily measurement handling.
         """
         self.collectors = collectors
         self.databases = databases
+        self.estimators = estimators
+        self.calculators = calculators
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
 
@@ -125,7 +129,7 @@ class CollectorManager:
             logger.info("Configuration reloaded")
 
     async def run(self) -> None:
-        """Run all collectors until the task is cancelled.
+        """Run all collectors until the task is canceled.
 
         All configured collectors and enabled databases are initially connected before the
         collection loops start. A connection failure of an individual
@@ -195,7 +199,7 @@ class CollectorManager:
                 )
 
                 if measurements:
-                    await self._store_measurements(measurements)
+                    await self._process_measurements(measurements)
 
                 else:
                     logger.warning(
@@ -221,6 +225,25 @@ class CollectorManager:
             delay = max(0.0, collector.interval - elapsed)
 
             await asyncio.sleep(delay)
+
+    async def _process_measurements(
+        self,
+        measurements: list[Measurement],
+    ) -> None:
+        """Process collected measurements through all estimators."""
+        estimated: list[Measurement] = []
+
+        for estimator in self.estimators:
+            estimated.extend(
+                estimator.estimate(measurements),
+            )
+
+        measurements = [
+            *measurements,
+            *estimated,
+        ]
+
+        await self._store_measurements(measurements)
 
     async def _store_measurements(
         self,

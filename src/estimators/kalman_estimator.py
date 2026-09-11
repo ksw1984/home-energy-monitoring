@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from src.collectors.definitions.measurement import Measurement
+from src.estimators.base_estimator import BaseEstimator
 from src.estimators.kalman_filter import (
     KalmanCovariance,
     KalmanFilter,
@@ -23,7 +24,7 @@ class KalmanSmootherGain:
     p11: float
 
 
-class KalmanEstimator:
+class KalmanEstimator(BaseEstimator):
     """Estimate delayed measurements with a fixed-lag Kalman smoother."""
 
     def __init__(  # noqa: PLR0913
