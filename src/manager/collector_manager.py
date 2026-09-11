@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 METER_DAILY_METRICS = {
     "grid_import_energy_total",
     "grid_export_energy_total",
+    "pv_energy_day",
+    "mppt_1_energy_total",
+    "mppt_2_energy_total",
 }
 
 METER_CURRENT_METRICS = {
@@ -406,8 +409,8 @@ class CollectorManager:
 
         return measurements_to_store
 
-    @staticmethod
     def output(
+        self,
         measurements: list[Measurement],
     ) -> None:
         """Log all collected measurements.
@@ -416,6 +419,14 @@ class CollectorManager:
             measurements: Measurements collected during the current cycle.
         """
         for measurement in measurements:
+            selected = "X" if self.storage_filter.is_selected(measurement) else ""
+
             logger.info(
-                f"{measurement.timestamp.isoformat()} {measurement.source:10} {measurement.metric:20} {measurement.value:<10.3f} {measurement.unit}",
+                "%-25s %-25s %-25s %10.3f %-5s %s",
+                measurement.timestamp.isoformat(),
+                measurement.source,
+                measurement.metric,
+                measurement.value,
+                measurement.unit or "",
+                selected,
             )
