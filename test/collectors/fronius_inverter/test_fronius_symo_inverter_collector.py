@@ -111,9 +111,17 @@ def mock_sunspec_device():
 
 
 @pytest.fixture
-def disable_sunspec_collection(collector):
-    collector._collect_sunspec_measurements = Mock(return_value=[])
-    return collector
+def disable_sunspec_collection(monkeypatch):
+    monkeypatch.setattr(
+        FroniusSymoInverterCollector,
+        "_collect_sunspec_measurements",
+        lambda self, timestamp: [],
+    )
+    monkeypatch.setattr(
+        FroniusSymoInverterCollector,
+        "_collect_mppt_energy_measurements",
+        lambda self, timestamp: [],
+    )
 
 
 # ============================================================================
@@ -404,6 +412,7 @@ def test_power_breaks_zero_power_period(
 # ============================================================================
 
 
+#####
 def test_daily_energy_is_recorded_after_five_minutes_zero_power(
     collector,
     mock_response,
