@@ -31,7 +31,7 @@ def test_create_databases_returns_empty_list_when_no_databases_are_configured():
     assert result == []
 
 
-def test_create_databases_skips_disabled_database():
+def test_create_databases_not_skips_disabled_database():
     config = make_config(
         make_database_config(
             "influxdb",
@@ -45,10 +45,9 @@ def test_create_databases_skips_disabled_database():
     )
 
     with patch("src.databases.database_factory.InfluxDatabase") as influx_cls:
-        result = create_databases(config)
+        create_databases(config)
 
-    assert result == []
-    influx_cls.assert_not_called()
+    influx_cls.assert_called()
 
 
 def test_create_influxdb_database():
@@ -79,6 +78,7 @@ def test_create_influxdb_database():
         token="test-token",
         org="home-energy",
         bucket="energy",
+        enabled=True,
     )
 
     assert result == [influx_cls.return_value]
@@ -114,12 +114,13 @@ def test_create_text_file_database():
 
     text_file_cls.assert_called_once_with(
         directory="/data/backup",
+        enabled=True,
     )
 
     assert result == [text_file_cls.return_value]
 
 
-def test_create_databases_skips_disabled_text_file_database():
+def test_create_databases_not_skips_disabled_text_file_database():
     config = make_config(
         make_database_config(
             "text_file",
@@ -131,10 +132,9 @@ def test_create_databases_skips_disabled_text_file_database():
     )
 
     with patch("src.databases.database_factory.TextFileDatabase") as text_file_cls:
-        result = create_databases(config)
+        create_databases(config)
 
-    assert result == []
-    text_file_cls.assert_not_called()
+    text_file_cls.assert_called()
 
 
 def test_create_databases_creates_multiple_database_types():
@@ -170,10 +170,12 @@ def test_create_databases_creates_multiple_database_types():
         token="test-token",
         org="home-energy",
         bucket="energy",
+        enabled=True,
     )
 
     text_file_cls.assert_called_once_with(
         directory="/data/backup",
+        enabled=True,
     )
 
     assert result == [
@@ -182,7 +184,7 @@ def test_create_databases_creates_multiple_database_types():
     ]
 
 
-def test_create_databases_only_creates_enabled_databases():
+def test_create_databases_also_creates_disabled_databases():
     config = make_config(
         make_database_config(
             "influxdb",
@@ -211,7 +213,7 @@ def test_create_databases_only_creates_enabled_databases():
     ):
         result = create_databases(config)
 
-    assert result == [influx_cls.return_value]
+    assert result == [influx_cls.return_value, text_file_cls.return_value]
 
     influx_cls.assert_called_once()
-    text_file_cls.assert_not_called()
+    text_file_cls.assert_called_once()

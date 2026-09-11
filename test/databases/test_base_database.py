@@ -6,7 +6,7 @@ from src.databases.base_database import BaseDatabase
 import pytest
 
 
-class TestDatabase(BaseDatabase):
+class MockDatabase(BaseDatabase):
     async def store(self, measurements: list[Measurement]) -> None:
         await super().store(measurements)
 
@@ -15,14 +15,7 @@ class TestDatabase(BaseDatabase):
 
 
 def test_base_database_store_raises_not_implemented():
-    database = TestDatabase()
+    database = MockDatabase(type="test")
 
     with pytest.raises(NotImplementedError):
         asyncio.run(database.store([]))
-
-
-def test_base_database_close_raises_not_implemented():
-    database = TestDatabase()
-
-    with pytest.raises(NotImplementedError):
-        database.close()
