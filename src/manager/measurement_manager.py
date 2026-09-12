@@ -3,11 +3,13 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.calculators.base_calculator import BaseCalculator
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import CONFIG_FILE, load_config, StorageConfig
 from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
+from src.estimators.base_estimator import BaseEstimator
 from src.manager.connection_lifecycle import (
     connect_collectors,
     connect_databases,
@@ -34,7 +36,7 @@ METER_CURRENT_METRICS = {
 }
 
 
-class CollectorManager:
+class MeasurementManager:
     """Run all collectors independently and store their measurements.
 
     Each collector is executed at its own configured interval.
@@ -56,10 +58,13 @@ class CollectorManager:
     successful collection.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
+        *,
         collectors: list[BaseCollector],
         databases: list[BaseDatabase],
+        estimators: list[BaseEstimator],
+        calculators: list[BaseCalculator],
         timezone: str,
         storage_config: StorageConfig,
     ):
@@ -68,12 +73,13 @@ class CollectorManager:
         Args:
             collectors: Collectors to execute independently.
             databases: Databases receiving the collected measurements.
-            interval: Default delay in seconds between collection cycles.
-                Used when a collector does not define its own interval.
             timezone: Timezone used for daily measurement handling.
         """
         self.collectors = collectors
         self.databases = databases
+        self.estimators = estimators
+        self.calculators = calculators
+
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
 
@@ -125,7 +131,7 @@ class CollectorManager:
             logger.info("Configuration reloaded")
 
     async def run(self) -> None:
-        """Run all collectors until the task is cancelled.
+        """Run all collectors until the task is canceled.
 
         All configured collectors and enabled databases are initially connected before the
         collection loops start. A connection failure of an individual
@@ -138,7 +144,7 @@ class CollectorManager:
         Cleanup is performed for all collectors when the collection
         manager exits.
         """
-        logger.info("CollectorManager.run()")
+        logger.info("MeasurementManager.run()")
 
         try:
             await self.connect()
@@ -195,7 +201,7 @@ class CollectorManager:
                 )
 
                 if measurements:
-                    await self._store_measurements(measurements)
+                    await self._process_measurements(measurements)
 
                 else:
                     logger.warning(
@@ -221,6 +227,37 @@ class CollectorManager:
             delay = max(0.0, collector.interval - elapsed)
 
             await asyncio.sleep(delay)
+
+    async def _process_measurements(
+        self,
+        measurements: list[Measurement],
+    ) -> None:
+        """Process collected measurements through estimators and calculators."""
+        estimated: list[Measurement] = []
+
+        for estimator in self.estimators:
+            estimated.extend(
+                estimator.estimate(measurements),
+            )
+
+        measurements = [
+            *measurements,
+            *estimated,
+        ]
+
+        calculated: list[Measurement] = []
+
+        for calculator in self.calculators:
+            calculated.extend(
+                calculator.calculate(measurements),
+            )
+
+        measurements = [
+            *measurements,
+            *calculated,
+        ]
+
+        await self._store_measurements(measurements)
 
     async def _store_measurements(
         self,
@@ -264,14 +301,14 @@ class CollectorManager:
 
     async def connect(self) -> None:
         """Attempt to connect all configured collectors and databases."""
-        logger.info("CollectorManager.connect()")
+        logger.info("MeasurementManager.connect()")
 
         await connect_collectors(self.collectors)
         await connect_databases(self.databases)
 
     async def disconnect(self) -> None:
         """Disconnect all configured collectors and databases."""
-        logger.info("CollectorManager.disconnect()")
+        logger.info("MeasurementManager.disconnect()")
 
         await disconnect_collectors(self.collectors)
         await disconnect_databases(self.databases)
@@ -294,7 +331,7 @@ class CollectorManager:
         Returns:
             All measurements successfully returned by the collectors.
         """
-        logger.info("CollectorManager.collect_all()")
+        logger.info("MeasurementManager.collect_all()")
 
         tasks = [asyncio.to_thread(collector.collect) for collector in self.collectors]
 
@@ -418,12 +455,18 @@ class CollectorManager:
         for measurement in measurements:
             selected = "X" if self.storage_filter.is_selected(measurement) else ""
 
+            calculated = "C" if measurement.source == "calculated" else ""
+
+            estimated = "E" if measurement.source == "estimated" else ""
+
+            status = f"{selected}{calculated}{estimated}"
+
             logger.info(
-                "%-25s %-25s %-25s %10.3f %-5s %s",
+                "%-25s %-25s %-25s %14.3f %-5s %-4s",
                 measurement.timestamp.isoformat(),
                 measurement.source,
                 measurement.metric,
                 measurement.value,
                 measurement.unit or "",
-                selected,
+                status,
             )

@@ -17,6 +17,8 @@ def make_config(
     *,
     collectors=None,
     databases=None,
+    estimators=None,
+    calculators=None,
 ):
     return Config(
         collection=CollectionConfig(
@@ -24,6 +26,8 @@ def make_config(
         ),
         collectors=[] if collectors is None else collectors,
         databases=[] if databases is None else databases,
+        estimators=[] if estimators is None else estimators,
+        calculators=[] if calculators is None else calculators,
         storage=StorageConfig(
             enabled=True,
             measurements=[],
