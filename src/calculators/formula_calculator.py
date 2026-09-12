@@ -55,7 +55,7 @@ class FormulaCalculator(BaseCalculator):
                 unit=calculation.unit,
             )
 
-            logger.info(
+            logger.debug(
                 "Calculated measurement: source=%s metric=%s timestamp=%s value=%.3f %s C",
                 calculated_measurement.source,
                 calculated_measurement.metric,

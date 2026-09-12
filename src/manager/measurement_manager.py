@@ -455,12 +455,18 @@ class MeasurementManager:
         for measurement in measurements:
             selected = "X" if self.storage_filter.is_selected(measurement) else ""
 
+            calculated = "C" if measurement.source == "calculated" else ""
+
+            estimated = "E" if measurement.source == "estimated" else ""
+
+            status = f"{selected}{calculated}{estimated}"
+
             logger.info(
-                "%-25s %-25s %-25s %10.3f %-5s %s",
+                "%-25s %-25s %-25s %14.3f %-5s %-4s",
                 measurement.timestamp.isoformat(),
                 measurement.source,
                 measurement.metric,
                 measurement.value,
                 measurement.unit or "",
-                selected,
+                status,
             )

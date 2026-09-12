@@ -106,6 +106,10 @@ storage:
         - precipitation_probability
         - cloud_cover
 
+    calculated:
+      - inverter_efficiency
+      - heat_pump_power
+
 estimators:
   - type: kalman
     enabled: true
