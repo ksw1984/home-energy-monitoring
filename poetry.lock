@@ -890,6 +890,18 @@ files = [
 ]
 
 [[package]]
+name = "simpleeval"
+version = "1.0.7"
+description = "A simple, safe single expression evaluator library."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "simpleeval-1.0.7-py3-none-any.whl", hash = "sha256:97ac271bfd8f2af9e7b9a36ceea67617f26fa873f9d5ae1922f64d4c1442534b"},
+    {file = "simpleeval-1.0.7.tar.gz", hash = "sha256:1e10e5f9fec597814444e20c0892ed15162fa214c8a88f434b5b077cf2fef85b"},
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 description = "Python 2 and 3 compatibility utilities"
@@ -989,4 +1001,4 @@ python-discovery = ">=1.6"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.13,<4.0"
-content-hash = "33ae69123730b2a414e47bfc979c863e055e1b4b395e5388119586e225421dd8"
+content-hash = "b28f0829592b89ac5c0cf3d6997a9fe50d81cb66654fa4b384d5faeac01ead1e"

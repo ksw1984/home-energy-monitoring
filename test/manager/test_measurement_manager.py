@@ -4,9 +4,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
+from src.calculators.base_calculator import BaseCalculator
 from src.collectors.definitions.measurement import Measurement
 from src.config.config import StorageConfig, StorageMeasurementConfig
-from src.manager.collector_manager import CollectorManager
+from src.estimators.base_estimator import BaseEstimator
+from src.manager.measurement_manager import MeasurementManager
 
 import pytest
 
@@ -39,18 +41,22 @@ def make_storage_config(*measurements):
     )
 
 
-def make_manager(
+def make_manager(  # noqa: PLR0913
     *,
     collectors=None,
     databases=None,
     timezone="UTC",
     storage_measurements=(),
+    estimators=None,
+    calculators=None,
 ):
-    return CollectorManager(
+    return MeasurementManager(
         collectors=[] if collectors is None else collectors,
         databases=[] if databases is None else databases,
         timezone=timezone,
         storage_config=make_storage_config(*storage_measurements),
+        estimators=[] if estimators is None else estimators,
+        calculators=[] if calculators is None else calculators,
     )
 
 
@@ -62,44 +68,18 @@ def test_init():
         ("test", "temperature", "current"),
     )
 
-    manager = CollectorManager(
+    manager = MeasurementManager(
         collectors=collectors,
         databases=databases,
         timezone="Europe/Berlin",
         storage_config=storage_config,
+        estimators=[],
+        calculators=[],
     )
 
     assert manager.collectors is collectors
     assert manager.databases is databases
     assert manager.timezone == ZoneInfo("Europe/Berlin")
-
-
-def test_connect_connects_all_collectors():
-    collector1 = Mock()
-    collector2 = Mock()
-
-    manager = make_manager(
-        collectors=[collector1, collector2],
-    )
-
-    asyncio.run(manager.connect())
-
-    collector1.connect.assert_called_once()
-    collector2.connect.assert_called_once()
-
-
-def test_disconnect_disconnects_all_collectors():
-    collector1 = Mock()
-    collector2 = Mock()
-
-    manager = make_manager(
-        collectors=[collector1, collector2],
-    )
-
-    asyncio.run(manager.disconnect())
-
-    collector1.disconnect.assert_called_once()
-    collector2.disconnect.assert_called_once()
 
 
 def test_collect_all_returns_measurements():
@@ -193,15 +173,17 @@ def test_output(caplog):
         value=20.5,
     )
 
+    manager = make_manager()
+
     with caplog.at_level("INFO"):
-        CollectorManager.output([measurement])
+        manager.output([measurement])
 
     assert "2026-08-27T12:00:00" in caplog.text
     assert "test" in caplog.text
     assert "temperature" in caplog.text
     assert "20.500" in caplog.text
     assert "°C" in caplog.text
-    assert "src.manager.collector_manager" in caplog.text
+    assert "src.manager.measurement_manager" in caplog.text
 
 
 def test_filter_measurements_stores_current_meter_values():
@@ -260,7 +242,7 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -271,7 +253,6 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
 
 def test_filter_measurements_stores_daily_values_when_both_are_available():
     manager = make_manager(
-        collectors=[],
         storage_measurements=(
             ("meter_grid", "grid_import_energy_total", "current"),
             ("meter_grid", "grid_export_energy_total", "current"),
@@ -291,7 +272,7 @@ def test_filter_measurements_stores_daily_values_when_both_are_available():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -321,7 +302,7 @@ def test_filter_measurements_stores_daily_values_only_once():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(measurements)
@@ -353,7 +334,7 @@ def test_filter_measurements_does_not_store_daily_values_outside_midnight():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 12
 
         result = manager._filter_measurements(measurements)
@@ -412,7 +393,7 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -454,7 +435,7 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -502,7 +483,7 @@ def test_filter_measurements_stores_each_meter_independently():
         ),
     ]
 
-    with patch("src.manager.collector_manager.datetime") as datetime_mock:
+    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(grid_measurements)
@@ -514,11 +495,6 @@ def test_filter_measurements_stores_each_meter_independently():
         "meter_grid",
         "meter_household",
     }
-
-
-# ---------------------------------------------------------------------------
-# Independent collector timing / database tests
-# ---------------------------------------------------------------------------
 
 
 def test_run_collector_uses_collector_interval():
@@ -539,11 +515,11 @@ def test_run_collector_uses_collector_interval():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.get_running_loop",
+            "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
         get_loop.return_value.time.side_effect = [0, 0]
@@ -569,7 +545,7 @@ def test_run_collector_skips_disabled_collector():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -583,6 +559,7 @@ def test_store_measurements_writes_to_database_immediately():
     measurement = make_measurement()
 
     database = Mock()
+    database.enabled = True
     database.store = AsyncMock()
 
     manager = make_manager(
@@ -605,11 +582,13 @@ def test_store_measurements_continues_with_next_database_when_database_fails(
     measurement = make_measurement()
 
     failing_database = Mock()
+    failing_database.enabled = True
     failing_database.store = AsyncMock(
         side_effect=RuntimeError("database failed"),
     )
 
     working_database = Mock()
+    working_database.enabled = True
     working_database.store = AsyncMock()
 
     manager = make_manager(
@@ -652,7 +631,7 @@ def test_run_collector_continues_after_collection_failure():
 
     with (
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             sleep,
         ),
         pytest.raises(asyncio.CancelledError),
@@ -696,11 +675,11 @@ def test_run_creates_independent_task_for_each_collector():
             new_callable=AsyncMock,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.create_task",
+            "src.manager.measurement_manager.asyncio.create_task",
             side_effect=fake_create_task,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.gather",
+            "src.manager.measurement_manager.asyncio.gather",
             new_callable=AsyncMock,
             side_effect=asyncio.CancelledError,
         ),
@@ -719,7 +698,7 @@ def test_reload_config_if_changed_does_nothing_when_config_is_unchanged():
     with (
         patch.object(Path, "stat") as stat,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
         ) as load_config,
     ):
         stat.return_value.st_mtime = manager._config_mod_time
@@ -748,16 +727,17 @@ def test_reload_config_if_changed_updates_storage_filter():
     new_config = Mock()
     new_config.storage = new_storage_config
     new_config.collectors = []
+    new_config.databases = []
 
     old_mtime = manager._config_mod_time
     new_mtime = old_mtime + 1
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -800,10 +780,10 @@ def test_reload_config_if_changed_keeps_old_config_when_reload_fails(
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             side_effect=ValueError("invalid YAML"),
         ) as load_config,
         caplog.at_level("ERROR"),
@@ -834,15 +814,16 @@ def test_reload_config_if_changed_only_reloads_once_for_same_mtime():
     new_config = Mock()
     new_config.storage = new_storage_config
     new_config.collectors = []
+    new_config.databases = []
 
     new_mtime = manager._config_mod_time + 1
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -860,7 +841,7 @@ def test_reload_config_if_changed_handles_missing_config_file(caplog):
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         caplog.at_level("ERROR"),
     ):
@@ -894,11 +875,11 @@ def test_run_collector_checks_for_config_reload():
             reload_config,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.sleep",
+            "src.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.collector_manager.asyncio.get_running_loop",
+            "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
         get_loop.return_value.time.side_effect = [0, 0]
@@ -927,6 +908,7 @@ def test_reload_config_if_changed_updates_measurement_type():
         ],
     )
     new_config.collectors = []
+    new_config.databases = []
 
     new_mtime = manager._config_mod_time + 1
 
@@ -946,10 +928,10 @@ def test_reload_config_if_changed_updates_measurement_type():
 
     with (
         patch(
-            "src.manager.collector_manager.CONFIG_FILE",
+            "src.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.collector_manager.load_config",
+            "src.manager.measurement_manager.load_config",
             return_value=new_config,
         ),
     ):
@@ -959,3 +941,144 @@ def test_reload_config_if_changed_updates_measurement_type():
 
     assert manager.storage_filter.filter([current]) == []
     assert manager.storage_filter.filter([forecast]) == [forecast]
+
+
+def test_process_measurements_runs_estimators_and_calculators():
+    raw_measurement = make_measurement(
+        metric="power",
+        value=100.0,
+    )
+
+    estimated_measurement = make_measurement(
+        metric="estimated_power",
+        value=95.0,
+        source="estimated",
+    )
+
+    calculated_measurement = make_measurement(
+        metric="calculated_power",
+        value=5.0,
+        source="calculated",
+    )
+
+    estimator = Mock(spec=BaseEstimator)
+    estimator.estimate.return_value = [estimated_measurement]
+
+    calculator = Mock()
+    calculator.calculate.return_value = [calculated_measurement]
+
+    manager = make_manager(
+        estimators=[estimator],
+        calculators=[calculator],
+        storage_measurements=(
+            ("test", "power", "current"),
+            ("estimated", "estimated_power", "current"),
+            ("calculated", "calculated_power", "current"),
+        ),
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements([raw_measurement]),
+        )
+
+    estimator.estimate.assert_called_once_with(
+        [raw_measurement],
+    )
+
+    calculator.calculate.assert_called_once_with(
+        [
+            raw_measurement,
+            estimated_measurement,
+        ],
+    )
+
+    store_measurements.assert_awaited_once_with(
+        [
+            raw_measurement,
+            estimated_measurement,
+            calculated_measurement,
+        ],
+    )
+
+
+def test_process_measurements_runs_estimator_then_calculator():
+    grid_measurement = make_measurement(
+        source="meter_grid",
+        metric="grid_import_power",
+        value=1000.0,
+    )
+
+    household_estimated = make_measurement(
+        source="meter_household",
+        metric="grid_import_power",
+        value=700.0,
+    )
+
+    calculated_measurement = make_measurement(
+        source="calculated",
+        metric="heat_pump_power",
+        value=300.0,
+    )
+
+    estimator = Mock(spec=BaseEstimator)
+    estimator.estimate.return_value = [household_estimated]
+
+    calculator = Mock(spec=BaseCalculator)
+    calculator.calculate.return_value = [calculated_measurement]
+
+    manager = make_manager(
+        estimators=[estimator],
+        calculators=[calculator],
+        storage_measurements=(
+            (
+                "meter_grid",
+                "grid_import_power",
+                "current",
+            ),
+            (
+                "meter_household",
+                "grid_import_power",
+                "current",
+            ),
+            (
+                "calculated",
+                "heat_pump_power",
+                "current",
+            ),
+        ),
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements(
+                [grid_measurement],
+            ),
+        )
+
+    estimator.estimate.assert_called_once_with(
+        [grid_measurement],
+    )
+
+    calculator.calculate.assert_called_once_with(
+        [
+            grid_measurement,
+            household_estimated,
+        ],
+    )
+
+    store_measurements.assert_awaited_once_with(
+        [
+            grid_measurement,
+            household_estimated,
+            calculated_measurement,
+        ],
+    )

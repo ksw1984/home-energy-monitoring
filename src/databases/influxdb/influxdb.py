@@ -13,11 +13,18 @@ logger = logging.getLogger(__name__)
 class InfluxDatabase(BaseDatabase):
     def __init__(
         self,
+        *,
         url: str,
         token: str,
         org: str,
         bucket: str,
+        enabled: bool = True,
     ):
+        super().__init__(
+            type="influxdb",
+            enabled=enabled,
+        )
+
         self.bucket = bucket
         self.org = org
 
@@ -27,15 +34,27 @@ class InfluxDatabase(BaseDatabase):
             org=org,
         )
 
-        self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
+        self.write_api = self.client.write_api(
+            write_options=SYNCHRONOUS,
+        )
+
+    def connect(self) -> None:
+        logger.info("Connecting to InfluxDB")
+
+        if not self.client.ping():
+            raise ConnectionError("InfluxDB ping failed")
+
+        logger.info("Connected to InfluxDB")
 
     async def store(self, measurements: list[Measurement]) -> None:
+        if not self.enabled:
+            return
+
         points = [
             Point(measurement.metric).tag("source", measurement.source).field("value", measurement.value).time(measurement.timestamp)
             for measurement in measurements
         ]
-        logger.info("Points: %s", points)
-        logger.info("Write to db")
+
         await asyncio.to_thread(
             self.write_api.write,
             bucket=self.bucket,
@@ -43,5 +62,5 @@ class InfluxDatabase(BaseDatabase):
             record=points,
         )
 
-    def close(self):
+    def close(self) -> None:
         self.client.close()

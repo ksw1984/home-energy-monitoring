@@ -12,9 +12,6 @@ def create_databases(config):
     databases: list[BaseDatabase] = []
 
     for database_config in config.databases:
-        if not database_config.enabled:
-            continue
-
         attributes = database_config.attributes
 
         if database_config.type == "influxdb":
@@ -24,14 +21,18 @@ def create_databases(config):
                     token=required_secret("INFLUXDB_TOKEN"),
                     org=str(attributes["org"]),
                     bucket=str(attributes["bucket"]),
+                    enabled=database_config.enabled,
                 )
             )
+
         elif database_config.type == "text_file":
             databases.append(
                 TextFileDatabase(
                     directory=str(attributes["directory"]),
+                    enabled=database_config.enabled,
                 )
             )
+
         else:
             raise ValueError(f"Unknown database type: {database_config.type}")
 

@@ -126,6 +126,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         except FroniusCollectorError as exc:
             logger.warning(f"Could not collect Fronius SunSpec data: {exc}")
 
+        # Final day data
         if self._should_finalize_day(timestamp, pv_power):
             measurements.extend(
                 self._collect_energy_measurements(
@@ -133,6 +134,14 @@ class FroniusSymoInverterCollector(BaseCollector):
                     site=site,
                 )
             )
+
+            try:
+                measurements.extend(self._collect_mppt_energy_measurements(timestamp))
+            except FroniusCollectorError as exc:
+                logger.warning(
+                    "Could not collect Fronius MPPT energy data: %s",
+                    exc,
+                )
 
             self._energy_recorded_for_date = timestamp.date()
             self._zero_power_since = None
@@ -343,25 +352,38 @@ class FroniusSymoInverterCollector(BaseCollector):
         mppt = device.models[160][0]
         mppt.read()
 
-        measurements: list[Measurement] = []
-
-        for index, module in enumerate(mppt.module, start=1):
-            measurements.extend(
-                [
-                    self._measurement(
-                        timestamp=timestamp,
-                        metric=f"mppt_{index}_power",
-                        value=float(module.DCW.cvalue),
-                    ),
-                    self._measurement(
-                        timestamp=timestamp,
-                        metric=f"mppt_{index}_energy_total",
-                        value=float(module.DCWH.cvalue),
-                    ),
-                ]
+        return [
+            self._measurement(
+                timestamp=timestamp,
+                metric=f"mppt_{index}_power",
+                value=float(module.DCW.cvalue),
             )
+            for index, module in enumerate(mppt.module, start=1)
+        ]
 
-        return measurements
+    def _collect_mppt_energy_measurements(
+        self,
+        timestamp: datetime,
+    ) -> list[Measurement]:
+        """Collect MPPT cumulative energy totals from SunSpec model 160."""
+
+        try:
+            device = self._get_sunspec_device()
+
+            mppt = device.models[160][0]
+            mppt.read()
+
+            return [
+                self._measurement(
+                    timestamp=timestamp,
+                    metric=f"mppt_{index}_energy_total",
+                    value=float(module.DCWH.cvalue),
+                )
+                for index, module in enumerate(mppt.module, start=1)
+            ]
+
+        except Exception as exc:
+            raise FroniusCollectorError("Could not collect Fronius MPPT energy data") from exc
 
     def _collect_ac_measurements(
         self,

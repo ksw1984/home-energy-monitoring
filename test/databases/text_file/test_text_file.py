@@ -24,7 +24,7 @@ def make_measurement(
 
 def test_store_creates_directory_and_daily_file(tmp_path):
     directory = tmp_path / "backup"
-    database = TextFileDatabase(str(directory))
+    database = TextFileDatabase(directory=str(directory), enabled=True)
 
     measurement = make_measurement()
 
@@ -40,7 +40,7 @@ def test_store_creates_directory_and_daily_file(tmp_path):
 
 
 def test_store_writes_measurement_as_json_line(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     measurement = make_measurement(
         metric="temperature",
@@ -67,7 +67,7 @@ def test_store_writes_measurement_as_json_line(tmp_path):
 
 
 def test_store_writes_multiple_measurements(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     measurements = [
         make_measurement(
@@ -97,7 +97,7 @@ def test_store_writes_multiple_measurements(tmp_path):
 
 
 def test_store_creates_separate_file_for_each_day(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     measurements = [
         make_measurement(
@@ -123,12 +123,12 @@ def test_store_creates_separate_file_for_each_day(tmp_path):
 def test_store_appends_after_database_restart(tmp_path):
     measurement1 = make_measurement(value=20.5)
 
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
     asyncio.run(database.store([measurement1]))
     database.close()
 
     # Simulate application restart.
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     measurement2 = make_measurement(value=21.0)
     asyncio.run(database.store([measurement2]))
@@ -142,7 +142,7 @@ def test_store_appends_after_database_restart(tmp_path):
 
 
 def test_store_preserves_unicode(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     measurement = make_measurement(
         source="Wohnzimmer - Sensor äöü",
@@ -161,7 +161,7 @@ def test_store_preserves_unicode(tmp_path):
 
 
 def test_store_empty_measurements_creates_no_file(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     asyncio.run(database.store([]))
 
@@ -169,6 +169,6 @@ def test_store_empty_measurements_creates_no_file(tmp_path):
 
 
 def test_close_is_safe(tmp_path):
-    database = TextFileDatabase(str(tmp_path))
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
 
     database.close()
