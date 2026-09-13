@@ -2,6 +2,78 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.7.0 - 2026-09-13
+
+### Summary
+
+- Major runtime and configuration refactor: per-collector runtime configuration, persistent-storage filtering, and
+  hot-reload of config.
+- Deeper Fronius support: SunSpec / Modbus measurements (MPPT, AC totals) in addition to REST API.
+- IEC meter reliability and protocol hardening: persistent serial connection, robust session handling and timeouts.
+- Collector manager rewritten to run collectors independently (per-collector intervals) and to be more resilient to
+  individual failures.
+- App lifecycle and shutdown improved (signal handling, graceful cancel/cleanup).
+- Tests expanded and updated to cover new behaviour and SunSpec data.
+- Tooling / CI updates (ruff/pyrefly, pre-commit changes), small packaging updates.
+
+### Added
+
+- Storage configuration and filtering: new storage section support and StorageFilter to persist only configured
+  measurement keys (src/config/config.py, src/config/storage_filter.py).
+- SunSpec / Modbus Fronius data collection: MPPT and AC total metrics via SunSpec/Modbus in addition to existing Fronius
+  REST data (src/collectors/fronius_inverter/*, src/collectors/definitions/fronius.py).
+- New IEC tooling script to test serial connection lifetime and handshake behavior (
+  src/scripts/check_iec_connection_timeout.py).
+- More collector runtime metadata (collector.source, interval, enabled) and a storage_key property on Measurement for
+  precise storage control (src/collectors/definitions/measurement.py, src/collectors/base_collector.py).
+- Config package: move configuration loading/structures to src/config/config.py with richer typed dataclasses and
+  storage mappings.
+- Collector runtime reconfiguration: Manager can update collector runtime (interval/enabled) from config file changes.
+
+### Changed
+
+- CollectorManager rework:
+    - Collectors now run independently in their own loop/task, honoring per-collector intervals and enabling better
+      isolation of failures (src/manager/collector_manager.py).
+    - Config file changes are detected and applied at runtime (intervals/enabled/storage); storage filter updated on
+      change.
+    - Daily energy snapshot logic now tracked per-source and is concurrency-safe.
+- App lifecycle:
+    - Added signal handling and controlled shutdown with task cancellation; explicit event loop handling to allow
+      graceful cleanup (src/app.py).
+- Collectors:
+    - BaseCollector receives structured runtime args (timezone, interval, enabled, source) and added configure_runtime()
+      helper (src/collectors/base_collector.py).
+    - Collector factory uses common kwargs and honors collector-specific interval (src/collectors/collector_factory.py).
+    - Open-Meteo, Rademacher, IEC collectors made timezone-aware and accept runtime source/interval flags (
+      src/collectors/*).
+- IEC protocol & collector:
+    - IEC implementation improved: always re-uses the same physical serial connection, uses a consistent session flow,
+      increased robustness to empty reads, explicit timeouts (src/collectors/iec/iec_protocol.py).
+    - IecCollector now tracks connection state, opens lazily, and will mark itself disconnected if serial errors occur
+      so subsequent cycles can attempt reconnect (src/collectors/iec/iec_collector.py).
+- Databases:
+    - InfluxDB point construction compacted; TextFile DB improved typing and timezone handling (
+      src/databases/influxdb/influxdb.py, src/databases/text_file/textfiledb.py).
+    - Database factory typing improvements and wiring (src/databases/database_factory.py).
+- Tests:
+    - Tests updated and extended (SunSpec/MPPT, IEC session behavior, manager behavior, config/storage), renamed/moved
+      scripts/tests accordingly (test/*).
+- Tooling and CI:
+    - Bumped lint/type tooling versions and moved MyPy -> Pyrefly in CI / pre-commit; ruff formatting/lint
+      improvements (pyproject, .pre-commit-config.yaml, .github/workflows/*).
+    - Added pyrefly configuration and dev dependency (pyproject.toml).
+
+### Fixed
+
+- Collector fault-isolation: failures from a single database.store() or one collector do not stop the rest of the
+  system; errors are logged and other stores/collectors continue.
+- IEC protocol: improved payload extraction, robust reads, and deterministic timeouts to avoid hangs on bad serial
+  devices.
+- Fronius collector: gracefully handles missing REST fields now and treats None as zero where appropriate; SunSpec
+  collection errors are wrapped in a dedicated exception class.
+- Tests: fixed tests to assert timezone-aware datetimes and to reflect new per-collector behaviour.
+
 ## 0.6.0 - 2026-09-09
 
 ### Added
