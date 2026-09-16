@@ -189,22 +189,40 @@ class IecProtocol:
         Returns:
             Raw identification response from the meter.
         """
-        data = bytearray()
         deadline = time.monotonic() + timeout
+        data = bytearray()
 
         while time.monotonic() < deadline:
             chunk = ser.read(256)
 
-            if chunk:
-                data.extend(chunk)
+            if not chunk:
+                continue
 
-                if b"\r\n" in data:
-                    break
+            data.extend(chunk)
 
-        if not data:
-            raise RuntimeError("No IEC identification response received.")
+            match = re.search(rb"/[A-Za-z]{3}[0-9]", data)
 
-        return bytes(data)
+            if match is not None:
+                end = data.find(b"\r\n", match.start())
+
+                if end >= 0:
+                    return bytes(data[match.start() : end + 2])
+
+            terminator = data.find(b"!")
+
+            if terminator >= 0:
+                logger.debug(
+                    "Discarding stale IEC telegram and retrying identification",
+                )
+
+                del data[: terminator + 1]
+
+                time.sleep(0.2)
+
+                ser.write(IecProtocol.REQUEST)
+                ser.flush()
+
+        raise RuntimeError("No valid IEC identification response received.")
 
     @staticmethod
     def _get_baud_rate(
