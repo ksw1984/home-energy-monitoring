@@ -136,6 +136,14 @@ class FroniusSymoInverterCollector(BaseCollector):
             )
 
             try:
+                measurements.append(self._collect_ac_energy_measurement(timestamp))
+            except FroniusCollectorError as exc:
+                logger.warning(
+                    "Could not collect Fronius AC energy total: %s",
+                    exc,
+                )
+
+            try:
                 measurements.extend(self._collect_mppt_energy_measurements(timestamp))
             except FroniusCollectorError as exc:
                 logger.warning(
@@ -336,6 +344,8 @@ class FroniusSymoInverterCollector(BaseCollector):
             )
 
         if not self._sunspec_scanned:
+            logger.info("Scanning Fronius SunSpec device")
+
             self._sunspec_device.scan()
             self._sunspec_scanned = True
 
@@ -402,12 +412,28 @@ class FroniusSymoInverterCollector(BaseCollector):
                 metric="ac_power",
                 value=float(inverter.W.cvalue),
             ),
-            self._measurement(
+        ]
+
+    def _collect_ac_energy_measurement(
+        self,
+        timestamp: datetime,
+    ) -> Measurement:
+        """Collect cumulative AC energy at the end of the solar day."""
+
+        try:
+            device = self._get_sunspec_device()
+
+            inverter = device.models[113][0]
+            inverter.read()
+
+            return self._measurement(
                 timestamp=timestamp,
                 metric="ac_energy_total",
                 value=float(inverter.WH.cvalue),
-            ),
-        ]
+            )
+
+        except Exception as exc:
+            raise FroniusCollectorError("Could not collect Fronius AC energy total") from exc
 
     def _collect_sunspec_measurements(
         self,

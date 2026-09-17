@@ -990,16 +990,16 @@ def test_process_measurements_runs_estimators_and_calculators():
     )
 
     calculator.calculate.assert_called_once_with(
-        [
-            raw_measurement,
-        ],
+        [raw_measurement],
     )
 
-    store_measurements.assert_awaited_once_with(
-        [
-            raw_measurement,
-            calculated_measurement,
-        ],
+    assert store_measurements.await_count == 2
+
+    store_measurements.assert_any_await(
+        [raw_measurement],
+    )
+    store_measurements.assert_any_await(
+        [calculated_measurement],
     )
 
 
@@ -1022,29 +1022,13 @@ def test_process_measurements_runs_estimator_then_calculator():
         value=300.0,
     )
 
-    estimated_grid = make_measurement(
-        source="meter_grid",
-        metric="grid_import_power",
-        value=950.0,
-    )
-
-    estimated_household = make_measurement(
-        source="meter_household",
-        metric="grid_import_power",
-        value=650.0,
-    )
-
     grid_estimator = Mock(spec=BaseEstimator)
     grid_estimator.source = "meter_grid"
     grid_estimator.metric = "grid_import_power"
-    grid_estimator.target_timestamp.return_value = grid_measurement.timestamp
-    grid_estimator.estimate_at.return_value = estimated_grid
 
     household_estimator = Mock(spec=BaseEstimator)
     household_estimator.source = "meter_household"
     household_estimator.metric = "grid_import_power"
-    household_estimator.target_timestamp.return_value = grid_measurement.timestamp
-    household_estimator.estimate_at.return_value = estimated_household
 
     calculation = CalculationConfig(
         source="calculated",
@@ -1103,25 +1087,37 @@ def test_process_measurements_runs_estimator_then_calculator():
     grid_estimator.add_measurements.assert_called_once_with(
         [grid_measurement, household_measurement],
     )
+
     household_estimator.add_measurements.assert_called_once_with(
         [grid_measurement, household_measurement],
     )
 
-    grid_estimator.target_timestamp.assert_called_once_with()
-    grid_estimator.estimate_at.assert_called_once_with(grid_measurement.timestamp)
-    household_estimator.estimate_at.assert_called_once_with(grid_measurement.timestamp)
+    # Measurements are close enough in time, so the calculator
+    # must use the raw measurements directly.
+    grid_estimator.target_timestamp.assert_not_called()
+    household_estimator.target_timestamp.assert_not_called()
+
+    grid_estimator.estimate_at.assert_not_called()
+    household_estimator.estimate_at.assert_not_called()
 
     calculator.calculate.assert_called_once_with(
         [
-            estimated_grid,
-            estimated_household,
+            grid_measurement,
+            household_measurement,
         ],
     )
 
-    store_measurements.assert_awaited_once_with(
+    assert store_measurements.await_count == 2
+
+    store_measurements.assert_any_await(
         [
             grid_measurement,
             household_measurement,
+        ],
+    )
+
+    store_measurements.assert_any_await(
+        [
             calculated_measurement,
         ],
     )

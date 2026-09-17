@@ -30,29 +30,44 @@ class KalmanSmootherGain:
 class KalmanEstimator(BaseEstimator):
     """Estimate measurements with a fixed-lookback Kalman smoother."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         source: str,
         metric: str,
         lookback: int = 1,
+        history_size: int = 10,
+        smoothing_window: int = 10,
         process_variance: float = 1.0,
         measurement_variance: float = 1.0,
     ) -> None:
         if lookback <= 0:
             raise ValueError(f"lookback must be positive, got {lookback}")
 
-        self.source = source
+        if history_size <= 0:
+            raise ValueError(f"history_size must be positive, got {history_size}")
 
+        if smoothing_window <= 0:
+            raise ValueError(f"smoothing_window must be positive, got {smoothing_window}")
+
+        if lookback > history_size:
+            raise ValueError(f"lookback ({lookback}) cannot exceed history_size ({history_size})")
+
+        if smoothing_window > history_size:
+            raise ValueError(f"smoothing_window ({smoothing_window}) cannot exceed history_size ({history_size})")
+
+        self.source = source
         self.metric = metric
         self.lookback = lookback
+        self.history_size = history_size
+        self.smoothing_window = smoothing_window
 
         self._filter = KalmanFilter(
             process_variance=process_variance,
             measurement_variance=measurement_variance,
         )
 
-        self._history: deque[KalmanHistoryEntry] = deque()
+        self._history: deque[KalmanHistoryEntry] = deque(maxlen=history_size)
 
         self._last_timestamp: datetime | None = None
 
@@ -122,6 +137,10 @@ class KalmanEstimator(BaseEstimator):
             return None
 
         entries = list(self._history)
+
+        if len(entries) > self.smoothing_window:
+            entries = entries[-self.smoothing_window :]
+
         target_index = self._find_target_index(
             entries,
             target_timestamp,
@@ -147,7 +166,7 @@ class KalmanEstimator(BaseEstimator):
         target_timestamp: datetime,
     ) -> int | None:
         """Find the latest history entry at or before the target."""
-        target_index: int | None = None
+        target_index = None
 
         for index, entry in enumerate(entries):
             if entry.timestamp <= target_timestamp:
@@ -209,13 +228,13 @@ class KalmanEstimator(BaseEstimator):
         current_covariance = current.covariance
         predicted_covariance = next_entry.prediction.covariance
 
-        c = self._smoother_gain(
+        gain = self._smoother_gain(
             covariance=current_covariance,
             predicted_covariance=predicted_covariance,
             dt=dt,
         )
 
-        if c is None:
+        if gain is None:
             return None
 
         predicted_state = next_entry.prediction.state
@@ -224,15 +243,15 @@ class KalmanEstimator(BaseEstimator):
         slope_difference = smoothed_state.slope - predicted_state.slope
 
         state = KalmanState(
-            value=(current.state.value + c.p00 * value_difference + c.p01 * slope_difference),
-            slope=(current.state.slope + c.p10 * value_difference + c.p11 * slope_difference),
+            value=(current.state.value + gain.p00 * value_difference + gain.p01 * slope_difference),
+            slope=(current.state.slope + gain.p10 * value_difference + gain.p11 * slope_difference),
         )
 
         covariance = self._smooth_covariance(
             current=current_covariance,
             predicted=predicted_covariance,
             smoothed=smoothed_covariance,
-            gain=c,
+            gain=gain,
         )
 
         return state, covariance
@@ -305,4 +324,5 @@ class KalmanEstimator(BaseEstimator):
             metric=self.metric,
             value=value,
             unit=entry.unit,
+            measurement_type="estimated",
         )
