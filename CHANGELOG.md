@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.1 - 2026-09-17
+
+### Fixed
+
+- Collect measurements independent of estimation
+- Fix kalman estimation to queue of 10 history entries max
+- Collect Fronius metric "ac_energy_total" only at the end of the day
+
 ## 0.8.0 - 2026-09-17
 
 ### Added
