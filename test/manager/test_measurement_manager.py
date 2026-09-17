@@ -6,7 +6,12 @@ from zoneinfo import ZoneInfo
 
 from src.calculators.base_calculator import BaseCalculator
 from src.collectors.definitions.measurement import Measurement
-from src.config.config import StorageConfig, StorageMeasurementConfig
+from src.config.config import (
+    CalculationConfig,
+    CalculatorInputConfig,
+    StorageConfig,
+    StorageMeasurementConfig,
+)
 from src.estimators.base_estimator import BaseEstimator
 from src.manager.measurement_manager import MeasurementManager
 
@@ -949,12 +954,6 @@ def test_process_measurements_runs_estimators_and_calculators():
         value=100.0,
     )
 
-    estimated_measurement = make_measurement(
-        metric="estimated_power",
-        value=95.0,
-        source="estimated",
-    )
-
     calculated_measurement = make_measurement(
         metric="calculated_power",
         value=5.0,
@@ -962,9 +961,9 @@ def test_process_measurements_runs_estimators_and_calculators():
     )
 
     estimator = Mock(spec=BaseEstimator)
-    estimator.estimate.return_value = [estimated_measurement]
+    estimator.add_measurements.return_value = None
 
-    calculator = Mock()
+    calculator = Mock(spec=BaseCalculator)
     calculator.calculate.return_value = [calculated_measurement]
 
     manager = make_manager(
@@ -986,21 +985,19 @@ def test_process_measurements_runs_estimators_and_calculators():
             manager._process_measurements([raw_measurement]),
         )
 
-    estimator.estimate.assert_called_once_with(
+    estimator.add_measurements.assert_called_once_with(
         [raw_measurement],
     )
 
     calculator.calculate.assert_called_once_with(
         [
             raw_measurement,
-            estimated_measurement,
         ],
     )
 
     store_measurements.assert_awaited_once_with(
         [
             raw_measurement,
-            estimated_measurement,
             calculated_measurement,
         ],
     )
@@ -1013,7 +1010,7 @@ def test_process_measurements_runs_estimator_then_calculator():
         value=1000.0,
     )
 
-    household_estimated = make_measurement(
+    household_measurement = make_measurement(
         source="meter_household",
         metric="grid_import_power",
         value=700.0,
@@ -1025,14 +1022,53 @@ def test_process_measurements_runs_estimator_then_calculator():
         value=300.0,
     )
 
-    estimator = Mock(spec=BaseEstimator)
-    estimator.estimate.return_value = [household_estimated]
+    estimated_grid = make_measurement(
+        source="meter_grid",
+        metric="grid_import_power",
+        value=950.0,
+    )
+
+    estimated_household = make_measurement(
+        source="meter_household",
+        metric="grid_import_power",
+        value=650.0,
+    )
+
+    grid_estimator = Mock(spec=BaseEstimator)
+    grid_estimator.source = "meter_grid"
+    grid_estimator.metric = "grid_import_power"
+    grid_estimator.target_timestamp.return_value = grid_measurement.timestamp
+    grid_estimator.estimate_at.return_value = estimated_grid
+
+    household_estimator = Mock(spec=BaseEstimator)
+    household_estimator.source = "meter_household"
+    household_estimator.metric = "grid_import_power"
+    household_estimator.target_timestamp.return_value = grid_measurement.timestamp
+    household_estimator.estimate_at.return_value = estimated_household
+
+    calculation = CalculationConfig(
+        source="calculated",
+        metric="heat_pump_power",
+        unit="W",
+        formula="grid - household",
+        inputs={
+            "grid": CalculatorInputConfig(
+                source="meter_grid",
+                metric="grid_import_power",
+            ),
+            "household": CalculatorInputConfig(
+                source="meter_household",
+                metric="grid_import_power",
+            ),
+        },
+    )
 
     calculator = Mock(spec=BaseCalculator)
+    calculator.calculations = [calculation]
     calculator.calculate.return_value = [calculated_measurement]
 
     manager = make_manager(
-        estimators=[estimator],
+        estimators=[grid_estimator, household_estimator],
         calculators=[calculator],
         storage_measurements=(
             (
@@ -1060,25 +1096,32 @@ def test_process_measurements_runs_estimator_then_calculator():
     ) as store_measurements:
         asyncio.run(
             manager._process_measurements(
-                [grid_measurement],
+                [grid_measurement, household_measurement],
             ),
         )
 
-    estimator.estimate.assert_called_once_with(
-        [grid_measurement],
+    grid_estimator.add_measurements.assert_called_once_with(
+        [grid_measurement, household_measurement],
     )
+    household_estimator.add_measurements.assert_called_once_with(
+        [grid_measurement, household_measurement],
+    )
+
+    grid_estimator.target_timestamp.assert_called_once_with()
+    grid_estimator.estimate_at.assert_called_once_with(grid_measurement.timestamp)
+    household_estimator.estimate_at.assert_called_once_with(grid_measurement.timestamp)
 
     calculator.calculate.assert_called_once_with(
         [
-            grid_measurement,
-            household_estimated,
+            estimated_grid,
+            estimated_household,
         ],
     )
 
     store_measurements.assert_awaited_once_with(
         [
             grid_measurement,
-            household_estimated,
+            household_measurement,
             calculated_measurement,
         ],
     )

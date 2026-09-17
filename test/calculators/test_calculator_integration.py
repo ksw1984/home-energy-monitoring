@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, UTC
 
 from src.calculators.formula_calculator import FormulaCalculator
 from src.collectors.definitions.measurement import Measurement
@@ -31,8 +31,7 @@ def test_estimator_output_can_be_used_by_calculator():
     estimator = KalmanEstimator(
         source="meter_household",
         metric="grid_import_power",
-        latency=timedelta(seconds=2),
-        history_size=10,
+        lookback=2,
     )
 
     calculator = FormulaCalculator(
@@ -84,16 +83,17 @@ def test_estimator_output_can_be_used_by_calculator():
         ),
     ]
 
-    estimated = estimator.estimate(
-        household,
-    )
+    estimator.add_measurements(household)
+    target_timestamp = estimator.target_timestamp()
+    assert target_timestamp is not None
+    estimated_measurement = estimator.estimate_at(target_timestamp)
 
-    assert estimated
+    assert estimated_measurement is not None
 
     result = calculator.calculate(
         [
             grid,
-            *estimated,
+            estimated_measurement,
         ],
     )
 

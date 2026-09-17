@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -36,25 +35,6 @@ def required_secret(name: str) -> str:
         raise RuntimeError(f"Required secret '{name}' is missing. Please set it in .env or as an environment variable.")
 
     return value
-
-
-def parse_duration(value: str) -> timedelta:
-    """Parse a duration such as '500ms', '2s', or '1m'."""
-    value = value.strip().lower()
-
-    if value.endswith("ms"):
-        return timedelta(milliseconds=float(value[:-2]))
-
-    if value.endswith("s"):
-        return timedelta(seconds=float(value[:-1]))
-
-    if value.endswith("m"):
-        return timedelta(minutes=float(value[:-1]))
-
-    if value.endswith("h"):
-        return timedelta(hours=float(value[:-1]))
-
-    raise ValueError(f"Invalid duration: {value!r}")
 
 
 # ---------------------------------------------------------
@@ -97,18 +77,10 @@ class StorageConfig:
 
 
 @dataclass(frozen=True)
-class EstimatorMeasurementConfig:
-    source: str
-    metric: str
-
-
-@dataclass(frozen=True)
 class EstimatorConfig:
     type: str
     enabled: bool
-    latency: timedelta
-    history_size: int
-    measurements: list[EstimatorMeasurementConfig]
+    lookback: int
 
 
 @dataclass(frozen=True)
@@ -212,26 +184,16 @@ def load_estimator_configs(
     configs = []
 
     for item in config_data.get("estimators", []):
-        measurements = [
-            EstimatorMeasurementConfig(
-                source=measurement["source"],
-                metric=measurement["metric"],
-            )
-            for measurement in item.get("measurements", [])
-        ]
+        lookback = int(item.get("lookback", 1))
 
-        history_size = int(item.get("history_size", 10))
-
-        if history_size <= 0:
-            raise ValueError(f"Estimator history_size must be positive, got {history_size}")
+        if lookback <= 0:
+            raise ValueError(f"Estimator lookback must be positive, got {lookback}")
 
         configs.append(
             EstimatorConfig(
                 type=item["type"],
                 enabled=item.get("enabled", True),
-                latency=parse_duration(item.get("latency", "0s")),
-                history_size=history_size,
-                measurements=measurements,
+                lookback=lookback,
             )
         )
 

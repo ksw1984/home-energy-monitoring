@@ -6,7 +6,12 @@ from zoneinfo import ZoneInfo
 from src.calculators.base_calculator import BaseCalculator
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.measurement import Measurement
-from src.config.config import CONFIG_FILE, load_config, StorageConfig
+from src.config.config import (
+    CalculationConfig,
+    CONFIG_FILE,
+    load_config,
+    StorageConfig,
+)
 from src.config.storage_filter import StorageFilter
 from src.databases.base_database import BaseDatabase
 from src.estimators.base_estimator import BaseEstimator
@@ -93,6 +98,8 @@ class MeasurementManager:
         # Protects the daily measurement state when multiple collectors
         # finish at approximately the same time.
         self._filter_lock = asyncio.Lock()
+
+        self._latest_measurements: dict[tuple[str, str], Measurement] = {}
 
     async def _reload_config_if_changed(self) -> None:
         async with self._config_reload_lock:
@@ -233,24 +240,44 @@ class MeasurementManager:
         measurements: list[Measurement],
     ) -> None:
         """Process collected measurements through estimators and calculators."""
-        estimated: list[Measurement] = []
-
-        for estimator in self.estimators:
-            estimated.extend(
-                estimator.estimate(measurements),
+        for measurement in measurements:
+            key = (
+                measurement.source,
+                measurement.metric,
             )
 
-        measurements = [
-            *measurements,
-            *estimated,
-        ]
+            current = self._latest_measurements.get(key)
+
+            if current is None or measurement.timestamp > current.timestamp:
+                self._latest_measurements[key] = measurement
+
+        for estimator in self.estimators:
+            estimator.add_measurements(measurements)
 
         calculated: list[Measurement] = []
 
         for calculator in self.calculators:
-            calculated.extend(
-                calculator.calculate(measurements),
-            )
+            if hasattr(calculator, "calculations"):
+                for calculation in calculator.calculations:
+                    first_input = next(iter(calculation.inputs.values()))
+
+                    if not any(measurement.source == first_input.source and measurement.metric == first_input.metric for measurement in measurements):
+                        continue
+
+                    aligned = self._align_calculation_inputs(
+                        calculation,
+                    )
+
+                    if aligned is None:
+                        continue
+
+                    calculated.extend(
+                        calculator.calculate(aligned),
+                    )
+            else:
+                calculated.extend(
+                    calculator.calculate(measurements),
+                )
 
         measurements = [
             *measurements,
@@ -258,6 +285,88 @@ class MeasurementManager:
         ]
 
         await self._store_measurements(measurements)
+
+    def _align_calculation_inputs(  # noqa: PLR0911
+        self,
+        calculation: CalculationConfig,
+    ) -> list[Measurement] | None:
+        """Align calculator inputs to a common timestamp."""
+        inputs = calculation.inputs
+
+        sources = {input_config.source for input_config in inputs.values()}
+
+        # only one source
+        if len(sources) <= 1:
+            return [
+                measurement
+                for input_config in inputs.values()
+                if (
+                    measurement := self._latest_measurements.get(
+                        (
+                            input_config.source,
+                            input_config.metric,
+                        )
+                    )
+                )
+                is not None
+            ]
+
+        # more sources
+        estimators = {(estimator.source, estimator.metric): estimator for estimator in self.estimators}
+
+        latest_measurements: dict[tuple[str, str], Measurement] = {}
+
+        for input_config in inputs.values():
+            key = (
+                input_config.source,
+                input_config.metric,
+            )
+
+            measurement = self._latest_measurements.get(key)
+
+            if measurement is None:
+                return None
+
+            latest_measurements[key] = measurement
+
+        reference_key, _ = min(
+            latest_measurements.items(),
+            key=lambda item: item[1].timestamp,
+        )
+
+        reference_estimator = estimators.get(reference_key)
+
+        if reference_estimator is None:
+            return None
+
+        target_timestamp = reference_estimator.target_timestamp()
+
+        if target_timestamp is None:
+            return None
+
+        aligned: list[Measurement] = []
+
+        for input_config in inputs.values():
+            key = (
+                input_config.source,
+                input_config.metric,
+            )
+
+            estimator = estimators.get(key)
+
+            if estimator is None:
+                return None
+
+            estimated = estimator.estimate_at(
+                target_timestamp,
+            )
+
+            if estimated is None:
+                return None
+
+            aligned.append(estimated)
+
+        return aligned
 
     async def _store_measurements(
         self,
@@ -459,7 +568,7 @@ class MeasurementManager:
 
             estimated = "E" if measurement.source == "estimated" else ""
 
-            status = f"{selected}{calculated}{estimated}"
+            status = f"{calculated}{estimated}{selected}"
 
             logger.info(
                 "%-25s %-25s %-25s %14.3f %-5s %-4s",

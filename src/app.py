@@ -24,8 +24,12 @@ async def run():
 
     databases = create_databases(config_obj)
 
-    estimators = create_estimators(config_obj.estimators)
     calculators = create_calculators(config_obj.calculators)
+    calculations = [calculation for calculator in config_obj.calculators if calculator.enabled for calculation in calculator.calculations]
+    estimators = create_estimators(
+        config_obj.estimators,
+        calculations,
+    )
 
     manager = MeasurementManager(
         collectors=collectors,
