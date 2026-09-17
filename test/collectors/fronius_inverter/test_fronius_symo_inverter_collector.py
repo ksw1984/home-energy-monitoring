@@ -146,7 +146,7 @@ def test_collect_returns_measurements(
     result = collector.collect()
 
     assert isinstance(result, list)
-    assert len(result) == 5
+    assert len(result) == 4
     assert all(isinstance(measurement, Measurement) for measurement in result)
 
 
@@ -170,7 +170,6 @@ def test_collect_returns_rest_and_sunspec_measurements(
         "mppt_1_power",
         "mppt_2_power",
         "ac_power",
-        "ac_energy_total",
     ]
 
 
@@ -422,6 +421,14 @@ def test_daily_energy_is_recorded_after_five_minutes_zero_power(
     mock_get.return_value = mock_response
     collector._is_after_sunset = lambda timestamp: True
 
+    # Prevent real Modbus access during end-of-day collection.
+    collector._collect_ac_energy_measurement = lambda timestamp: collector._measurement(
+        timestamp=timestamp,
+        metric="ac_energy_total",
+        value=91809800.0,
+    )
+    collector._collect_mppt_energy_measurements = lambda timestamp: []
+
     response = {
         **FRONIUS_RESPONSE,
         "Head": {
@@ -456,6 +463,7 @@ def test_daily_energy_is_recorded_after_five_minutes_zero_power(
     assert metrics["pv_energy_day"].value == 32880
     assert metrics["pv_energy_year"].value == 13947576
     assert metrics["pv_energy_total"].value == 90416904
+    assert metrics["ac_energy_total"].value == 91809800.0
 
 
 def test_daily_energy_is_only_recorded_once(
@@ -466,6 +474,14 @@ def test_daily_energy_is_only_recorded_once(
 ):
     mock_get.return_value = mock_response
     collector._is_after_sunset = lambda timestamp: True
+
+    # Prevent real Modbus access during end-of-day collection.
+    collector._collect_ac_energy_measurement = lambda timestamp: collector._measurement(
+        timestamp=timestamp,
+        metric="ac_energy_total",
+        value=91809800.0,
+    )
+    collector._collect_mppt_energy_measurements = lambda timestamp: []
 
     response = {
         **FRONIUS_RESPONSE,
@@ -503,6 +519,7 @@ def test_daily_energy_is_only_recorded_once(
     assert second_metrics.count("pv_energy_day") == 1
     assert second_metrics.count("pv_energy_year") == 1
     assert second_metrics.count("pv_energy_total") == 1
+    assert second_metrics.count("ac_energy_total") == 1
 
     # Another collection on the same day must not record energy again.
     response["Head"]["Timestamp"] = "2026-08-15T21:10:00+02:00"
@@ -676,15 +693,28 @@ def test_collect_ac_measurements(
 
     result = collector._collect_ac_measurements(timestamp)
 
-    assert len(result) == 2
+    assert len(result) == 1
 
     measurements = {measurement.metric: measurement for measurement in result}
 
     assert measurements["ac_power"].value == 11057.0
     assert measurements["ac_power"].unit == "W"
 
-    assert measurements["ac_energy_total"].value == 91809800.0
-    assert measurements["ac_energy_total"].unit == "Wh"
+
+def test_collect_ac_energy_measurement(
+    collector,
+    mock_sunspec_device,
+):
+    collector._sunspec_device = mock_sunspec_device
+    collector._sunspec_scanned = True
+
+    timestamp = datetime.fromisoformat("2026-08-15T11:43:28+02:00")
+
+    result = collector._collect_ac_energy_measurement(timestamp)
+
+    assert result.metric == "ac_energy_total"
+    assert result.value == 91809800.0
+    assert result.unit == "Wh"
 
 
 def test_collect_mppt_measurements(
@@ -720,7 +750,7 @@ def test_collect_sunspec_measurements(
 
     result = collector._collect_sunspec_measurements(timestamp)
 
-    assert len(result) == 4
+    assert len(result) == 3
 
     metrics = [measurement.metric for measurement in result]
 
@@ -728,7 +758,6 @@ def test_collect_sunspec_measurements(
         "mppt_1_power",
         "mppt_2_power",
         "ac_power",
-        "ac_energy_total",
     ]
 
 
@@ -782,4 +811,3 @@ def test_rest_and_modbus_ac_values_are_separate_measurements(
 
     assert measurements["pv_power"].value == 10924
     assert measurements["ac_power"].value == 11057.0
-    assert measurements["ac_energy_total"].value == 91809800.0
