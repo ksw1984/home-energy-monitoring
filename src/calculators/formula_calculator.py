@@ -33,10 +33,20 @@ class FormulaCalculator(BaseCalculator):
             if values is None:
                 continue
 
-            value = simple_eval(
-                calculation.formula,
-                names=values,
-            )
+            try:
+                value = simple_eval(
+                    calculation.formula,
+                    names=values,
+                )
+            except ZeroDivisionError:
+                logger.debug(
+                    "Skipping calculation because of division by zero: source=%s metric=%s formula=%s values=%s",
+                    calculation.source,
+                    calculation.metric,
+                    calculation.formula,
+                    values,
+                )
+                continue
 
             timestamp = max(
                 measurement.timestamp

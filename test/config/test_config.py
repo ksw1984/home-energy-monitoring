@@ -1,4 +1,3 @@
-from datetime import timedelta
 from unittest.mock import patch
 
 from src.config.config import (
@@ -6,7 +5,6 @@ from src.config.config import (
     ComponentConfig,
     Config,
     load_estimator_configs,
-    parse_duration,
     required_secret,
     StorageConfig,
     StorageMeasurementConfig,
@@ -60,12 +58,6 @@ def test_storage_measurement_config_storage_key():
     )
 
 
-def test_parse_duration():
-    assert parse_duration("2s") == timedelta(seconds=2)
-    assert parse_duration("500ms") == timedelta(milliseconds=500)
-    assert parse_duration("1m") == timedelta(minutes=1)
-
-
 # ============================================================================
 # Loaders
 # ============================================================================
@@ -75,13 +67,7 @@ def test_load_estimator_config():
             {
                 "type": "kalman",
                 "enabled": True,
-                "latency": "2s",
-                "measurements": [
-                    {
-                        "source": "meter_household",
-                        "metric": "grid_import_power",
-                    }
-                ],
+                "lookback": 7,
             }
         ]
     }
@@ -90,8 +76,8 @@ def test_load_estimator_config():
 
     assert len(result) == 1
     assert result[0].type == "kalman"
-    assert result[0].latency == timedelta(seconds=2)
-    assert result[0].measurements[0].source == "meter_household"
+    assert result[0].enabled is True
+    assert result[0].lookback == 7
 
 
 # ============================================================================

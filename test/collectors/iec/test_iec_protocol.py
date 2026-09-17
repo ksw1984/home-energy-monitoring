@@ -78,16 +78,21 @@ def test_read_identification_times_out_without_terminator():
     serial_connection = Mock()
     serial_connection.read.return_value = b"/LGZ5"
 
-    with patch(
-        "src.collectors.iec.iec_protocol.time.monotonic",
-        side_effect=[0.0, 0.0, 6.0],
+    with (
+        patch(
+            "src.collectors.iec.iec_protocol.time.monotonic",
+            side_effect=[0.0, 0.0, 6.0],
+        ),
+        pytest.raises(
+            RuntimeError,
+            match="No valid IEC identification response received",
+        ),
     ):
-        result = IecProtocol._read_identification(
+        IecProtocol._read_identification(
             serial_connection,
             timeout=5.0,
         )
 
-    assert result == b"/LGZ5"
     serial_connection.read.assert_called_once_with(256)
 
 

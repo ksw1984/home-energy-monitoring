@@ -113,12 +113,7 @@ storage:
 estimators:
   - type: kalman
     enabled: true
-    latency: 2s
-    history_size: 10
-
-    measurements:
-      - source: meter_household
-        metric: grid_import_power
+    lookback: 2
 
 calculators:
   - type: formula
@@ -127,16 +122,22 @@ calculators:
     calculations:
       - source: calculated
         metric: heat_pump_power
-        unit: W
-        formula: "grid - household"
+        unit: kW
+        formula: "grid_import - grid_export - household_import + household_export"
 
         inputs:
-          grid:
+          grid_import:
             source: meter_grid
             metric: grid_import_power
-          household:
+          grid_export:
+            source: meter_grid
+            metric: grid_export_power
+          household_import:
             source: meter_household
             metric: grid_import_power
+          household_export:
+            source: meter_household
+            metric: grid_export_power
 
       - source: calculated
         metric: inverter_efficiency

@@ -9,8 +9,16 @@ import pytest
 @pytest.fixture
 def mocked_config():
     config = Mock()
+    config.collection.interval = 5
     config.collection.timezone = "Europe/Berlin"
+
+    config.collectors = []
+    config.databases = []
+    config.estimators = []
+    config.calculators = []
+
     config.storage = Mock()
+
     return config
 
 
@@ -54,11 +62,10 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
 
     collectors_factory.assert_called_once_with(mocked_config)
     databases_factory.assert_called_once_with(mocked_config)
+    calculators_factory.assert_called_once_with(mocked_config.calculators)
     estimators_factory.assert_called_once_with(
         mocked_config.estimators,
-    )
-    calculators_factory.assert_called_once_with(
-        mocked_config.calculators,
+        [],
     )
 
     manager_cls.assert_called_once_with(
@@ -66,12 +73,14 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
         databases=mock_databases,
         estimators=mock_estimators,
         calculators=mock_calculators,
-        timezone=mocked_config.collection.timezone,
+        timezone="Europe/Berlin",
         storage_config=mocked_config.storage,
     )
 
     mock_manager.run.assert_awaited_once()
-    mock_databases[0].close.assert_called_once()
+
+    for database in mock_databases:
+        database.close.assert_called_once()
 
 
 def test_run_closes_database_when_manager_fails(mocked_config):

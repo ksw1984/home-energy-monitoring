@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.8.0 - 2026-09-17
+
+### Added
+
+- Measurement processing now keeps the latest measurement for each source and metric to support timestamp alignment
+  across multiple inputs.
+- Kalman estimators now support configurable lookback-based estimation.
+- Formula calculations can combine measurements from multiple sources using aligned timestamps.
+- Added inverter efficiency calculation support using AC power and MPPT DC power measurements.
+- Added integration-test documentation for building, exporting, and running the ARM64 Docker image on a Raspberry Pi.
+- Added handling for stale IEC telegrams while waiting for a valid identification response.
+
+### Changed
+
+- Estimator API redesigned:
+    - Replace `estimate()` with `add_measurements()`, `target_timestamp()`, and `estimate_at()`.
+    - Replace latency and history-size configuration with a numeric `lookback` value.
+    - Estimators are now created automatically for measurements required by multi-source calculations.
+- Kalman estimation changed from time-based latency to sample-based lookback:
+    - `latency` was replaced by `lookback`.
+    - `history_size` was removed.
+    - Estimator history is now maintained without a fixed deque size.
+- Measurement manager now:
+    - Stores the latest measurement for each source and metric.
+    - Aligns calculator inputs to a common timestamp.
+    - Uses estimator output when calculations require measurements from multiple sources.
+    - Processes calculator inputs only when relevant new measurements arrive.
+- Formula calculations now skip calculations that would cause division by zero and log the skipped calculation at debug
+  level.
+- Calculator output status ordering changed so calculated and estimated markers are displayed before the
+  selected-measurement marker.
+- Estimator creation now derives required inputs from enabled calculator configurations instead of explicit estimator
+  measurement lists.
+- Configuration for estimators simplified:
+    - Removed duration parsing and latency configuration.
+    - Removed explicit estimator measurement lists.
+    - Added `lookback` configuration.
+- Configuration examples updated:
+    - Heat-pump power now accounts for grid import, grid export, household import, and household export.
+    - Formula units and expressions were updated to use kilowatts.
+    - Kalman estimator configuration now uses `lookback`.
+- IEC identification handling improved:
+    - Ignores stale or incomplete telegram data.
+    - Retries the identification request after detecting stale data.
+    - Returns only a valid identification response.
+- README expanded with local, CI, and Raspberry Pi integration-test instructions.
+- README formatting and Docker command documentation improved.
+
+### Fixed
+
+- Formula calculations no longer fail when a denominator is zero.
+- Multi-source calculations now avoid mixing measurements from different timestamps.
+- Estimator and calculator integration tests updated to reflect the new lookback and timestamp-alignment behavior.
+- IEC protocol handling now raises a clear error when no valid identification response is received.
+- Configuration and application tests updated for the new estimator and calculator interfaces.
+- Database cleanup in the application now closes every configured database instance.
+-
+
 ## 0.7.0 - 2026-09-13
 
 ### Summary
