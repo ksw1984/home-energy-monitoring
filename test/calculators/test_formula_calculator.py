@@ -158,3 +158,116 @@ def test_formula_calculator_uses_estimated_measurement():
     assert result[0].timestamp == timestamp
     assert result[0].value == 300.0
     assert result[0].unit == "W"
+
+
+def test_formula_calculator_skips_division_by_zero():
+    calculator = FormulaCalculator(
+        calculations=[
+            CalculationConfig(
+                source="calculated",
+                metric="inverter_efficiency",
+                unit="%",
+                formula="ac / (dc1 + dc2) * 100",
+                inputs={
+                    "ac": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="ac_power",
+                    ),
+                    "dc1": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="mppt_1_power",
+                    ),
+                    "dc2": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="mppt_2_power",
+                    ),
+                },
+            ),
+        ],
+    )
+
+    timestamp = datetime(2026, 9, 13, 21, 0, tzinfo=UTC)
+
+    measurements = [
+        measurement(
+            "inverter_fronius",
+            "ac_power",
+            0.0,
+            timestamp,
+        ),
+        measurement(
+            "inverter_fronius",
+            "mppt_1_power",
+            0.0,
+            timestamp,
+        ),
+        measurement(
+            "inverter_fronius",
+            "mppt_2_power",
+            0.0,
+            timestamp,
+        ),
+    ]
+
+    result = calculator.calculate(measurements)
+
+    assert result == []
+
+
+def test_formula_calculator_calculates_inverter_efficiency():
+    calculator = FormulaCalculator(
+        calculations=[
+            CalculationConfig(
+                source="calculated",
+                metric="inverter_efficiency",
+                unit="%",
+                formula="ac / (dc1 + dc2) * 100",
+                inputs={
+                    "ac": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="ac_power",
+                    ),
+                    "dc1": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="mppt_1_power",
+                    ),
+                    "dc2": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="mppt_2_power",
+                    ),
+                },
+            ),
+        ],
+    )
+
+    timestamp = datetime(2026, 9, 13, 14, 0, tzinfo=UTC)
+
+    measurements = [
+        measurement(
+            "inverter_fronius",
+            "ac_power",
+            9000.0,
+            timestamp,
+        ),
+        measurement(
+            "inverter_fronius",
+            "mppt_1_power",
+            5000.0,
+            timestamp,
+        ),
+        measurement(
+            "inverter_fronius",
+            "mppt_2_power",
+            5000.0,
+            timestamp,
+        ),
+    ]
+
+    result = calculator.calculate(measurements)
+
+    assert len(result) == 1
+    assert result[0].source == "calculated"
+    assert result[0].metric == "inverter_efficiency"
+    assert result[0].value == 90.0
+    assert result[0].unit == "%"
+    assert result[0].timestamp == timestamp
