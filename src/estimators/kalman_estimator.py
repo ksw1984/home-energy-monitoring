@@ -1,7 +1,7 @@
 import logging
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from src.collectors.definitions.measurement import Measurement
 from src.estimators.base_estimator import BaseEstimator
@@ -28,48 +28,40 @@ class KalmanSmootherGain:
 
 
 class KalmanEstimator(BaseEstimator):
-    """Estimate delayed measurements with a fixed-lag Kalman smoother."""
+    """Estimate measurements with a fixed-lookback Kalman smoother."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         *,
         source: str,
         metric: str,
-        latency: timedelta,
-        history_size: int = 10,
+        lookback: int = 1,
         process_variance: float = 1.0,
         measurement_variance: float = 1.0,
     ) -> None:
-        if history_size <= 0:
-            raise ValueError(f"history_size must be positive, got {history_size}")
-
-        if latency < timedelta(0):
-            raise ValueError(f"latency must not be negative, got {latency}")
+        if lookback <= 0:
+            raise ValueError(f"lookback must be positive, got {lookback}")
 
         self.source = source
+
         self.metric = metric
-        self.latency = latency
+        self.lookback = lookback
 
         self._filter = KalmanFilter(
             process_variance=process_variance,
             measurement_variance=measurement_variance,
         )
 
-        self._history: deque[KalmanHistoryEntry] = deque(
-            maxlen=history_size,
-        )
+        self._history: deque[KalmanHistoryEntry] = deque()
 
         self._last_timestamp: datetime | None = None
-        self._last_emitted_timestamp: datetime | None = None
 
-    def estimate(
+    def add_measurements(
         self,
         measurements: list[Measurement],
-    ) -> list[Measurement]:
-        """Add measurements and return the latest delayed estimate."""
-        relevant: list[Measurement] = [
-            measurement for measurement in measurements if (measurement.source == self.source and measurement.metric == self.metric)
-        ]
+    ) -> None:
+        """Add relevant measurements to the Kalman history."""
+        relevant = [measurement for measurement in measurements if (measurement.source == self.source and measurement.metric == self.metric)]
 
         for measurement in sorted(
             relevant,
@@ -77,32 +69,19 @@ class KalmanEstimator(BaseEstimator):
         ):
             self._add_measurement(measurement)
 
-        if not self._history:
-            return []
+    def target_timestamp(self) -> datetime | None:
+        """Return the timestamp selected by the configured lookback."""
+        if len(self._history) < self.lookback:
+            return None
 
-        latest_timestamp: datetime = self._history[-1].timestamp
-        target_timestamp: datetime = latest_timestamp - self.latency
+        return list(self._history)[-self.lookback].timestamp
 
-        if self._last_emitted_timestamp is not None and target_timestamp <= self._last_emitted_timestamp:
-            return []
-
-        estimated = self._estimate_at(target_timestamp)
-
-        if estimated is None:
-            return []
-
-        logger.info(
-            "Estimated measurement: source=%s metric=%s timestamp=%s value=%.3f %s E",
-            estimated.source,
-            estimated.metric,
-            estimated.timestamp.isoformat(),
-            estimated.value,
-            estimated.unit or "",
-        )
-
-        self._last_emitted_timestamp = target_timestamp
-
-        return [estimated]
+    def estimate_at(
+        self,
+        target_timestamp: datetime,
+    ) -> Measurement | None:
+        """Estimate the signal at the requested timestamp."""
+        return self._estimate_at(target_timestamp)
 
     def _add_measurement(
         self,

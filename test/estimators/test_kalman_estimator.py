@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, UTC
 
 from src.collectors.definitions.measurement import Measurement
 from src.estimators.kalman_estimator import KalmanEstimator
@@ -20,15 +20,14 @@ def measurement(
     )
 
 
-def test_history_size():
+def test_lookback():
     estimator = KalmanEstimator(
         source="test",
         metric="power",
-        latency=timedelta(seconds=2),
-        history_size=3,
+        lookback=3,
     )
 
-    estimator.estimate(
+    estimator.add_measurements(
         [
             measurement(0, 0),
             measurement(10, 10),
@@ -37,8 +36,8 @@ def test_history_size():
         ]
     )
 
-    assert len(estimator._history) == 3
-    assert estimator._history[0].timestamp == datetime.fromtimestamp(
+    assert estimator.lookback == 3
+    assert estimator.target_timestamp() == datetime.fromtimestamp(
         10,
         tz=UTC,
     )
@@ -48,11 +47,10 @@ def test_estimator_uses_actual_timestamp_interval():
     estimator = KalmanEstimator(
         source="test",
         metric="power",
-        latency=timedelta(seconds=2),
-        history_size=10,
+        lookback=1,
     )
 
-    result = estimator.estimate(
+    estimator.add_measurements(
         [
             measurement(0, 0),
             measurement(10, 10),
@@ -60,37 +58,48 @@ def test_estimator_uses_actual_timestamp_interval():
         ]
     )
 
-    assert len(result) == 1
-    assert result[0].timestamp == datetime.fromtimestamp(
+    result = estimator.estimate_at(
+        datetime.fromtimestamp(28, tz=UTC),
+    )
+
+    assert result is not None
+    assert result.timestamp == datetime.fromtimestamp(
         28,
         tz=UTC,
     )
 
 
-def test_estimator_waits_until_latency_is_available():
+def test_estimator_waits_until_lookback_is_available():
     estimator = KalmanEstimator(
         source="test",
         metric="power",
-        latency=timedelta(seconds=2),
-        history_size=10,
+        lookback=3,
     )
 
-    result = estimator.estimate([measurement(0, 100)])
+    measurements = [
+        measurement(0, 100.0),
+        measurement(10, 110.0),
+    ]
 
-    assert result == []
+    estimator.add_measurements(measurements)
+
+    assert estimator.target_timestamp() is None
+
+    estimator.add_measurements([measurement(20, 120.0)])
+
+    assert estimator.target_timestamp() is not None
 
 
 def test_fixed_lag_smoothing_uses_future_measurements():
     estimator = KalmanEstimator(
         source="test",
         metric="power",
-        latency=timedelta(seconds=2),
-        history_size=10,
+        lookback=1,
         process_variance=1.0,
         measurement_variance=0.01,
     )
 
-    estimator.estimate(
+    estimator.add_measurements(
         [
             measurement(0, 0),
             measurement(4, 4),
@@ -106,7 +115,7 @@ def test_fixed_lag_smoothing_uses_future_measurements():
         )
     )
 
-    estimator.estimate(
+    estimator.add_measurements(
         [
             measurement(12, 20),
         ]
