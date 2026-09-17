@@ -39,6 +39,7 @@ METER_CURRENT_METRICS = {
     "grid_import_power",
     "grid_export_power",
 }
+CALCULATION_ALIGNMENT_TOLERANCE_SECONDS = 0.1
 
 
 class MeasurementManager:
@@ -240,19 +241,39 @@ class MeasurementManager:
         measurements: list[Measurement],
     ) -> None:
         """Process collected measurements through estimators and calculators."""
-        for measurement in measurements:
-            key = (
-                measurement.source,
-                measurement.metric,
-            )
 
+        # -------------------------------------------------
+        # 1. Collector values are authoritative.
+        #    Store/update them before estimator/calculator
+        #    processing. They must never be replaced by
+        #    estimated values.
+        # -------------------------------------------------
+
+        raw_measurements = list(measurements)
+
+        for measurement in raw_measurements:
+            key = (measurement.source, measurement.metric)
             current = self._latest_measurements.get(key)
 
             if current is None or measurement.timestamp > current.timestamp:
                 self._latest_measurements[key] = measurement
 
+        # -------------------------------------------------
+        # 2. Store raw collector measurements.
+        # -------------------------------------------------
+
+        await self._store_measurements(raw_measurements)
+
+        # -------------------------------------------------
+        # 3. Feed raw measurements into estimators.
+        # -------------------------------------------------
+
         for estimator in self.estimators:
-            estimator.add_measurements(measurements)
+            estimator.add_measurements(raw_measurements)
+
+        # -------------------------------------------------
+        # 4. Calculate derived measurements.
+        # -------------------------------------------------
 
         calculated: list[Measurement] = []
 
@@ -261,7 +282,11 @@ class MeasurementManager:
                 for calculation in calculator.calculations:
                     first_input = next(iter(calculation.inputs.values()))
 
-                    if not any(measurement.source == first_input.source and measurement.metric == first_input.metric for measurement in measurements):
+                    if not any(
+                        measurement.source == first_input.source  # fmt
+                        and measurement.metric == first_input.metric
+                        for measurement in raw_measurements
+                    ):
                         continue
 
                     aligned = self._align_calculation_inputs(
@@ -271,50 +296,29 @@ class MeasurementManager:
                     if aligned is None:
                         continue
 
-                    calculated.extend(
-                        calculator.calculate(aligned),
-                    )
+                    calculated.extend(calculator.calculate(aligned))
+
             else:
-                calculated.extend(
-                    calculator.calculate(measurements),
-                )
+                calculated.extend(calculator.calculate(raw_measurements))
 
-        measurements = [
-            *measurements,
-            *calculated,
-        ]
+        # -------------------------------------------------
+        # 5. Store calculated values separately.
+        # -------------------------------------------------
 
-        await self._store_measurements(measurements)
+        if calculated:
+            await self._store_measurements(calculated)
 
-    def _align_calculation_inputs(  # noqa: PLR0911
+    def _align_calculation_inputs(
         self,
         calculation: CalculationConfig,
     ) -> list[Measurement] | None:
         """Align calculator inputs to a common timestamp."""
         inputs = calculation.inputs
 
-        sources = {input_config.source for input_config in inputs.values()}
-
-        # only one source
-        if len(sources) <= 1:
-            return [
-                measurement
-                for input_config in inputs.values()
-                if (
-                    measurement := self._latest_measurements.get(
-                        (
-                            input_config.source,
-                            input_config.metric,
-                        )
-                    )
-                )
-                is not None
-            ]
-
-        # more sources
-        estimators = {(estimator.source, estimator.metric): estimator for estimator in self.estimators}
-
-        latest_measurements: dict[tuple[str, str], Measurement] = {}
+        latest_measurements: dict[
+            tuple[str, str],
+            Measurement,
+        ] = {}
 
         for input_config in inputs.values():
             key = (
@@ -328,6 +332,33 @@ class MeasurementManager:
                 return None
 
             latest_measurements[key] = measurement
+
+        timestamps = [measurement.timestamp for measurement in latest_measurements.values()]
+
+        min_timestamp = min(timestamps)
+        max_timestamp = max(timestamps)
+
+        skew_seconds = (max_timestamp - min_timestamp).total_seconds()
+
+        # Measurements are effectively simultaneous.
+        # Use the original collector values.
+        if skew_seconds <= CALCULATION_ALIGNMENT_TOLERANCE_SECONDS:
+            return list(latest_measurements.values())
+
+        return self._align_calculation_inputs_with_estimators(
+            calculation,
+            latest_measurements,
+        )
+
+    def _align_calculation_inputs_with_estimators(
+        self,
+        calculation: CalculationConfig,
+        latest_measurements: dict[
+            tuple[str, str],
+            Measurement,
+        ],
+    ) -> list[Measurement] | None:
+        estimators = {(estimator.source, estimator.metric): estimator for estimator in self.estimators}
 
         reference_key, _ = min(
             latest_measurements.items(),
@@ -346,7 +377,7 @@ class MeasurementManager:
 
         aligned: list[Measurement] = []
 
-        for input_config in inputs.values():
+        for input_config in calculation.inputs.values():
             key = (
                 input_config.source,
                 input_config.metric,
@@ -357,9 +388,7 @@ class MeasurementManager:
             if estimator is None:
                 return None
 
-            estimated = estimator.estimate_at(
-                target_timestamp,
-            )
+            estimated = estimator.estimate_at(target_timestamp)
 
             if estimated is None:
                 return None
@@ -571,7 +600,7 @@ class MeasurementManager:
             status = f"{calculated}{estimated}{selected}"
 
             logger.info(
-                "%-25s %-25s %-25s %14.3f %-5s %-4s",
+                "%-25s %-25s %-25s %1.3f %-5s %-4s",
                 measurement.timestamp.isoformat(),
                 measurement.source,
                 measurement.metric,
