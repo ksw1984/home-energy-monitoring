@@ -2,7 +2,7 @@ from datetime import datetime
 from unittest.mock import Mock
 
 from src.collectors.definitions.measurement import Measurement
-from src.collectors.iec.iec_collector import IecCollector
+from src.collectors.landys_gyr_zmd310_meter.iec_collector import IecCollector
 
 import pytest
 
@@ -180,7 +180,7 @@ def test_parse_total_import_energy(collector):
 
     assert measurement.value == 18788.9
     assert measurement.unit == "kWh"
-    assert measurement.source == "iec"
+    assert measurement.source == "landys_gyr_zmd310_meter"
 
 
 def test_parse_total_export_energy(collector):
@@ -213,7 +213,7 @@ def test_parse_total_reactive_power(collector):
 def test_parse_measurement_source(collector):
     result = collector._parse(IEC_PAYLOAD)
 
-    assert all(measurement.source == "iec" for measurement in result)
+    assert all(measurement.source == "landys_gyr_zmd310_meter" for measurement in result)
 
 
 def test_parse_measurement_type(collector):
@@ -392,7 +392,7 @@ def test_parse_ignores_current_obis_without_definition(collector, monkeypatch):
     """
 
     monkeypatch.setattr(
-        "src.collectors.iec.iec_collector.get_obis_definition",
+        "src.collectors.landys_gyr_zmd310_meter.iec_collector.get_obis_definition",
         lambda obis: None,
     )
 

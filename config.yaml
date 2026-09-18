@@ -8,7 +8,7 @@ collection:
 collectors:
 
   # IEC electricity meter for grid import/export
-  - type: iec
+  - type: landys_gyr_zmd310_meter
     enabled: true
     interval: 10
     attributes:
@@ -16,7 +16,7 @@ collectors:
       source: meter_grid
 
   # IEC electricity meter for household consumption
-  - type: iec
+  - type: landys_gyr_zmd310_meter
     enabled: true
     interval: 10
     attributes:
@@ -72,12 +72,14 @@ storage:
       - grid_export_power
       - grid_import_energy_total
       - grid_export_energy_total
+      - grid_active_power
 
     meter_household:
       - grid_import_power
       - grid_export_power
       - grid_import_energy_total
       - grid_export_energy_total
+      - grid_active_power
 
     inverter_fronius:
       - pv_power

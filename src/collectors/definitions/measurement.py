@@ -16,7 +16,7 @@ class Measurement:
         source:
             Identifier of the system that produced the measurement.
             Examples:
-                - ``"iec"``
+                - ``"landys_gyr_zmd310_meter"``
                 - ``"open_meteo"``
                 - ``"rademacher"``
                 - ``"fronius"``
