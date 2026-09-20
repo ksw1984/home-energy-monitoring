@@ -9,19 +9,33 @@ collectors:
 
   # IEC electricity meter for grid import/export
   - type: landys_gyr_zmd310_meter_iec
+    enabled: false
+    interval: 10
+    attributes:
+      port: /dev/ttyUSB0
+      source: meter_grid_iec
+
+  - type: landys_gyr_zmd310_meter_dlms
     enabled: true
     interval: 10
     attributes:
       port: /dev/ttyUSB0
-      source: meter_grid
+      source: meter_grid_dlms
 
   # IEC electricity meter for household consumption
   - type: landys_gyr_zmd310_meter_iec
+    enabled: false
+    interval: 10
+    attributes:
+      port: /dev/ttyUSB1
+      source: meter_household_iec
+
+  - type: landys_gyr_zmd310_meter_dlms
     enabled: true
     interval: 10
     attributes:
       port: /dev/ttyUSB1
-      source: meter_household
+      source: meter_household_dlms
 
   # Fronius Symo inverter
   - type: fronius
