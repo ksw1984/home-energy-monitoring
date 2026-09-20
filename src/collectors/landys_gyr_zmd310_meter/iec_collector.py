@@ -68,6 +68,16 @@ class IecCollector(BaseCollector):
             serial.SerialException: If the serial port cannot be opened.
         """
 
+        if not self.enabled:
+            logger.debug(
+                "IEC collector disabled; skipping connection on %s",
+                self.port,
+            )
+            return
+
+        if self.connected:
+            return
+
         try:
             self.protocol.connect()
         except serial.SerialException:
@@ -93,6 +103,9 @@ class IecCollector(BaseCollector):
         collection. The underlying physical serial connection remains open
         between collections.
         """
+
+        if not self.enabled:
+            return []
 
         if not self.connected:
             self.connect()

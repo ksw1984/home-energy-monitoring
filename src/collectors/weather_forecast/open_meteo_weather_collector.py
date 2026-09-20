@@ -75,6 +75,9 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
     def collect(self) -> list[Measurement]:
         """Collect current weather and hourly forecast measurements."""
+        if not self.enabled:
+            return []
+
         try:
             data = self._get_data()
         except requests.exceptions.RequestException as exc:

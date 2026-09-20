@@ -108,6 +108,9 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             would represent an actual sensor reading rather than an
             unavailable sensor.
         """
+        if not self.enabled:
+            return []
+
         try:
             device = self._get_data()
 

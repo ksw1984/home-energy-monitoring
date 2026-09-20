@@ -99,6 +99,9 @@ class FroniusSymoInverterCollector(BaseCollector):
         prevents an inverter communication failure from being interpreted as
         actual 0 W PV production.
         """
+        if not self.enabled:
+            return []
+
         # REST data
         try:
             data = self._get_data()
