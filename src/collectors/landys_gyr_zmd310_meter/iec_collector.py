@@ -37,7 +37,7 @@ class IecCollector(BaseCollector):
         enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        source: str = "landys_gyr_zmd310_meter",
+        source: str = "landys_gyr_zmd310_meter_iec",
         port: str = "/dev/ttyUSB0",
     ) -> None:
         """Initialize the IEC meter collector.

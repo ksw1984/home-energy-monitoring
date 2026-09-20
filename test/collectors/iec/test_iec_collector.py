@@ -180,7 +180,7 @@ def test_parse_total_import_energy(collector):
 
     assert measurement.value == 18788.9
     assert measurement.unit == "kWh"
-    assert measurement.source == "landys_gyr_zmd310_meter"
+    assert measurement.source == "landys_gyr_zmd310_meter_iec"
 
 
 def test_parse_total_export_energy(collector):
@@ -213,7 +213,7 @@ def test_parse_total_reactive_power(collector):
 def test_parse_measurement_source(collector):
     result = collector._parse(IEC_PAYLOAD)
 
-    assert all(measurement.source == "landys_gyr_zmd310_meter" for measurement in result)
+    assert all(measurement.source == "landys_gyr_zmd310_meter_iec" for measurement in result)
 
 
 def test_parse_measurement_type(collector):

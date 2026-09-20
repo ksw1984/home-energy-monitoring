@@ -8,7 +8,7 @@ collection:
 collectors:
 
   # IEC electricity meter for grid import/export
-  - type: landys_gyr_zmd310_meter
+  - type: landys_gyr_zmd310_meter_iec
     enabled: true
     interval: 10
     attributes:
@@ -16,7 +16,7 @@ collectors:
       source: meter_grid
 
   # IEC electricity meter for household consumption
-  - type: landys_gyr_zmd310_meter
+  - type: landys_gyr_zmd310_meter_iec
     enabled: true
     interval: 10
     attributes:

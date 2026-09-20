@@ -34,7 +34,7 @@ def create_collectors(config):
         if collector_config.type == "fronius":
             collectors.append(FroniusSymoInverterCollector(**common_kwargs))
 
-        elif collector_config.type == "landys_gyr_zmd310_meter":
+        elif collector_config.type == "landys_gyr_zmd310_meter_iec":
             collectors.append(IecCollector(**common_kwargs))
 
         elif collector_config.type == "environment":

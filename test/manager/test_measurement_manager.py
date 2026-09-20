@@ -655,7 +655,7 @@ def test_run_creates_independent_task_for_each_collector():
     collector1.source = "fronius"
 
     collector2 = Mock()
-    collector2.source = "landys_gyr_zmd310_meter"
+    collector2.source = "landys_gyr_zmd310_meter_iec"
 
     manager = make_manager(
         collectors=[collector1, collector2],
@@ -694,7 +694,7 @@ def test_run_creates_independent_task_for_each_collector():
 
     assert len(created_tasks) == 2
     assert created_tasks[0][1] == "collector-fronius"
-    assert created_tasks[1][1] == "collector-landys_gyr_zmd310_meter"
+    assert created_tasks[1][1] == "collector-landys_gyr_zmd310_meter_iec"
 
 
 def test_reload_config_if_changed_does_nothing_when_config_is_unchanged():

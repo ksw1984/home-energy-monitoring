@@ -84,7 +84,7 @@ def test_create_fronius_collector():
 
 def test_create_iec_collector():
     collector_config = make_collector_config(
-        "landys_gyr_zmd310_meter",
+        "landys_gyr_zmd310_meter_iec",
         {
             "device": "/dev/ttyUSB0",
         },
@@ -160,7 +160,7 @@ def test_create_collectors_creates_all_enabled_types():
             },
         ),
         make_collector_config(
-            "landys_gyr_zmd310_meter",
+            "landys_gyr_zmd310_meter_iec",
             {
                 "device": "/dev/ttyUSB0",
             },
@@ -238,7 +238,7 @@ def test_create_collectors_creates_disabled_collectors():
             },
         ),
         make_collector_config(
-            "landys_gyr_zmd310_meter",
+            "landys_gyr_zmd310_meter_iec",
             {
                 "device": "/dev/ttyUSB0",
             },
