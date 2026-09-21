@@ -2,6 +2,76 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.0 - 2026-09-21
+
+### Added
+
+- Added DLMS/COSEM support for Landis+Gyr ZMD310 electricity meters.
+- Added a persistent DLMS protocol connection with:
+    - IEC 62056-21 identification and baud-rate negotiation.
+    - HDLC SNRM/UA negotiation.
+    - DLMS AARQ/AARE association.
+    - Register reads with scaler handling.
+    - DLMS data-block and receiver-ready support.
+- Added an HDLC frame reader that supports:
+    - Partial serial reads.
+    - Multiple frames in one read.
+    - Buffered frame processing.
+    - Frame length validation.
+    - Invalid-frame rejection.
+- Added DLMS metadata to OBIS definitions:
+    - Logical names.
+    - Short names.
+    - Unit multipliers.
+- Added DLMS collector tests covering connection handling, register reads, scaling, errors, timeouts, and disconnection.
+- Added HDLC reader tests for complete, partial, multiple, invalid, and fragmented frames.
+- Added support for separate Landis+Gyr ZMD310 IEC and DLMS collector types.
+- Added configurable collector sources for distinguishing IEC and DLMS meter measurements.
+
+### Changed
+
+- Renamed and reorganized the IEC meter collector under the Landis+Gyr ZMD310 meter package:
+    - `src/collectors/iec/` moved to `src/collectors/landys_gyr_zmd310_meter/iec/`.
+    - Related tests and utility imports were updated.
+- Updated collector factory configuration:
+    - `landys_gyr_zmd310_meter_iec` creates the IEC collector.
+    - `landys_gyr_zmd310_meter_dlms` creates the DLMS collector.
+- Updated the default meter configuration:
+    - DLMS meters are enabled with one-second collection intervals.
+    - IEC meters remain available with slower collection intervals.
+    - Separate sources are used for grid and household DLMS measurements.
+- Extended OBIS definitions to support both IEC and DLMS meter access.
+- Updated active meter measurements to include total active power and total import/export energy values.
+- Reorganized collector definitions:
+    - Collector-specific definitions are now located under `src/collectors/definitions/collectors/`.
+    - Shared measurements and exceptions are now located under `src/collectors/definitions/common/`.
+- Updated imports throughout collectors, calculators, estimators, databases, managers, scripts, and tests to use the new
+  shared measurement module.
+- Updated calculation configuration to use total active power:
+    - Heat-pump power is now calculated as grid active power minus household active power.
+- Updated collector implementations to return no measurements when disabled.
+- Improved IEC and DLMS collector connection handling:
+    - Disabled collectors do not open serial connections.
+    - Already-connected collectors reuse their existing connection.
+    - Connection failures reset the collector state.
+    - Serial, timeout, and runtime errors trigger cleanup and disconnection.
+- Updated measurement source names to use explicit Landis+Gyr IEC and DLMS identifiers.
+- Updated the IEC connection diagnostic script to use the renamed Landis+Gyr IEC protocol module and logger name.
+- Expanded and reorganized test coverage for the new collector package structure and source names.
+
+### Fixed
+
+- Fixed collector factory handling for the renamed Landis+Gyr ZMD310 IEC collector type.
+- Fixed disabled collectors opening or attempting to use serial connections.
+- Fixed collector connection state not being reset after serial, timeout, or protocol failures.
+- Fixed DLMS register values being returned without applying the meter-provided scaler.
+- Fixed DLMS protocol handling for fragmented serial responses and segmented HDLC/DLMS replies.
+- Fixed invalid or incomplete HDLC frames being accepted as valid responses.
+- Fixed stale IEC telegram data interfering with identification responses.
+- Fixed tests and connection-lifecycle checks to use the new Landis+Gyr IEC source identifier.
+- Fixed calculation configuration to use the combined active-power measurements required for heat-pump power
+  calculations.
+
 ## 0.8.1 - 2026-09-17
 
 ### Fixed
