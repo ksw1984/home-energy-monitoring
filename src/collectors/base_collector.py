@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 
 logger = logging.getLogger(__name__)
 

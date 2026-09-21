@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 
 logger = logging.getLogger(__name__)
 

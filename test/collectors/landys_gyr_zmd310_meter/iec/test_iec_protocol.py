@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from src.collectors.landys_gyr_zmd310_meter.iec_protocol import IecProtocol
+from src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol import IecProtocol
 
 import pytest
 import serial
@@ -13,7 +13,7 @@ def test_open_serial_uses_iec_serial_settings():
     )
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.serial.Serial",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.serial.Serial",
     ) as serial_cls:
         serial_connection = protocol._open_serial()
 
@@ -80,7 +80,7 @@ def test_read_identification_times_out_without_terminator():
 
     with (
         patch(
-            "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.monotonic",
+            "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.monotonic",
             side_effect=[0.0, 0.0, 6.0],
         ),
         pytest.raises(
@@ -104,7 +104,7 @@ def test_read_identification_ignores_empty_reads():
     ]
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.monotonic",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.monotonic",
         side_effect=[0.0, 0.0, 0.0],
     ):
         result = IecProtocol._read_identification(
@@ -128,7 +128,7 @@ def test_read_stops_after_one_second_without_data():
     protocol._start_session = Mock()
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.monotonic",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.monotonic",
         side_effect=[
             0.0,  # start
             1.1,  # now
@@ -157,7 +157,7 @@ def test_read_stops_after_thirty_second_overall_timeout():
     protocol._start_session = Mock()
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.monotonic",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.monotonic",
         side_effect=[
             0.0,
             0.1,
@@ -189,7 +189,7 @@ def test_read_reads_remaining_data_after_etx():
     protocol._start_session = Mock()
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.monotonic",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.monotonic",
         return_value=0.0,
     ):
         result = protocol.read()
@@ -308,7 +308,7 @@ def test_read_uses_300_baud_for_request_and_ack_then_switches_to_data_baud():
     )
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.sleep",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.sleep",
     ):
         result = protocol.read()
 
@@ -356,7 +356,7 @@ def test_multiple_reads_start_fresh_iec_session():
     )
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.sleep",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.sleep",
     ):
         first = protocol.read()
         second = protocol.read()
@@ -395,7 +395,7 @@ def test_read_does_not_close_connection():
 
     protocol._read_identification = Mock(return_value=b"/LGZ5\\2ZMD3104107.B40\r\n")
 
-    with patch("src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.sleep"):
+    with patch("src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.sleep"):
         protocol.read()
 
     assert protocol.serial is serial_connection
@@ -427,7 +427,7 @@ def test_start_session_resets_input_buffer_before_request():
     )
 
     with patch(
-        "src.collectors.landys_gyr_zmd310_meter.iec_protocol.time.sleep",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol.time.sleep",
     ):
         protocol._start_session()
 

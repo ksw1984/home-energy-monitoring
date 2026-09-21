@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from src.calculators.base_calculator import BaseCalculator
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import (
     CalculationConfig,
     CalculatorInputConfig,

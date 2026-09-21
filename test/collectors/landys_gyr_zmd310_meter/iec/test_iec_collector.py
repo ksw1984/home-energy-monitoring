@@ -1,8 +1,8 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-from src.collectors.definitions.measurement import Measurement
-from src.collectors.landys_gyr_zmd310_meter.iec_collector import IecCollector
+from src.collectors.definitions.common.measurement import Measurement
+from src.collectors.landys_gyr_zmd310_meter.iec.iec_collector import IecCollector
 
 import pytest
 
@@ -58,7 +58,35 @@ IEC_PAYLOAD = """
 
 
 @pytest.fixture
-def collector():
+def collector(monkeypatch):
+    current_obis = {
+        "1.5.0",
+        "2.5.0",
+        "1.8.0",
+        "2.8.0",
+        "16.7.0",
+        "131.7.0",
+    }
+
+    definitions = {
+        "1.5.0": Mock(metric="grid_import_power", unit="kW"),
+        "2.5.0": Mock(metric="grid_export_power", unit="kW"),
+        "1.8.0": Mock(metric="grid_import_energy_total", unit="kWh"),
+        "2.8.0": Mock(metric="grid_export_energy_total", unit="kWh"),
+        "16.7.0": Mock(metric="grid_active_power", unit="kW"),
+        "131.7.0": Mock(metric="reactive_power_total", unit="kvar"),
+    }
+
+    monkeypatch.setattr(
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.CURRENT_OBIS",
+        current_obis,
+    )
+
+    monkeypatch.setattr(
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
+        definitions.get,
+    )
+
     return IecCollector(
         port="/dev/ttyUSB0",
     )
@@ -392,7 +420,7 @@ def test_parse_ignores_current_obis_without_definition(collector, monkeypatch):
     """
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.iec_collector.get_obis_definition",
+        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
         lambda obis: None,
     )
 

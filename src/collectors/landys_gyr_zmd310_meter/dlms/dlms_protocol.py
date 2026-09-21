@@ -5,7 +5,7 @@ import re
 import time
 from typing import ClassVar, TYPE_CHECKING
 
-from src.collectors.definitions.obis import get_obis_definition
+from src.collectors.definitions.collectors.obis import get_obis_definition
 
 import serial
 from .hdlc_reader import HDLCReader

@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 
 from src.collectors.base_collector import BaseCollector
-from src.collectors.definitions.measurement import Measurement
-from src.collectors.definitions.obis import (
+from src.collectors.definitions.collectors.obis import (
     CURRENT_OBIS,
     get_obis_definition,
 )
+from src.collectors.definitions.common.measurement import Measurement
 
 import serial
 from .dlms_protocol import DlmsProtocol

@@ -3,7 +3,7 @@ import logging
 import sys
 import time
 
-from src.collectors.landys_gyr_zmd310_meter.iec_protocol import BAUD_MAP
+from src.collectors.landys_gyr_zmd310_meter.iec.iec_protocol import BAUD_MAP
 
 import serial
 
