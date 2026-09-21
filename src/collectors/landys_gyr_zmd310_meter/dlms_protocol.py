@@ -111,7 +111,7 @@ class DlmsProtocol:
 
             self.connected = True
 
-            logger.info(
+            logger.debug(
                 "DLMS connection established on %s at %d baud",
                 self.port,
                 baudrate,
@@ -500,13 +500,13 @@ class DlmsProtocol:
         if request:
             requests = self._normalize_requests(request)
 
-            logger.info(
+            logger.debug(
                 "DLMS: sending AARQ request (%d frame(s))",
                 len(requests),
             )
 
             for index, frame_request in enumerate(requests, start=1):
-                logger.info(
+                logger.debug(
                     "DLMS: sending AARQ frame %d/%d",
                     index,
                     len(requests),
@@ -514,7 +514,7 @@ class DlmsProtocol:
 
                 self._send_request(frame_request)
 
-                logger.info("DLMS: waiting for AARE response")
+                logger.debug("DLMS: waiting for AARE response")
 
                 aare_frame = self.hdlc.read_frame(timeout=30.0)
 
@@ -523,7 +523,7 @@ class DlmsProtocol:
                         "Timeout waiting for HDLC frame during AARQ/AARE.",
                     )
 
-                logger.info(
+                logger.debug(
                     "DLMS: received AARE response (%d bytes)",
                     len(aare_frame),
                 )
@@ -544,13 +544,13 @@ class DlmsProtocol:
                     )
 
                 if aare_reply.data:
-                    logger.info("DLMS: parsing AARE response")
+                    logger.debug("DLMS: parsing AARE response")
 
                     self.client.parseAareResponse(
                         aare_reply.data,
                     )
 
-                logger.info("DLMS: AARQ/AARE completed")
+                logger.debug("DLMS: AARQ/AARE completed")
 
     def _load_association_view(self) -> None:
         """Load the meter's DLMS association view."""
@@ -712,7 +712,7 @@ class DlmsProtocol:
 
         request_bytes = bytes(request)
 
-        logger.info(
+        logger.debug(
             "DLMS TX: %s",
             request_bytes.hex(" "),
         )
