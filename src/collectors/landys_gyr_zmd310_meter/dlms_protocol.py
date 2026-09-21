@@ -10,7 +10,8 @@ from src.collectors.definitions.obis import get_obis_definition
 import serial
 from .hdlc_reader import HDLCReader
 from gurux_dlms import GXByteBuffer, GXReplyData
-from gurux_dlms.enums import Authentication, InterfaceType, ObjectType, RequestTypes
+from gurux_dlms.enums import Authentication, InterfaceType, RequestTypes
+from gurux_dlms.objects import GXDLMSRegister
 from gurux_dlms.secure.GXDLMSSecureClient import GXDLMSSecureClient
 
 if TYPE_CHECKING:
@@ -87,6 +88,7 @@ class DlmsProtocol:
             password=None,
             interfaceType=InterfaceType.HDLC,
         )
+        self._scalers: dict[str, int] = {}
 
     def connect(self) -> None:
         """Establish the complete DLMS connection.
@@ -105,7 +107,7 @@ class DlmsProtocol:
             baudrate = self._negotiate_baud()
             self._open_dlms_serial(baudrate)
             self._connect_dlms()
-            self._load_association_view()
+            # self._load_association_view()
 
             self.connected = True
 
@@ -159,27 +161,29 @@ class DlmsProtocol:
             finally:
                 self.ser = None
 
-    def read(
-        self,
-        obis_codes: Iterable[str],
-    ) -> dict[str, object]:
+    def read(self, obis_codes: Iterable[str]) -> dict[str, object]:
         """Read the requested OBIS registers."""
-
         values: dict[str, object] = {}
 
         for obis in sorted(obis_codes):
             logger.info("DLMS: reading OBIS %s", obis)
 
             obj = self._find_object(obis)
-
             if obj is None:
                 continue
 
+            logger.info(
+                "DLMS: using object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
+                obis,
+                obj.objectType,
+                obj.shortName,
+                obj.logicalName,
+            )
+
+            scaler = self._read_scaler(obis, obj)
+
             requests = self._normalize_requests(
-                self.client.read(
-                    obj,
-                    self.REGISTER_VALUE_ATTRIBUTE,
-                ),
+                self.client.read(obj, self.REGISTER_VALUE_ATTRIBUTE),
             )
 
             logger.info(
@@ -193,23 +197,31 @@ class DlmsProtocol:
             for request in requests:
                 self._send_request(request)
 
-            logger.info(
-                "DLMS: waiting for OBIS %s value",
-                obis,
-            )
+            logger.info("DLMS: waiting for OBIS %s value", obis)
 
             self._receive_gurux_reply(
                 reply=reply,
                 timeout=30.0,
             )
 
-            values[obis] = reply.value
+            raw_value = reply.value
 
             logger.info(
-                "DLMS: OBIS %s = %s",
+                "DLMS: OBIS %s raw value = %s",
                 obis,
-                reply.value,
+                raw_value,
             )
+
+            value = raw_value * (10**scaler)
+
+            logger.info(
+                "DLMS: OBIS %s scaled value = %s (scaler=10^%d)",
+                obis,
+                value,
+                scaler,
+            )
+
+            values[obis] = value
 
         return values
 
@@ -579,8 +591,70 @@ class DlmsProtocol:
 
         logger.info("DLMS: association view loaded")
 
+    def _read_scaler(self, obis: str, obj: GXDLMSObject) -> int:
+        """Read and cache the scaler for a DLMS register.
+
+        Attribute 3 of a DLMS register contains the scaler/unit structure.
+        The scaler is a base-10 exponent applied to the raw register value.
+
+        Args:
+            obis: OBIS code used for logging and caching.
+            obj: DLMS register object.
+
+        Returns:
+            The decimal scaler exponent.
+        """
+        cached = self._scalers.get(obis)
+        if cached is not None:
+            return cached
+
+        logger.info("DLMS: reading scaler for OBIS %s", obis)
+
+        requests = self._normalize_requests(
+            self.client.read(obj, self.REGISTER_SCALER_ATTRIBUTE),
+        )
+
+        logger.info(
+            "DLMS: OBIS %s scaler requires %d request frame(s)",
+            obis,
+            len(requests),
+        )
+
+        reply = GXReplyData()
+
+        for request in requests:
+            self._send_request(request)
+
+        logger.info("DLMS: waiting for OBIS %s scaler", obis)
+
+        self._receive_gurux_reply(reply=reply, timeout=30.0)
+
+        scaler_value = reply.value
+
+        logger.info(
+            "DLMS: OBIS %s raw scaler response = %r",
+            obis,
+            scaler_value,
+        )
+
+        if isinstance(scaler_value, (list, tuple)) and scaler_value:
+            scaler = int(scaler_value[0])
+        else:
+            raise RuntimeError(f"Unexpected scaler response for OBIS {obis}: {scaler_value!r}")
+
+        self._scalers[obis] = scaler
+
+        logger.info(
+            "DLMS: OBIS %s scaler = 10^%d",
+            obis,
+            scaler,
+        )
+
+        return scaler
+
     def _find_object(self, obis: str) -> GXDLMSObject | None:
-        """Find a DLMS object by the logical name configured for an OBIS code."""
+        """Find a DLMS object by its configured short name."""
+
         definition = get_obis_definition(obis)
 
         if definition is None:
@@ -590,34 +664,27 @@ class DlmsProtocol:
             )
             return None
 
-        if definition.logical_name is None:
+        if definition.dlms_short_name is None:
             logger.warning(
-                "DLMS: no logical name configured for OBIS %s",
+                "DLMS: no short name configured for OBIS %s",
                 obis,
             )
             return None
 
         logger.info(
-            "DLMS: OBIS %s -> %s",
+            "DLMS: OBIS %s -> short_name=0x%04X",
             obis,
-            definition.logical_name,
+            definition.dlms_short_name,
         )
 
-        obj = self.client.objects.findByLN(
-            ObjectType.NONE,
-            definition.logical_name,
-        )
+        obj = GXDLMSRegister()
+        obj.shortName = definition.dlms_short_name
 
-        if obj is None:
-            logger.warning(
-                "DLMS: logical name %s for OBIS %s not found in association view",
-                definition.logical_name,
-                obis,
-            )
-            return None
+        if definition.dlms_logical_name is not None:
+            obj.logicalName = definition.dlms_logical_name
 
         logger.info(
-            "DLMS: found object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
+            "DLMS: using object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
             obis,
             obj.objectType,
             obj.shortName,
