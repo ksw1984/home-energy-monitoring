@@ -10,6 +10,7 @@ class ObisDefinition:
     unit: str
     category: str
     logical_name: str | None = None  # for dlms
+    short_name: int | None = None  # for dlms
 
 
 def get_obis_definition(obis: str) -> ObisDefinition | None:
@@ -58,6 +59,7 @@ OBIS_DEFINITIONS = {
         unit="",
         category="device",
         logical_name="0.0.42.0.0.255",
+        short_name=0xFD00,
     ),
     "0.1.0": ObisDefinition(
         code="0.1.0",
@@ -83,6 +85,7 @@ OBIS_DEFINITIONS = {
         unit="",
         category="device",
         logical_name="1.0.0.2.0.255",
+        short_name=0xFF00,
     ),
     "0.2.1": ObisDefinition(
         code="0.2.1",
@@ -92,6 +95,7 @@ OBIS_DEFINITIONS = {
         unit="",
         category="device",
         logical_name="1.0.0.2.1.255",
+        short_name=0x39D0,
     ),
     "0.2.8": ObisDefinition(
         code="0.2.8",
@@ -101,6 +105,7 @@ OBIS_DEFINITIONS = {
         unit="",
         category="device",
         logical_name="1.0.0.2.8.255",
+        short_name=0x0498,
     ),
     "0.9.1": ObisDefinition(
         code="0.9.1",
@@ -151,6 +156,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power_max",
         logical_name="1.1.1.6.0.255",
+        short_name=0x3E18,
     ),
     "2.6.0": ObisDefinition(
         code="2.6.0",
@@ -160,6 +166,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power_max",
         logical_name="1.1.2.6.0.255",
+        short_name=0x3E90,
     ),
     #
     # Total energy / Zählerstand
@@ -172,6 +179,7 @@ OBIS_DEFINITIONS = {
         unit="kWh",
         category="energy",
         logical_name="1.1.1.8.0.255",
+        short_name=0x1CE0,
     ),
     "2.8.0": ObisDefinition(
         code="2.8.0",
@@ -181,6 +189,7 @@ OBIS_DEFINITIONS = {
         unit="kWh",
         category="energy",
         logical_name="1.1.2.8.0.255",
+        short_name=0x1D98,
     ),
     #
     # Reactive energy / Blindenergie
@@ -193,6 +202,7 @@ OBIS_DEFINITIONS = {
         unit="kvarh",
         category="energy",
         logical_name="1.1.5.8.0.255",
+        short_name=0x2478,
     ),
     "6.8.0": ObisDefinition(
         code="6.8.0",
@@ -202,6 +212,7 @@ OBIS_DEFINITIONS = {
         unit="kvarh",
         category="energy",
         logical_name="1.1.6.8.0.255",
+        short_name=0x2528,
     ),
     "7.8.0": ObisDefinition(
         code="7.8.0",
@@ -211,6 +222,7 @@ OBIS_DEFINITIONS = {
         unit="kvarh",
         category="energy",
         logical_name="1.1.7.8.0.255",
+        short_name=0x25D8,
     ),
     "8.8.0": ObisDefinition(
         code="8.8.0",
@@ -220,6 +232,7 @@ OBIS_DEFINITIONS = {
         unit="kvarh",
         category="energy",
         logical_name="1.1.8.8.0.255",
+        short_name=0x2688,
     ),
     #
     # Voltages / Spannungen
@@ -232,6 +245,7 @@ OBIS_DEFINITIONS = {
         unit="V",
         category="voltage",
         logical_name="1.1.32.7.0.255",
+        short_name=0x9AE8,
     ),
     "52.7.0": ObisDefinition(
         code="52.7.0",
@@ -241,6 +255,7 @@ OBIS_DEFINITIONS = {
         unit="V",
         category="voltage",
         logical_name="1.1.52.7.0.255",
+        short_name=0x9B78,
     ),
     "72.7.0": ObisDefinition(
         code="72.7.0",
@@ -250,6 +265,7 @@ OBIS_DEFINITIONS = {
         unit="V",
         category="voltage",
         logical_name="1.1.72.7.0.255",
+        short_name=0x9C08,
     ),
     #
     # Currents / Ströme
@@ -262,6 +278,7 @@ OBIS_DEFINITIONS = {
         unit="A",
         category="current",
         logical_name="1.1.31.7.0.255",
+        short_name=0x9C98,
     ),
     "51.7.0": ObisDefinition(
         code="51.7.0",
@@ -271,6 +288,7 @@ OBIS_DEFINITIONS = {
         unit="A",
         category="current",
         logical_name="1.1.51.7.0.255",
+        short_name=0x9D28,
     ),
     "71.7.0": ObisDefinition(
         code="71.7.0",
@@ -280,6 +298,7 @@ OBIS_DEFINITIONS = {
         unit="A",
         category="current",
         logical_name="1.1.71.7.0.255",
+        short_name=0x9DB8,
     ),
     #
     # Active power / Wirkleistung
@@ -292,6 +311,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power",
         logical_name="1.1.16.7.0.255",
+        short_name=0x9F68,
     ),
     "36.7.0": ObisDefinition(
         code="36.7.0",
@@ -301,6 +321,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power",
         logical_name="1.1.36.7.0.255",
+        short_name=0xBA68,
     ),
     "56.7.0": ObisDefinition(
         code="56.7.0",
@@ -310,6 +331,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power",
         logical_name="1.1.56.7.0.255",
+        short_name=0xBAF8,
     ),
     "76.7.0": ObisDefinition(
         code="76.7.0",
@@ -319,6 +341,7 @@ OBIS_DEFINITIONS = {
         unit="kW",
         category="power",
         logical_name="1.1.76.7.0.255",
+        short_name=0xBB88,
     ),
     #
     # Reactive power / Blindleistung
