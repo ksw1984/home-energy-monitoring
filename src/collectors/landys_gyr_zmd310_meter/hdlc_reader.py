@@ -54,7 +54,9 @@ class HDLCReader:
 
         while time.monotonic() - start_time < timeout:
             try:
-                start_index = self.buffer.index(self.FRAME_FLAG)
+                start_index = self.buffer.index(
+                    self.FRAME_FLAG,
+                )
             except ValueError:
                 start_index = -1
 
@@ -72,7 +74,9 @@ class HDLCReader:
                         continue
 
                     if len(self.buffer) >= total_length:
-                        frame = bytes(self.buffer[:total_length])
+                        frame = bytes(
+                            self.buffer[:total_length],
+                        )
 
                         del self.buffer[:total_length]
 
@@ -81,7 +85,9 @@ class HDLCReader:
 
                         return frame
 
-            chunk = self.ser.read(self.READ_SIZE)
+            chunk = self.ser.read(
+                self.READ_SIZE,
+            )
 
             if chunk:
                 self.buffer.extend(chunk)

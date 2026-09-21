@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
-from typing import Any, TYPE_CHECKING
+from typing import ClassVar, TYPE_CHECKING
 
-from src.collectors.definitions.obis import CURRENT_OBIS
+from src.collectors.definitions.obis import get_obis_definition
 
 import serial
 from .hdlc_reader import HDLCReader
 from gurux_dlms import GXByteBuffer, GXReplyData
-from gurux_dlms.enums import Authentication, InterfaceType, RequestTypes
+from gurux_dlms.enums import Authentication, InterfaceType, ObjectType, RequestTypes
 from gurux_dlms.secure.GXDLMSSecureClient import GXDLMSSecureClient
 
 if TYPE_CHECKING:
@@ -29,11 +30,10 @@ class DlmsProtocol:
     The protocol performs the following connection sequence:
 
     1. IEC 62056-21 identification at 300 baud.
-    2. IEC mode-C baud-rate negotiation to 9600 baud.
+    2. IEC mode-C baud-rate negotiation.
     3. HDLC SNRM/UA negotiation.
     4. DLMS AARQ/AARE association.
     5. Association-view loading.
-    6. Register scaler/unit loading.
 
     The resulting DLMS connection remains open and can subsequently be
     used for repeated register reads.
@@ -45,10 +45,22 @@ class DlmsProtocol:
     """
 
     IEC_BAUDRATE = 300
-    DLMS_BAUDRATE = 9600
 
-    REGISTER_VALUE_ATTRIBUTE = 2
+    IEC_REQUEST = b"/?!\r\n"
+    IEC_ACK = b"\x06\x32\x35\x32\r\n"
+
+    BAUD_MAP: ClassVar[dict[int, int]] = {
+        0: 300,
+        1: 600,
+        2: 1200,
+        3: 2400,
+        4: 4800,
+        5: 9600,
+        6: 19200,
+    }
+
     REGISTER_SCALER_ATTRIBUTE = 3
+    REGISTER_VALUE_ATTRIBUTE = 2
 
     def __init__(
         self,
@@ -64,17 +76,17 @@ class DlmsProtocol:
 
         self.ser: serial.Serial | None = None
         self.hdlc: HDLCReader | None = None
+        self.objects = None
+        self.connected = False
 
         self.client = GXDLMSSecureClient(
-            useLogicalNameReferencing=False,
+            useLogicalNameReferencing=False,  # required by meter
             clientAddress=client_address,
             serverAddress=server_address,
             forAuthentication=Authentication.NONE,
             password=None,
             interfaceType=InterfaceType.HDLC,
         )
-
-        self.connected = False
 
     def connect(self) -> None:
         """Establish the complete DLMS connection.
@@ -90,16 +102,17 @@ class DlmsProtocol:
             return
 
         try:
-            self._negotiate_baud()
+            baudrate = self._negotiate_baud()
+            self._open_dlms_serial(baudrate)
             self._connect_dlms()
             self._load_association_view()
-            self._load_scalers()
 
             self.connected = True
 
             logger.info(
-                "DLMS connection established on %s",
+                "DLMS connection established on %s at %d baud",
                 self.port,
+                baudrate,
             )
 
         except Exception:
@@ -109,8 +122,34 @@ class DlmsProtocol:
     def disconnect(self) -> None:
         """Close the DLMS serial connection and reset connection state."""
         self.connected = False
+        self.hdlc = None
+        self.objects = None
 
-        if self.ser is not None:
+        if self.ser is None:
+            return
+
+        try:
+            request = self.client.disconnectRequest()
+
+            if request:
+                for frame in self._normalize_requests(request):
+                    try:
+                        self.ser.write(frame)
+                        self.ser.flush()
+                    except (serial.SerialException, OSError):
+                        logger.debug(
+                            "DLMS disconnect request could not be sent",
+                            exc_info=True,
+                        )
+                        break
+
+        except Exception:
+            logger.debug(
+                "DLMS disconnect request failed",
+                exc_info=True,
+            )
+
+        finally:
             try:
                 self.ser.close()
             except Exception:
@@ -120,7 +159,59 @@ class DlmsProtocol:
             finally:
                 self.ser = None
 
-        self.hdlc = None
+    def read(
+        self,
+        obis_codes: Iterable[str],
+    ) -> dict[str, object]:
+        """Read the requested OBIS registers."""
+
+        values: dict[str, object] = {}
+
+        for obis in sorted(obis_codes):
+            logger.info("DLMS: reading OBIS %s", obis)
+
+            obj = self._find_object(obis)
+
+            if obj is None:
+                continue
+
+            requests = self._normalize_requests(
+                self.client.read(
+                    obj,
+                    self.REGISTER_VALUE_ATTRIBUTE,
+                ),
+            )
+
+            logger.info(
+                "DLMS: OBIS %s requires %d request frame(s)",
+                obis,
+                len(requests),
+            )
+
+            reply = GXReplyData()
+
+            for request in requests:
+                self._send_request(request)
+
+            logger.info(
+                "DLMS: waiting for OBIS %s value",
+                obis,
+            )
+
+            self._receive_gurux_reply(
+                reply=reply,
+                timeout=30.0,
+            )
+
+            values[obis] = reply.value
+
+            logger.info(
+                "DLMS: OBIS %s = %s",
+                obis,
+                reply.value,
+            )
+
+        return values
 
     def _open_serial(
         self,
@@ -151,95 +242,307 @@ class DlmsProtocol:
             dsrdtr=False,
         )
 
-    def _negotiate_baud(self) -> None:
-        """Perform the IEC 62056-21 identification and baud negotiation.
+    def _negotiate_baud(self) -> int:
+        """Perform IEC 62056-21 identification and baud-rate negotiation."""
 
-        The meter is initially contacted at 300 baud using 7E1. The
-        proven meter-specific ACK then requests communication at
-        9600 baud.
-        """
-        ser = self._open_serial(
-            self.IEC_BAUDRATE,
+        logger.info(
+            "DLMS: opening serial port %s at 300 baud, 7E1",
+            self.port,
+        )
+
+        self.ser = self._open_serial(
+            baud=self.IEC_BAUDRATE,
             data_bits=7,
             parity=serial.PARITY_EVEN,
         )
 
-        try:
-            ser.reset_input_buffer()
-            ser.reset_output_buffer()
+        logger.info("DLMS: serial port opened")
 
-            ser.write(b"/?!\r\n")
-            ser.flush()
+        self.ser.reset_input_buffer()
 
-            response = ser.read_until(b"\r\n")
+        logger.info("DLMS: sending IEC identification request /?!")
 
-            if not response:
-                raise serial.SerialException(
-                    "No IEC identification response",
-                )
+        self.ser.write(self.IEC_REQUEST)
+        self.ser.flush()
 
-            logger.debug(
-                "IEC identification: %r",
-                response,
+        logger.info("DLMS: waiting for IEC identification response")
+
+        identification = self._read_identification()
+
+        logger.info(
+            "DLMS: IEC identification response: %r",
+            identification,
+        )
+
+        if not identification:
+            raise RuntimeError(
+                "No IEC identification response received",
             )
 
-            ser.write(b"\x06\x32\x35\x32\r\n")
-            ser.flush()
+        baudrate = self._get_baud_rate(identification)
 
-        finally:
-            ser.close()
+        logger.info(
+            "DLMS: negotiated IEC baud rate: %d",
+            baudrate,
+        )
 
-    def _connect_dlms(self) -> None:
-        """Establish the HDLC and DLMS application association."""
+        logger.info("DLMS: sending IEC ACK")
+
+        self.ser.write(self.IEC_ACK)
+        self.ser.flush()
+
+        logger.info(
+            "DLMS: IEC ACK sent, waiting for meter to switch baud rate",
+        )
+
+        time.sleep(1.0)
+
+        logger.info("DLMS: closing IEC serial connection")
+
+        self.ser.close()
+        self.ser = None
+
+        return baudrate
+
+    def _read_identification(
+        self,
+        timeout: float = 5.0,
+    ) -> bytes:
+        """Read the IEC 62056-21 identification response.
+
+        The meter may return the identification response in multiple serial
+        chunks, so bytes are accumulated until the terminating CRLF is received
+        or the timeout expires.
+
+        Args:
+            timeout: Maximum time to wait for the identification response.
+
+        Returns:
+            Raw IEC identification response.
+        """
+        logger.info("DLMS: reading IEC identification line")
+
+        identification = bytearray()
+        start_time = time.monotonic()
+
+        if self.ser is None:
+            raise RuntimeError("Serial connection is not initialized")
+
+        while time.monotonic() - start_time < timeout:
+            chunk = self.ser.read(64)
+
+            if chunk:
+                logger.info(
+                    "DLMS: IEC RX chunk: %r",
+                    chunk,
+                )
+                identification.extend(chunk)
+
+                if b"\r\n" in identification:
+                    break
+
+        response = bytes(identification)
+
+        logger.info(
+            "DLMS: IEC identification raw response: %r",
+            response,
+        )
+
+        return response
+
+    def _get_baud_rate(
+        self,
+        identification: bytes,
+    ) -> int:
+        """Extract the IEC baud-rate selector from the identification.
+
+        Args:
+            identification: Raw IEC identification response.
+
+        Returns:
+            Negotiated baud rate.
+
+        Raises:
+            serial.SerialException: If the identification does not
+                contain a supported baud-rate selector.
+        """
+        match = re.search(
+            rb"^/[A-Za-z]{3}([0-9])",
+            identification,
+        )
+
+        if match is None:
+            raise serial.SerialException(
+                f"Could not determine IEC baud rate from {identification!r}",
+            )
+
+        selector = int(match.group(1))
+
+        try:
+            return self.BAUD_MAP[selector]
+        except KeyError as exc:
+            raise serial.SerialException(
+                f"Unsupported IEC baud-rate selector: {selector}",
+            ) from exc
+
+    def _open_dlms_serial(
+        self,
+        baudrate: int,
+    ) -> None:
+        """Open the serial port for DLMS communication.
+
+        Args:
+            baudrate: Baud rate negotiated during IEC initialization.
+        """
+        logger.info(
+            "DLMS: opening serial port at %d baud, 8N1",
+            baudrate,
+        )
+
         self.ser = self._open_serial(
-            self.DLMS_BAUDRATE,
+            baudrate,
             data_bits=8,
             parity=serial.PARITY_NONE,
         )
 
+        self.ser.reset_input_buffer()
+
+        logger.info(
+            "DLMS: DLMS serial port opened and input buffer reset",
+        )
+
         self.hdlc = HDLCReader(self.ser)
 
+        logger.info(
+            "DLMS: HDLC reader initialized",
+        )
+
+    def _connect_dlms(self) -> None:  # noqa: C901
+        """Establish the HDLC and DLMS application association."""
+        if self.ser is None:
+            raise serial.SerialException(
+                "DLMS serial port is not open",
+            )
+
+        if self.hdlc is None:
+            raise serial.SerialException(
+                "HDLC reader is not initialized",
+            )
+
         # ------------------------------------------------------------
-        # SNRM
+        # SNRM / UA
         # ------------------------------------------------------------
+
+        logger.info("DLMS: sending SNRM request")
 
         request = self.client.snrmRequest()
 
         if request:
-            self.ser.write(request)
-            self.ser.flush()
+            self._send_request(request)
 
-            reply = self._receive_gurux_reply(
-                timeout=30.0,
+            logger.info("DLMS: waiting for SNRM/UA response")
+
+            frame = self.hdlc.read_frame(timeout=30.0)
+
+            if frame is None:
+                raise TimeoutError(
+                    "Timeout waiting for HDLC frame during SNRM/UA.",
+                )
+
+            logger.info(
+                "DLMS: received SNRM/UA response (%d bytes)",
+                len(frame),
             )
+
+            ua = GXByteBuffer()
+            ua.set(frame)
+
+            ua_reply = GXReplyData()
+
+            self.client.getData(
+                ua,
+                ua_reply,
+            )
+
+            if ua_reply.error:
+                raise RuntimeError(
+                    ua_reply.getErrorMessage(),
+                )
+
+            logger.info("DLMS: parsing UA response")
 
             self.client.parseUAResponse(
-                reply.data,
+                ua_reply.data,
             )
 
+            logger.info("DLMS: SNRM/UA completed")
+
         # ------------------------------------------------------------
-        # AARQ
+        # AARQ / AARE
         # ------------------------------------------------------------
+
+        logger.info("DLMS: creating AARQ request")
 
         request = self.client.aarqRequest()
 
         if request:
-            for frame in request:
-                self.ser.write(frame)
-                self.ser.flush()
+            requests = self._normalize_requests(request)
 
-                reply = self._receive_gurux_reply(
-                    timeout=30.0,
+            logger.info(
+                "DLMS: sending AARQ request (%d frame(s))",
+                len(requests),
+            )
+
+            for index, frame_request in enumerate(requests, start=1):
+                logger.info(
+                    "DLMS: sending AARQ frame %d/%d",
+                    index,
+                    len(requests),
                 )
 
-                if reply.data:
-                    self.client.parseAareResponse(
-                        reply.data,
+                self._send_request(frame_request)
+
+                logger.info("DLMS: waiting for AARE response")
+
+                aare_frame = self.hdlc.read_frame(timeout=30.0)
+
+                if aare_frame is None:
+                    raise TimeoutError(
+                        "Timeout waiting for HDLC frame during AARQ/AARE.",
                     )
+
+                logger.info(
+                    "DLMS: received AARE response (%d bytes)",
+                    len(aare_frame),
+                )
+
+                aare = GXByteBuffer()
+                aare.set(aare_frame)
+
+                aare_reply = GXReplyData()
+
+                self.client.getData(
+                    aare,
+                    aare_reply,
+                )
+
+                if aare_reply.error:
+                    raise RuntimeError(
+                        aare_reply.getErrorMessage(),
+                    )
+
+                if aare_reply.data:
+                    logger.info("DLMS: parsing AARE response")
+
+                    self.client.parseAareResponse(
+                        aare_reply.data,
+                    )
+
+                logger.info("DLMS: AARQ/AARE completed")
 
     def _load_association_view(self) -> None:
         """Load the meter's DLMS association view."""
-        reply = GXReplyData()
+        logger.info("DLMS: requesting association view")
 
         request = self.client.getObjectsRequest()
 
@@ -248,238 +551,112 @@ class DlmsProtocol:
                 "Gurux returned no association-view request",
             )
 
-        self._send_and_receive(
-            request,
-            reply,
-            timeout=30.0,
-        )
+        association_reply = GXReplyData()
 
-        self.client.parseObjects(
-            reply.data,
+        logger.info("DLMS: sending association-view request")
+
+        self._send_request(request)
+
+        logger.info("DLMS: waiting for association-view response")
+
+        self._receive_gurux_reply(
+            reply=association_reply,
+            timeout=30.0,
         )
 
         logger.info(
-            "DLMS association view loaded: %d objects",
-            len(self.client.objects),
+            "DLMS: association-view response complete (%d bytes)",
+            len(association_reply.data),
         )
 
-    def _load_scalers(self) -> None:
-        """Read scaler and unit information for current OBIS registers.
+        logger.info("DLMS: parsing association view")
 
-        DLMS register attribute 3 contains the scaler and unit metadata.
-        This information is loaded once during connection setup.
-        """
-
-        for obis in self._current_obis():
-            obj = self._find_object(obis)
-
-            if obj is None:
-                logger.warning(
-                    "DLMS object not found while loading scaler: %s",
-                    obis,
-                )
-                continue
-
-            try:
-                if obj.getAttributeCount() < self.REGISTER_SCALER_ATTRIBUTE:
-                    continue
-
-                if not obj.canRead(self.REGISTER_SCALER_ATTRIBUTE):
-                    continue
-
-                # Gurux updates the object when updateValue()
-                # is called after reading attribute 3.
-                self._read_and_update(
-                    obj=obj,
-                    attribute=self.REGISTER_SCALER_ATTRIBUTE,
-                )
-
-                logger.debug(
-                    "DLMS scaler loaded: %s scaler=%s unit=%s",
-                    obis,
-                    getattr(obj, "scaler", None),
-                    getattr(obj, "unit", None),
-                )
-
-            except Exception:
-                logger.exception(
-                    "Failed to read scaler for %s",
-                    obis,
-                )
-
-    def _current_obis(self) -> Iterable[str]:
-        """Return the OBIS codes configured for current measurements.
-
-        Returns:
-            The shared ``CURRENT_OBIS`` collection.
-        """
-        return CURRENT_OBIS
-
-    def read(
-        self,
-        obis_codes: Iterable[str],
-    ) -> dict[str, float]:
-        """Read register values for the requested OBIS codes.
-
-        Args:
-            obis_codes: OBIS codes to read.
-
-        Returns:
-            Mapping of OBIS code to numeric register value.
-
-        Raises:
-            serial.SerialException: If no DLMS connection exists.
-        """
-        if not self.connected:
-            raise serial.SerialException(
-                "DLMS connection is not established",
-            )
-
-        result: dict[str, float] = {}
-
-        for obis in obis_codes:
-            obj = self._find_object(obis)
-
-            if obj is None:
-                logger.warning(
-                    "DLMS object not found: %s",
-                    obis,
-                )
-                continue
-
-            value = self._read_and_update(
-                obj=obj,
-                attribute=self.REGISTER_VALUE_ATTRIBUTE,
-            )
-
-            if value is None:
-                continue
-
-            result[obis] = float(value)
-
-        return result
-
-    @staticmethod
-    def _obis_to_logical_name(obis: str) -> str:
-        """Convert a three-part OBIS code to its DLMS logical name.
-
-        Args:
-            obis: OBIS code such as ``16.7.0``.
-
-        Returns:
-            DLMS logical name such as ``1.1.16.7.0.255``.
-
-        Raises:
-            ValueError: If the OBIS code does not contain exactly three
-                components.
-        """
-        parts = obis.split(".")
-        max_parts = 3
-
-        if len(parts) != max_parts:
-            raise ValueError(
-                f"Invalid OBIS code: {obis}",
-            )
-
-        return f"1.1.{obis}.255"
-
-    def _find_object(
-        self,
-        obis: str,
-    ) -> GXDLMSObject | None:
-        """Find a Gurux object by its OBIS logical name.
-
-        Args:
-            obis: Three-part OBIS code.
-
-        Returns:
-            Matching Gurux object or ``None`` if it is not present in the
-            association view.
-        """
-        logical_name = self._obis_to_logical_name(obis)
-
-        return self.client.objects.findByLN(
-            None,
-            logical_name,
+        self.objects = self.client.parseObjects(
+            association_reply.data,
+            onlyKnownObjects=False,
+            ignoreInactiveObjects=False,
         )
 
-    def _read_and_update(
-        self,
-        obj: GXDLMSObject,
-        attribute: int,
-    ) -> Any:
-        """Read one DLMS object attribute and update the Gurux object.
+        logger.info("DLMS: association view loaded")
 
-        Args:
-            obj: Gurux DLMS object to read.
-            attribute: Object attribute index.
+    def _find_object(self, obis: str) -> GXDLMSObject | None:
+        """Find a DLMS object by the logical name configured for an OBIS code."""
+        definition = get_obis_definition(obis)
 
-        Returns:
-            The value returned by ``GXDLMSSecureClient.updateValue()``.
-            ``None`` is returned when Gurux does not generate a request.
-        """
-        request = self.client.read(
-            obj,
-            attribute,
-        )
-
-        if not request:
+        if definition is None:
+            logger.warning(
+                "DLMS: no OBIS definition for %s",
+                obis,
+            )
             return None
 
-        reply = GXReplyData()
+        if definition.logical_name is None:
+            logger.warning(
+                "DLMS: no logical name configured for OBIS %s",
+                obis,
+            )
+            return None
 
-        self._send_and_receive(
-            request,
-            reply,
-            timeout=30.0,
+        logger.info(
+            "DLMS: OBIS %s -> %s",
+            obis,
+            definition.logical_name,
         )
 
-        return self.client.updateValue(
-            obj,
-            attribute,
-            reply.value,
+        obj = self.client.objects.findByLN(
+            ObjectType.NONE,
+            definition.logical_name,
         )
 
-    def _send_and_receive(
+        if obj is None:
+            logger.warning(
+                "DLMS: logical name %s for OBIS %s not found in association view",
+                definition.logical_name,
+                obis,
+            )
+            return None
+
+        logger.info(
+            "DLMS: found object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
+            obis,
+            obj.objectType,
+            obj.shortName,
+            obj.logicalName,
+        )
+
+        return obj
+
+    def _send_request(
         self,
-        request: DlmsRequest,
-        reply: GXReplyData,
-        *,
-        timeout: float,
-    ) -> GXReplyData:
-        """Send DLMS request frames and receive the complete response.
+        request: bytes | bytearray,
+    ) -> None:
+        """Send one DLMS request frame.
 
         Args:
-            request: One request frame or multiple request frames.
-            reply: Gurux reply object used to accumulate the response.
-            timeout: Maximum time in seconds to wait for the response.
-
-        Returns:
-            The supplied, populated ``GXReplyData`` instance.
+            request: Raw DLMS/HDLC request frame.
 
         Raises:
             serial.SerialException: If the serial port is not open.
         """
         if self.ser is None:
             raise serial.SerialException(
-                "Serial port is not open",
+                "DLMS serial port is not open",
             )
 
-        requests = [request] if isinstance(request, (bytes, bytearray)) else request
+        request_bytes = bytes(request)
 
-        for frame in requests:
-            self.ser.write(frame)
-            self.ser.flush()
-
-        return self._receive_gurux_reply(
-            reply=reply,
-            timeout=timeout,
+        logger.info(
+            "DLMS TX: %s",
+            request_bytes.hex(" "),
         )
 
-    def _receive_gurux_reply(  # noqa: C901, PLR0912
+        self.ser.write(request_bytes)
+        self.ser.flush()
+
+    def _receive_gurux_reply(  # noqa: C901
         self,
         *,
-        reply: GXReplyData | None = None,
+        reply: GXReplyData,
         timeout: float = 30.0,
     ) -> GXReplyData:
         """Receive and decode a complete Gurux DLMS response.
@@ -489,9 +666,7 @@ class DlmsProtocol:
         complete.
 
         Args:
-            reply: Optional existing ``GXReplyData`` instance. Supplying
-                one allows segmented responses to accumulate in the same
-                object.
+            reply: Gurux reply object used to accumulate the response.
             timeout: Maximum total time in seconds to wait for the
                 complete response.
 
@@ -507,16 +682,13 @@ class DlmsProtocol:
         """
         if self.ser is None:
             raise serial.SerialException(
-                "Serial port is not open",
+                "DLMS serial port is not open",
             )
 
         if self.hdlc is None:
             raise serial.SerialException(
                 "HDLC reader is not initialized",
             )
-
-        if reply is None:
-            reply = GXReplyData()
 
         deadline = time.monotonic() + timeout
 
@@ -565,11 +737,6 @@ class DlmsProtocol:
 
                 return reply
 
-            logger.debug(
-                "Gurux requests more data: %s",
-                reply.moreData,
-            )
-
             ready = self.client.receiverReady(
                 reply.moreData,
             )
@@ -579,12 +746,22 @@ class DlmsProtocol:
                     "Gurux did not generate Receiver Ready.",
                 )
 
-            if not isinstance(ready, list):
-                ready = [ready]
+            for request in self._normalize_requests(ready):
+                self._send_request(request)
 
-            for request in ready:
-                if request is None:
-                    continue
+    @staticmethod
+    def _normalize_requests(
+        request: DlmsRequest,
+    ) -> list[bytes | bytearray]:
+        """Normalize a Gurux request into a list of frames.
 
-                self.ser.write(request)
-                self.ser.flush()
+        Args:
+            request: One request frame or multiple request frames.
+
+        Returns:
+            List containing all request frames.
+        """
+        if isinstance(request, (bytes, bytearray)):
+            return [request]
+
+        return list(request)

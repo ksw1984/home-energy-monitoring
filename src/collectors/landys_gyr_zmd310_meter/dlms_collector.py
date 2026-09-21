@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from src.collectors.base_collector import BaseCollector
@@ -69,8 +71,7 @@ class DlmsCollector(BaseCollector):
         Disabled collectors do not open their serial port.
 
         Raises:
-            serial.SerialException: If the serial connection cannot be
-                established.
+            Exception: If the DLMS connection cannot be established.
         """
         if not self.enabled:
             logger.debug(
@@ -84,7 +85,7 @@ class DlmsCollector(BaseCollector):
 
         try:
             self.protocol.connect()
-        except serial.SerialException:
+        except Exception:
             self.connected = False
             raise
 
@@ -111,6 +112,8 @@ class DlmsCollector(BaseCollector):
         Raises:
             serial.SerialException: If communication with the meter
                 fails.
+            TimeoutError: If the meter does not respond in time.
+            RuntimeError: If the DLMS protocol reports an error.
         """
         if not self.enabled:
             return []
@@ -120,8 +123,15 @@ class DlmsCollector(BaseCollector):
 
         try:
             values = self.protocol.read(CURRENT_OBIS)
-        except serial.SerialException:
-            logger.exception("DLMS communication failed")
+
+        except (
+            serial.SerialException,
+            TimeoutError,
+            RuntimeError,
+        ):
+            logger.exception(
+                "DLMS communication failed",
+            )
 
             self.connected = False
             self.protocol.disconnect()
@@ -140,6 +150,9 @@ class DlmsCollector(BaseCollector):
                     obis,
                 )
                 continue
+
+            if not isinstance(value, (int, float)):
+                raise TypeError(f"Expected numeric value, got {type(value).__name__}")
 
             measurements.append(
                 Measurement(
