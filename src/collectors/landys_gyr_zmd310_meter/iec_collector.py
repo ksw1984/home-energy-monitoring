@@ -70,7 +70,8 @@ class IecCollector(BaseCollector):
 
         if not self.enabled:
             logger.debug(
-                "IEC collector disabled; skipping connection on %s",
+                "IEC collector '%s' disabled; skipping connection on %s",
+                self.source,
                 self.port,
             )
             return
@@ -85,7 +86,11 @@ class IecCollector(BaseCollector):
             raise
 
         self.connected = True
-        logger.info("IEC meter connected on %s", self.port)
+        logger.info(
+            "IEC collector '%s' connected on %s",
+            self.source,
+            self.port,
+        )
 
     def disconnect(self) -> None:
         """Close the IEC meter connection.

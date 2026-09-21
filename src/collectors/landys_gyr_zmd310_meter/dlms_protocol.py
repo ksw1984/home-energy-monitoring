@@ -166,13 +166,13 @@ class DlmsProtocol:
         values: dict[str, object] = {}
 
         for obis in sorted(obis_codes):
-            logger.info("DLMS: reading OBIS %s", obis)
+            logger.debug("DLMS: reading OBIS %s", obis)
 
             obj = self._find_object(obis)
             if obj is None:
                 continue
 
-            logger.info(
+            logger.debug(
                 "DLMS: using object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
                 obis,
                 obj.objectType,
@@ -186,7 +186,7 @@ class DlmsProtocol:
                 self.client.read(obj, self.REGISTER_VALUE_ATTRIBUTE),
             )
 
-            logger.info(
+            logger.debug(
                 "DLMS: OBIS %s requires %d request frame(s)",
                 obis,
                 len(requests),
@@ -197,7 +197,7 @@ class DlmsProtocol:
             for request in requests:
                 self._send_request(request)
 
-            logger.info("DLMS: waiting for OBIS %s value", obis)
+            logger.debug("DLMS: waiting for OBIS %s value", obis)
 
             self._receive_gurux_reply(
                 reply=reply,
@@ -206,7 +206,7 @@ class DlmsProtocol:
 
             raw_value = reply.value
 
-            logger.info(
+            logger.debug(
                 "DLMS: OBIS %s raw value = %s",
                 obis,
                 raw_value,
@@ -214,7 +214,7 @@ class DlmsProtocol:
 
             value = raw_value * (10**scaler)
 
-            logger.info(
+            logger.debug(
                 "DLMS: OBIS %s scaled value = %s (scaler=10^%d)",
                 obis,
                 value,
@@ -257,7 +257,7 @@ class DlmsProtocol:
     def _negotiate_baud(self) -> int:
         """Perform IEC 62056-21 identification and baud-rate negotiation."""
 
-        logger.info(
+        logger.debug(
             "DLMS: opening serial port %s at 300 baud, 7E1",
             self.port,
         )
@@ -268,20 +268,20 @@ class DlmsProtocol:
             parity=serial.PARITY_EVEN,
         )
 
-        logger.info("DLMS: serial port opened")
+        logger.debug("DLMS: serial port opened")
 
         self.ser.reset_input_buffer()
 
-        logger.info("DLMS: sending IEC identification request /?!")
+        logger.debug("DLMS: sending IEC identification request /?!")
 
         self.ser.write(self.IEC_REQUEST)
         self.ser.flush()
 
-        logger.info("DLMS: waiting for IEC identification response")
+        logger.debug("DLMS: waiting for IEC identification response")
 
         identification = self._read_identification()
 
-        logger.info(
+        logger.debug(
             "DLMS: IEC identification response: %r",
             identification,
         )
@@ -293,23 +293,23 @@ class DlmsProtocol:
 
         baudrate = self._get_baud_rate(identification)
 
-        logger.info(
+        logger.debug(
             "DLMS: negotiated IEC baud rate: %d",
             baudrate,
         )
 
-        logger.info("DLMS: sending IEC ACK")
+        logger.debug("DLMS: sending IEC ACK")
 
         self.ser.write(self.IEC_ACK)
         self.ser.flush()
 
-        logger.info(
+        logger.debug(
             "DLMS: IEC ACK sent, waiting for meter to switch baud rate",
         )
 
         time.sleep(1.0)
 
-        logger.info("DLMS: closing IEC serial connection")
+        logger.debug("DLMS: closing IEC serial connection")
 
         self.ser.close()
         self.ser = None
@@ -332,7 +332,7 @@ class DlmsProtocol:
         Returns:
             Raw IEC identification response.
         """
-        logger.info("DLMS: reading IEC identification line")
+        logger.debug("DLMS: reading IEC identification line")
 
         identification = bytearray()
         start_time = time.monotonic()
@@ -344,7 +344,7 @@ class DlmsProtocol:
             chunk = self.ser.read(64)
 
             if chunk:
-                logger.info(
+                logger.debug(
                     "DLMS: IEC RX chunk: %r",
                     chunk,
                 )
@@ -355,7 +355,7 @@ class DlmsProtocol:
 
         response = bytes(identification)
 
-        logger.info(
+        logger.debug(
             "DLMS: IEC identification raw response: %r",
             response,
         )
@@ -406,7 +406,7 @@ class DlmsProtocol:
         Args:
             baudrate: Baud rate negotiated during IEC initialization.
         """
-        logger.info(
+        logger.debug(
             "DLMS: opening serial port at %d baud, 8N1",
             baudrate,
         )
@@ -419,13 +419,13 @@ class DlmsProtocol:
 
         self.ser.reset_input_buffer()
 
-        logger.info(
+        logger.debug(
             "DLMS: DLMS serial port opened and input buffer reset",
         )
 
         self.hdlc = HDLCReader(self.ser)
 
-        logger.info(
+        logger.debug(
             "DLMS: HDLC reader initialized",
         )
 
@@ -445,14 +445,14 @@ class DlmsProtocol:
         # SNRM / UA
         # ------------------------------------------------------------
 
-        logger.info("DLMS: sending SNRM request")
+        logger.debug("DLMS: sending SNRM request")
 
         request = self.client.snrmRequest()
 
         if request:
             self._send_request(request)
 
-            logger.info("DLMS: waiting for SNRM/UA response")
+            logger.debug("DLMS: waiting for SNRM/UA response")
 
             frame = self.hdlc.read_frame(timeout=30.0)
 
@@ -461,7 +461,7 @@ class DlmsProtocol:
                     "Timeout waiting for HDLC frame during SNRM/UA.",
                 )
 
-            logger.info(
+            logger.debug(
                 "DLMS: received SNRM/UA response (%d bytes)",
                 len(frame),
             )
@@ -481,19 +481,19 @@ class DlmsProtocol:
                     ua_reply.getErrorMessage(),
                 )
 
-            logger.info("DLMS: parsing UA response")
+            logger.debug("DLMS: parsing UA response")
 
             self.client.parseUAResponse(
                 ua_reply.data,
             )
 
-            logger.info("DLMS: SNRM/UA completed")
+            logger.debug("DLMS: SNRM/UA completed")
 
         # ------------------------------------------------------------
         # AARQ / AARE
         # ------------------------------------------------------------
 
-        logger.info("DLMS: creating AARQ request")
+        logger.debug("DLMS: creating AARQ request")
 
         request = self.client.aarqRequest()
 
@@ -554,7 +554,7 @@ class DlmsProtocol:
 
     def _load_association_view(self) -> None:
         """Load the meter's DLMS association view."""
-        logger.info("DLMS: requesting association view")
+        logger.debug("DLMS: requesting association view")
 
         request = self.client.getObjectsRequest()
 
@@ -565,23 +565,23 @@ class DlmsProtocol:
 
         association_reply = GXReplyData()
 
-        logger.info("DLMS: sending association-view request")
+        logger.debug("DLMS: sending association-view request")
 
         self._send_request(request)
 
-        logger.info("DLMS: waiting for association-view response")
+        logger.debug("DLMS: waiting for association-view response")
 
         self._receive_gurux_reply(
             reply=association_reply,
             timeout=30.0,
         )
 
-        logger.info(
+        logger.debug(
             "DLMS: association-view response complete (%d bytes)",
             len(association_reply.data),
         )
 
-        logger.info("DLMS: parsing association view")
+        logger.debug("DLMS: parsing association view")
 
         self.objects = self.client.parseObjects(
             association_reply.data,
@@ -589,7 +589,7 @@ class DlmsProtocol:
             ignoreInactiveObjects=False,
         )
 
-        logger.info("DLMS: association view loaded")
+        logger.debug("DLMS: association view loaded")
 
     def _read_scaler(self, obis: str, obj: GXDLMSObject) -> int:
         """Read and cache the scaler for a DLMS register.
@@ -608,13 +608,13 @@ class DlmsProtocol:
         if cached is not None:
             return cached
 
-        logger.info("DLMS: reading scaler for OBIS %s", obis)
+        logger.debug("DLMS: reading scaler for OBIS %s", obis)
 
         requests = self._normalize_requests(
             self.client.read(obj, self.REGISTER_SCALER_ATTRIBUTE),
         )
 
-        logger.info(
+        logger.debug(
             "DLMS: OBIS %s scaler requires %d request frame(s)",
             obis,
             len(requests),
@@ -625,13 +625,13 @@ class DlmsProtocol:
         for request in requests:
             self._send_request(request)
 
-        logger.info("DLMS: waiting for OBIS %s scaler", obis)
+        logger.debug("DLMS: waiting for OBIS %s scaler", obis)
 
         self._receive_gurux_reply(reply=reply, timeout=30.0)
 
         scaler_value = reply.value
 
-        logger.info(
+        logger.debug(
             "DLMS: OBIS %s raw scaler response = %r",
             obis,
             scaler_value,
@@ -644,7 +644,7 @@ class DlmsProtocol:
 
         self._scalers[obis] = scaler
 
-        logger.info(
+        logger.debug(
             "DLMS: OBIS %s scaler = 10^%d",
             obis,
             scaler,
@@ -671,7 +671,7 @@ class DlmsProtocol:
             )
             return None
 
-        logger.info(
+        logger.debug(
             "DLMS: OBIS %s -> short_name=0x%04X",
             obis,
             definition.dlms_short_name,
@@ -683,7 +683,7 @@ class DlmsProtocol:
         if definition.dlms_logical_name is not None:
             obj.logicalName = definition.dlms_logical_name
 
-        logger.info(
+        logger.debug(
             "DLMS: using object for OBIS %s: class=%s, short_name=0x%04X, logical_name=%s",
             obis,
             obj.objectType,

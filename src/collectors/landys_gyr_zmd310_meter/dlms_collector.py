@@ -75,7 +75,8 @@ class DlmsCollector(BaseCollector):
         """
         if not self.enabled:
             logger.debug(
-                "DLMS collector disabled; skipping connection on %s",
+                "DLMS collector '%s' disabled; skipping connection on %s",
+                self.source,
                 self.port,
             )
             return
@@ -92,7 +93,8 @@ class DlmsCollector(BaseCollector):
         self.connected = True
 
         logger.info(
-            "DLMS meter connected on %s",
+            "DLMS collector '%s' connected on %s",
+            self.source,
             self.port,
         )
 
