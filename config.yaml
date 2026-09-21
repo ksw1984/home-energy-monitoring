@@ -7,7 +7,16 @@ collection:
 
 collectors:
 
-  # IEC electricity meter for grid import/export
+  # electricity meter for grid import/export
+  # DLMS - faster - 1s intervals no problem
+  - type: landys_gyr_zmd310_meter_dlms
+    enabled: true
+    interval: 1
+    attributes:
+      port: /dev/ttyUSB0
+      source: meter_grid_dlms
+
+  # IEC - slower - 6 s intervals max
   - type: landys_gyr_zmd310_meter_iec
     enabled: false
     interval: 10
@@ -15,27 +24,22 @@ collectors:
       port: /dev/ttyUSB0
       source: meter_grid_iec
 
+  # electricity meter for household consumption
+  # DLMS - faster - 1s intervals no problem
   - type: landys_gyr_zmd310_meter_dlms
     enabled: true
-    interval: 10
+    interval: 1
     attributes:
-      port: /dev/ttyUSB0
-      source: meter_grid_dlms
+      port: /dev/ttyUSB1
+      source: meter_household_dlms
 
-  # IEC electricity meter for household consumption
+  # IEC - slower - 6 s intervals max
   - type: landys_gyr_zmd310_meter_iec
     enabled: false
     interval: 10
     attributes:
       port: /dev/ttyUSB1
       source: meter_household_iec
-
-  - type: landys_gyr_zmd310_meter_dlms
-    enabled: true
-    interval: 10
-    attributes:
-      port: /dev/ttyUSB1
-      source: meter_household_dlms
 
   # Fronius Symo inverter
   - type: fronius
@@ -82,15 +86,11 @@ databases:
 storage:
   measurements:
     meter_grid:
-      - grid_import_power
-      - grid_export_power
       - grid_import_energy_total
       - grid_export_energy_total
       - grid_active_power
 
     meter_household:
-      - grid_import_power
-      - grid_export_power
       - grid_import_energy_total
       - grid_export_energy_total
       - grid_active_power
@@ -139,21 +139,15 @@ calculators:
       - source: calculated
         metric: heat_pump_power
         unit: kW
-        formula: "grid_import - grid_export - household_import + household_export"
+        formula: "grid_power - household_power"
 
         inputs:
-          grid_import:
+          grid_power:
             source: meter_grid
-            metric: grid_import_power
-          grid_export:
-            source: meter_grid
-            metric: grid_export_power
-          household_import:
+            metric: grid_active_power
+          household_power:
             source: meter_household
-            metric: grid_import_power
-          household_export:
-            source: meter_household
-            metric: grid_export_power
+            metric: grid_active_power
 
       - source: calculated
         metric: inverter_efficiency
