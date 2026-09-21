@@ -1,7 +1,7 @@
 import logging
 
 from src.calculators.base_calculator import BaseCalculator
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import CalculationConfig
 
 from simpleeval import simple_eval

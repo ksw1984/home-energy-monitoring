@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from src.calculators.base_calculator import BaseCalculator
 from src.collectors.base_collector import BaseCollector
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import (
     CalculationConfig,
     CONFIG_FILE,

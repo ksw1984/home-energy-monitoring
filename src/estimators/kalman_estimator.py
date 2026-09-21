@@ -3,7 +3,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.estimators.base_estimator import BaseEstimator
 from src.estimators.kalman_filter import (
     KalmanCovariance,

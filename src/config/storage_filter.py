@@ -1,4 +1,4 @@
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import StorageConfig
 
 

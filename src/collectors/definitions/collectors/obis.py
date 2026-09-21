@@ -9,6 +9,9 @@ class ObisDefinition:
     description_de: str
     unit: str
     category: str
+    dlms_logical_name: str | None = None  # for dlms
+    dlms_short_name: int | None = None  # for dlms
+    dlms_unit_multiplier: float = 1.0
 
 
 def get_obis_definition(obis: str) -> ObisDefinition | None:
@@ -25,21 +28,24 @@ def get_obis_definition(obis: str) -> ObisDefinition | None:
 
 # Current values we want to store.
 CURRENT_OBIS = {
-    "1.5.0",  # Aktuelle Wirkleistung Bezug
-    "2.5.0",  # Aktuelle Wirkleistung Einspeisung
+    # "1.5.0",  # Aktuelle Wirkleistung Bezug
+    # "2.5.0",  # Aktuelle Wirkleistung Einspeisung
+    # "1.6.0",  # Max Wirkleistung Bezug
+    # "2.6.0",  # Max Wirkleistung Einspeisung
     "1.8.0",  # Zählerstand Gesamtbezug
     "2.8.0",  # Zählerstand Gesamteinspeisung
-    "16.7.0",  # Gesamt-Wirkleistung
+    # "5.8.0",  # Blindenergie
     # "32.7.0",  # Voltages Phasen
     # "52.7.0",
     # "72.7.0",
     # "31.7.0",  # Currents Phasen
     # "51.7.0",
     # "71.7.0",
+    "16.7.0",  # Gesamt-Wirkleistung
     # "36.7.0",  # Wirkleistung Phasen
     # "56.7.0",
     # "76.7.0",
-    "131.7.0",  # "Gesamt-Blindleistung"
+    # "131.7.0",  # "Gesamt-Blindleistung"
     # "151.7.0",  # Blindleistungen Phasen
     # "171.7.0",
     # "191.7.0",
@@ -56,6 +62,8 @@ OBIS_DEFINITIONS = {
         description_de="Zähler-/Seriennummer",
         unit="",
         category="device",
+        dlms_logical_name="0.0.42.0.0.255",
+        dlms_short_name=0xFD00,
     ),
     "0.1.0": ObisDefinition(
         code="0.1.0",
@@ -80,6 +88,8 @@ OBIS_DEFINITIONS = {
         description_de="Firmware-/Programmierstand",
         unit="",
         category="device",
+        dlms_logical_name="1.0.0.2.0.255",
+        dlms_short_name=0xFF00,
     ),
     "0.2.1": ObisDefinition(
         code="0.2.1",
@@ -88,6 +98,8 @@ OBIS_DEFINITIONS = {
         description_de="Firmware-/Softwarekennung",
         unit="",
         category="device",
+        dlms_logical_name="1.0.0.2.1.255",
+        dlms_short_name=0x39D0,
     ),
     "0.2.8": ObisDefinition(
         code="0.2.8",
@@ -96,6 +108,8 @@ OBIS_DEFINITIONS = {
         description_de="Status/Version",
         unit="",
         category="device",
+        dlms_logical_name="1.0.0.2.8.255",
+        dlms_short_name=0x0498,
     ),
     "0.9.1": ObisDefinition(
         code="0.9.1",
@@ -145,6 +159,9 @@ OBIS_DEFINITIONS = {
         description_de="Maximale Wirkleistung Bezug",
         unit="kW",
         category="power_max",
+        dlms_logical_name="1.1.1.6.0.255",
+        dlms_short_name=0x3E18,
+        dlms_unit_multiplier=0.001,
     ),
     "2.6.0": ObisDefinition(
         code="2.6.0",
@@ -153,6 +170,9 @@ OBIS_DEFINITIONS = {
         description_de="Maximale Wirkleistung Einspeisung",
         unit="kW",
         category="power_max",
+        dlms_logical_name="1.1.2.6.0.255",
+        dlms_short_name=0x3E90,
+        dlms_unit_multiplier=0.001,
     ),
     #
     # Total energy / Zählerstand
@@ -164,6 +184,9 @@ OBIS_DEFINITIONS = {
         description_de="Gesamtbezug",
         unit="kWh",
         category="energy",
+        dlms_logical_name="1.1.1.8.0.255",
+        dlms_short_name=0x1CE0,
+        dlms_unit_multiplier=0.001,
     ),
     "2.8.0": ObisDefinition(
         code="2.8.0",
@@ -172,6 +195,9 @@ OBIS_DEFINITIONS = {
         description_de="Gesamteinspeisung",
         unit="kWh",
         category="energy",
+        dlms_logical_name="1.1.2.8.0.255",
+        dlms_short_name=0x1D98,
+        dlms_unit_multiplier=0.001,
     ),
     #
     # Reactive energy / Blindenergie
@@ -183,6 +209,9 @@ OBIS_DEFINITIONS = {
         description_de="Blindenergie",
         unit="kvarh",
         category="energy",
+        dlms_logical_name="1.1.5.8.0.255",
+        dlms_short_name=0x2478,
+        dlms_unit_multiplier=0.001,
     ),
     "6.8.0": ObisDefinition(
         code="6.8.0",
@@ -191,6 +220,9 @@ OBIS_DEFINITIONS = {
         description_de="Weitere Blindenergie",
         unit="kvarh",
         category="energy",
+        dlms_logical_name="1.1.6.8.0.255",
+        dlms_short_name=0x2528,
+        dlms_unit_multiplier=0.001,
     ),
     "7.8.0": ObisDefinition(
         code="7.8.0",
@@ -199,6 +231,9 @@ OBIS_DEFINITIONS = {
         description_de="Weitere Blindenergie",
         unit="kvarh",
         category="energy",
+        dlms_logical_name="1.1.7.8.0.255",
+        dlms_short_name=0x25D8,
+        dlms_unit_multiplier=0.001,
     ),
     "8.8.0": ObisDefinition(
         code="8.8.0",
@@ -207,6 +242,9 @@ OBIS_DEFINITIONS = {
         description_de="Weitere Blindenergie",
         unit="kvarh",
         category="energy",
+        dlms_logical_name="1.1.8.8.0.255",
+        dlms_short_name=0x2688,
+        dlms_unit_multiplier=0.001,
     ),
     #
     # Voltages / Spannungen
@@ -218,6 +256,9 @@ OBIS_DEFINITIONS = {
         description_de="Spannung L1",
         unit="V",
         category="voltage",
+        dlms_logical_name="1.1.32.7.0.255",
+        dlms_short_name=0x9AE8,
+        dlms_unit_multiplier=1,
     ),
     "52.7.0": ObisDefinition(
         code="52.7.0",
@@ -226,6 +267,9 @@ OBIS_DEFINITIONS = {
         description_de="Spannung L2",
         unit="V",
         category="voltage",
+        dlms_logical_name="1.1.52.7.0.255",
+        dlms_short_name=0x9B78,
+        dlms_unit_multiplier=1,
     ),
     "72.7.0": ObisDefinition(
         code="72.7.0",
@@ -234,6 +278,9 @@ OBIS_DEFINITIONS = {
         description_de="Spannung L3",
         unit="V",
         category="voltage",
+        dlms_logical_name="1.1.72.7.0.255",
+        dlms_short_name=0x9C08,
+        dlms_unit_multiplier=1,
     ),
     #
     # Currents / Ströme
@@ -245,6 +292,9 @@ OBIS_DEFINITIONS = {
         description_de="Strom L1",
         unit="A",
         category="current",
+        dlms_logical_name="1.1.31.7.0.255",
+        dlms_short_name=0x9C98,
+        dlms_unit_multiplier=1,
     ),
     "51.7.0": ObisDefinition(
         code="51.7.0",
@@ -253,6 +303,9 @@ OBIS_DEFINITIONS = {
         description_de="Strom L2",
         unit="A",
         category="current",
+        dlms_logical_name="1.1.51.7.0.255",
+        dlms_short_name=0x9D28,
+        dlms_unit_multiplier=1,
     ),
     "71.7.0": ObisDefinition(
         code="71.7.0",
@@ -261,6 +314,9 @@ OBIS_DEFINITIONS = {
         description_de="Strom L3",
         unit="A",
         category="current",
+        dlms_logical_name="1.1.71.7.0.255",
+        dlms_short_name=0x9DB8,
+        dlms_unit_multiplier=1,
     ),
     #
     # Active power / Wirkleistung
@@ -272,6 +328,9 @@ OBIS_DEFINITIONS = {
         description_de="Gesamt-Wirkleistung",
         unit="kW",
         category="power",
+        dlms_logical_name="1.1.16.7.0.255",
+        dlms_short_name=0x9F68,
+        dlms_unit_multiplier=0.001,
     ),
     "36.7.0": ObisDefinition(
         code="36.7.0",
@@ -280,6 +339,9 @@ OBIS_DEFINITIONS = {
         description_de="Wirkleistung L1",
         unit="kW",
         category="power",
+        dlms_logical_name="1.1.36.7.0.255",
+        dlms_short_name=0xBA68,
+        dlms_unit_multiplier=0.001,
     ),
     "56.7.0": ObisDefinition(
         code="56.7.0",
@@ -288,6 +350,9 @@ OBIS_DEFINITIONS = {
         description_de="Wirkleistung L2",
         unit="kW",
         category="power",
+        dlms_logical_name="1.1.56.7.0.255",
+        dlms_short_name=0xBAF8,
+        dlms_unit_multiplier=0.001,
     ),
     "76.7.0": ObisDefinition(
         code="76.7.0",
@@ -296,6 +361,9 @@ OBIS_DEFINITIONS = {
         description_de="Wirkleistung L3",
         unit="kW",
         category="power",
+        dlms_logical_name="1.1.76.7.0.255",
+        dlms_short_name=0xBB88,
+        dlms_unit_multiplier=0.001,
     ),
     #
     # Reactive power / Blindleistung

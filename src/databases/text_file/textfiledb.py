@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from typing import TextIO, TYPE_CHECKING
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.databases.base_database import BaseDatabase
 
 if TYPE_CHECKING:
