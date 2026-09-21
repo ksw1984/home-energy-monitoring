@@ -28,8 +28,8 @@ def get_obis_definition(obis: str) -> ObisDefinition | None:
 
 # Current values we want to store.
 CURRENT_OBIS = {
-    "1.5.0",  # Aktuelle Wirkleistung Bezug
-    "2.5.0",  # Aktuelle Wirkleistung Einspeisung
+    # "1.5.0",  # Aktuelle Wirkleistung Bezug
+    # "2.5.0",  # Aktuelle Wirkleistung Einspeisung
     # "1.6.0",  # Max Wirkleistung Bezug
     # "2.6.0",  # Max Wirkleistung Einspeisung
     "1.8.0",  # Zählerstand Gesamtbezug
