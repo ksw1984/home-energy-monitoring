@@ -342,16 +342,34 @@ def test_receive_gurux_reply_handles_more_data(protocol):
     reply = Mock()
     reply.error = False
     reply.moreData = RequestTypes.DATABLOCK
-    reply.isComplete.side_effect = [False, True]
 
-    protocol.client.getData = Mock(
-        side_effect=lambda rx, current_reply: setattr(
-            current_reply,
-            "moreData",
-            RequestTypes.NONE if current_reply.isComplete() else RequestTypes.DATABLOCK,
-        ),
-    )
-    protocol.client.receiverReady = Mock(return_value=b"\xaa\xbb")
+    complete_calls = 0
+
+    def is_complete():
+        nonlocal complete_calls
+        complete_calls += 1
+        return complete_calls >= 2
+
+    reply.isComplete.side_effect = is_complete
+
+    get_data_calls = 0
+
+    def get_data(rx, current_reply):
+        nonlocal get_data_calls
+        get_data_calls += 1
+
+        if get_data_calls == 1:
+            current_reply.moreData = RequestTypes.DATABLOCK
+        else:
+            current_reply.moreData = RequestTypes.NONE
+
+        return True
+
+    protocol.client.getData = Mock(side_effect=get_data)
+
+    receiver_ready = Mock(return_value=b"\xaa\xbb")
+    protocol.client.receiverReady = receiver_ready
+
     protocol._send_request = Mock()
 
     result = protocol._receive_gurux_reply(
@@ -360,7 +378,8 @@ def test_receive_gurux_reply_handles_more_data(protocol):
     )
 
     assert result is reply
-    protocol.client.receiverReady.assert_called_once_with(RequestTypes.DATABLOCK)
+    assert get_data_calls == 2
+    receiver_ready.assert_called_once_with(RequestTypes.DATABLOCK)
     protocol._send_request.assert_called_once_with(b"\xaa\xbb")
 
 
@@ -455,7 +474,7 @@ def test_disconnect_without_serial(protocol):
 
     protocol.disconnect()
 
-    assert protocol.connected is False
+    assert not protocol.connected
     assert protocol.ser is None
     assert protocol.hdlc is None
     assert protocol.objects is None
