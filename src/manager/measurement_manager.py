@@ -35,10 +35,6 @@ METER_DAILY_METRICS = {
     "grid_export_energy_total",
 }
 
-METER_CURRENT_METRICS = {
-    "grid_import_power",
-    "grid_export_power",
-}
 CALCULATION_ALIGNMENT_TOLERANCE_SECONDS = 0.1
 
 
@@ -542,11 +538,7 @@ class MeasurementManager:
         if now.hour != 0:
             self._daily_values_stored.clear()
 
-        #
-        # Current measurements are stored on every collection cycle.
-        #
-        measurements_to_store = [measurement for measurement in measurements if measurement.metric in METER_CURRENT_METRICS]
-
+        measurements_to_store = []
         #
         # Daily measurements are stored once per source during midnight.
         #
@@ -573,11 +565,7 @@ class MeasurementManager:
         #
         # All other measurements are stored on every collection cycle.
         #
-        measurements_to_store.extend(
-            measurement
-            for measurement in measurements
-            if (measurement.metric not in METER_CURRENT_METRICS and measurement.metric not in METER_DAILY_METRICS)
-        )
+        measurements_to_store.extend(measurement for measurement in measurements if (measurement.metric not in METER_DAILY_METRICS))
 
         return measurements_to_store
 
