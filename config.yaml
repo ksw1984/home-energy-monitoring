@@ -85,12 +85,12 @@ databases:
 
 storage:
   measurements:
-    meter_grid:
+    meter_grid_dlms:
       - grid_import_energy_total
       - grid_export_energy_total
       - grid_active_power
 
-    meter_household:
+    meter_household_dlms:
       - grid_import_energy_total
       - grid_export_energy_total
       - grid_active_power
