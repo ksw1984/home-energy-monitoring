@@ -387,6 +387,7 @@ def test_read_returns_values(protocol, monkeypatch):
     definition = Mock(
         dlms_short_name=0x3E18,
         dlms_logical_name="1.1.1.6.0.255",
+        dlms_unit_multiplier=0.001,
     )
 
     monkeypatch.setattr(
@@ -394,7 +395,7 @@ def test_read_returns_values(protocol, monkeypatch):
         Mock(return_value=definition),
     )
 
-    protocol._read_scaler = Mock(return_value=-3)
+    protocol._read_scaler = Mock(return_value=0)
     protocol.client.read = Mock(return_value=b"\x01\x02")
     protocol._send_request = Mock()
 
@@ -428,6 +429,7 @@ def test_read_sends_value_request(protocol, monkeypatch):
     definition = Mock(
         dlms_short_name=0x3E18,
         dlms_logical_name="1.1.1.6.0.255",
+        dlms_unit_multiplier=0.001,
     )
 
     monkeypatch.setattr(
@@ -447,7 +449,7 @@ def test_read_sends_value_request(protocol, monkeypatch):
 
     result = protocol.read({"1.6.0"})
 
-    assert result == {"1.6.0": 123}
+    assert result == {"1.6.0": 0.123}
 
     read_args = protocol.client.read.call_args
     assert read_args.args[1] == protocol.REGISTER_VALUE_ATTRIBUTE

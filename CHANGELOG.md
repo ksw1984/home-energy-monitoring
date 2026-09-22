@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.1 - 2026-09-22
+
+### Fixed
+
+- Fixed config using correct collecotr names
+- Fixed dlsm using unit multiplier and returning float measurement values
+
 ## 0.9.0 - 2026-09-21
 
 ### Added

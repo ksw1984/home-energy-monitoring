@@ -161,9 +161,9 @@ class DlmsProtocol:
             finally:
                 self.ser = None
 
-    def read(self, obis_codes: Iterable[str]) -> dict[str, object]:
-        """Read the requested OBIS registers."""
-        values: dict[str, object] = {}
+    def read(self, obis_codes: Iterable[str]) -> dict[str, float]:
+        """Read the requested OBIS registers and return normalized float values."""
+        values: dict[str, float] = {}
 
         for obis in sorted(obis_codes):
             logger.debug("DLMS: reading OBIS %s", obis)
@@ -207,18 +207,35 @@ class DlmsProtocol:
             raw_value = reply.value
 
             logger.debug(
-                "DLMS: OBIS %s raw value = %s",
+                "DLMS: OBIS %s raw value = %s (%s)",
                 obis,
                 raw_value,
+                type(raw_value).__name__,
             )
 
-            value = raw_value * (10**scaler)
+            if not isinstance(raw_value, (int, float)):
+                raise TypeError(f"Expected numeric value for OBIS {obis}, got {type(raw_value).__name__}")
+
+            definition = get_obis_definition(obis)
+            if definition is None:
+                raise ValueError(f"No OBIS definition for {obis}")
+
+            # 1. Apply the meter-provided DLMS scaler.
+            scaled_value: float = float(raw_value) * (10.0**scaler)
+
+            # 2. Apply our unit conversion multiplier.
+            #    Example: W -> kW = 0.001
+            value: float = scaled_value * definition.dlms_unit_multiplier
 
             logger.debug(
-                "DLMS: OBIS %s scaled value = %s (scaler=10^%d)",
+                "DLMS: OBIS %s raw=%s scaler=10^%d scaled=%f multiplier=%f final=%f %s",
                 obis,
-                value,
+                raw_value,
                 scaler,
+                scaled_value,
+                definition.dlms_unit_multiplier,
+                value,
+                definition.unit,
             )
 
             values[obis] = value
