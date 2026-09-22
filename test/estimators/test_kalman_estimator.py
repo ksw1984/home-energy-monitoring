@@ -1,6 +1,6 @@
 from datetime import datetime, UTC
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.estimators.kalman_estimator import KalmanEstimator
 
 

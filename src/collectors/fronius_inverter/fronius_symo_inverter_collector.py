@@ -3,9 +3,9 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from src.collectors.base_collector import BaseCollector
-from src.collectors.definitions.exceptions import FroniusCollectorError
-from src.collectors.definitions.fronius import FRONIUS_METRICS
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.collectors.fronius import FRONIUS_METRICS
+from src.collectors.definitions.common.exceptions import FroniusCollectorError
+from src.collectors.definitions.common.measurement import Measurement
 
 import requests
 import sunspec2.modbus.client as sunspec_client
@@ -99,6 +99,9 @@ class FroniusSymoInverterCollector(BaseCollector):
         prevents an inverter communication failure from being interpreted as
         actual 0 W PV production.
         """
+        if not self.enabled:
+            return []
+
         # REST data
         try:
             data = self._get_data()

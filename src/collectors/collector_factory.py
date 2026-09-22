@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
-from src.collectors.iec.iec_collector import IecCollector
+from src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
+from src.collectors.landys_gyr_zmd310_meter.iec.iec_collector import IecCollector
 from src.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
 )
@@ -34,8 +35,11 @@ def create_collectors(config):
         if collector_config.type == "fronius":
             collectors.append(FroniusSymoInverterCollector(**common_kwargs))
 
-        elif collector_config.type == "iec":
+        elif collector_config.type == "landys_gyr_zmd310_meter_iec":
             collectors.append(IecCollector(**common_kwargs))
+
+        elif collector_config.type == "landys_gyr_zmd310_meter_dlms":
+            collectors.append(DlmsCollector(**common_kwargs))
 
         elif collector_config.type == "environment":
             collectors.append(RademacherEnvironmentSensorCollector(**common_kwargs))

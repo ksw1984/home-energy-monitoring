@@ -2,8 +2,8 @@ import logging
 import re
 
 from src.collectors.base_collector import BaseCollector
-from src.collectors.definitions.measurement import Measurement
-from src.collectors.definitions.obis import CURRENT_OBIS, get_obis_definition
+from src.collectors.definitions.collectors.obis import CURRENT_OBIS, get_obis_definition
+from src.collectors.definitions.common.measurement import Measurement
 
 import serial
 from .iec_protocol import IecProtocol
@@ -37,7 +37,7 @@ class IecCollector(BaseCollector):
         enabled: bool = True,
         timezone: str = "UTC",
         interval: int = 300,
-        source: str = "iec",
+        source: str = "landys_gyr_zmd310_meter_iec",
         port: str = "/dev/ttyUSB0",
     ) -> None:
         """Initialize the IEC meter collector.
@@ -68,6 +68,17 @@ class IecCollector(BaseCollector):
             serial.SerialException: If the serial port cannot be opened.
         """
 
+        if not self.enabled:
+            logger.debug(
+                "IEC collector '%s' disabled; skipping connection on %s",
+                self.source,
+                self.port,
+            )
+            return
+
+        if self.connected:
+            return
+
         try:
             self.protocol.connect()
         except serial.SerialException:
@@ -75,7 +86,11 @@ class IecCollector(BaseCollector):
             raise
 
         self.connected = True
-        logger.info("IEC meter connected on %s", self.port)
+        logger.info(
+            "IEC collector '%s' connected on %s",
+            self.source,
+            self.port,
+        )
 
     def disconnect(self) -> None:
         """Close the IEC meter connection.
@@ -93,6 +108,9 @@ class IecCollector(BaseCollector):
         collection. The underlying physical serial connection remains open
         between collections.
         """
+
+        if not self.enabled:
+            return []
 
         if not self.connected:
             self.connect()

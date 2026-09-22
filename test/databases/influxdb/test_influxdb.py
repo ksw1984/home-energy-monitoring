@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.databases.influxdb.influxdb import InfluxDatabase
 
 

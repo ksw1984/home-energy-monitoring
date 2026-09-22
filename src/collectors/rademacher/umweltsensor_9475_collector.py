@@ -3,8 +3,8 @@ from datetime import datetime, UTC
 from typing import Any
 
 from src.collectors.base_collector import BaseCollector
-from src.collectors.definitions.measurement import Measurement
-from src.collectors.definitions.rademacher import RADEMACHER_METRICS
+from src.collectors.definitions.collectors.rademacher import RADEMACHER_METRICS
+from src.collectors.definitions.common.measurement import Measurement
 
 import requests
 
@@ -108,6 +108,9 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             would represent an actual sensor reading rather than an
             unavailable sensor.
         """
+        if not self.enabled:
+            return []
+
         try:
             device = self._get_data()
 

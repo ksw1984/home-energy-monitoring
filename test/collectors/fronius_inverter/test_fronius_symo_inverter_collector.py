@@ -1,7 +1,7 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )

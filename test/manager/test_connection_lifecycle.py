@@ -35,7 +35,7 @@ def make_database(
 
 def test_connect_collectors_connects_all_collectors():
     collector1 = make_collector(source="fronius")
-    collector2 = make_collector(source="iec")
+    collector2 = make_collector(source="landys_gyr_zmd310_meter_iec")
 
     asyncio.run(
         connect_collectors(
@@ -81,7 +81,7 @@ def test_connect_collectors_logs_unexpected_error(caplog):
 
 def test_disconnect_collectors_disconnects_all_collectors():
     collector1 = make_collector(source="fronius")
-    collector2 = make_collector(source="iec")
+    collector2 = make_collector(source="landys_gyr_zmd310_meter_iec")
 
     asyncio.run(
         disconnect_collectors(

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 
 
 class BaseEstimator(ABC):

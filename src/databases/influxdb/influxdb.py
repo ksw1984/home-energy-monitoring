@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 from src.databases.base_database import BaseDatabase
 
 from influxdb_client import InfluxDBClient, Point

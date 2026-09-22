@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from src.collectors.definitions.measurement import Measurement
+from src.collectors.definitions.common.measurement import Measurement
 
 
 class BaseCalculator(ABC):
