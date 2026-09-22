@@ -161,7 +161,7 @@ class DlmsCollector(BaseCollector):
                     timestamp=timestamp,
                     source=self.source,
                     metric=definition.metric,
-                    value=value,
+                    value=float(value),
                     unit=definition.unit,
                 )
             )
