@@ -2,11 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.2 - 2026-09-27
+
+### Fixed
+
+- Fixed if collection fails on sunspec, reset the device. Reconnection happens on next collect.
+- Fixed correct meter source name for calculation
+- Formula for household draw calculation, but do not store into db
+- Fix readme and release text to ruff check, format and pyrefly type check
+
 ## 0.9.1 - 2026-09-22
 
 ### Fixed
 
-- Fixed config using correct collecotr names
+- Fixed config using correct collector names
 - Fixed dlsm using unit multiplier and returning float measurement values
 
 ## 0.9.0 - 2026-09-21
@@ -165,8 +174,8 @@ All notable changes to this project will be documented in this file.
   measurement keys (src/config/config.py, src/config/storage_filter.py).
 - SunSpec / Modbus Fronius data collection: MPPT and AC total metrics via SunSpec/Modbus in addition to existing Fronius
   REST data (src/collectors/fronius_inverter/*, src/collectors/definitions/fronius.py).
-- New IEC tooling script to test serial connection lifetime and handshake behavior (
-  src/scripts/check_iec_connection_timeout.py).
+- New IEC tooling script to test serial connection lifetime and handshake behavior
+  (src/scripts/check_iec_connection_timeout.py).
 - More collector runtime metadata (collector.source, interval, enabled) and a storage_key property on Measurement for
   precise storage control (src/collectors/definitions/measurement.py, src/collectors/base_collector.py).
 - Config package: move configuration loading/structures to src/config/config.py with richer typed dataclasses and
@@ -185,19 +194,20 @@ All notable changes to this project will be documented in this file.
     - Added signal handling and controlled shutdown with task cancellation; explicit event loop handling to allow
       graceful cleanup (src/app.py).
 - Collectors:
-    - BaseCollector receives structured runtime args (timezone, interval, enabled, source) and added configure_runtime()
+    - BaseCollector receives structured runtime args (timezone, interval, enabled, source) and added configure_runtime
+      ()
       helper (src/collectors/base_collector.py).
     - Collector factory uses common kwargs and honors collector-specific interval (src/collectors/collector_factory.py).
-    - Open-Meteo, Rademacher, IEC collectors made timezone-aware and accept runtime source/interval flags (
-      src/collectors/*).
+    - Open-Meteo, Rademacher, IEC collectors made timezone-aware and accept runtime source/interval flags
+      (src/collectors/*).
 - IEC protocol & collector:
     - IEC implementation improved: always re-uses the same physical serial connection, uses a consistent session flow,
       increased robustness to empty reads, explicit timeouts (src/collectors/iec/iec_protocol.py).
     - IecCollector now tracks connection state, opens lazily, and will mark itself disconnected if serial errors occur
       so subsequent cycles can attempt reconnect (src/collectors/iec/iec_collector.py).
 - Databases:
-    - InfluxDB point construction compacted; TextFile DB improved typing and timezone handling (
-      src/databases/influxdb/influxdb.py, src/databases/text_file/textfiledb.py).
+    - InfluxDB point construction compacted; TextFile DB improved typing and timezone handling
+      (src/databases/influxdb/influxdb.py, src/databases/text_file/textfiledb.py).
     - Database factory typing improvements and wiring (src/databases/database_factory.py).
 - Tests:
     - Tests updated and extended (SunSpec/MPPT, IEC session behavior, manager behavior, config/storage), renamed/moved
@@ -209,7 +219,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Collector fault-isolation: failures from a single database.store() or one collector do not stop the rest of the
+- Collector fault-isolation: failures from a single database.store () or one collector do not stop the rest of the
   system; errors are logged and other stores/collectors continue.
 - IEC protocol: improved payload extraction, robust reads, and deterministic timeouts to avoid hangs on bad serial
   devices.
@@ -221,18 +231,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- CI: Add a deterministic CI dependency image workflow to build/push a cached "deps" image for CI (
-  /.github/workflows/build-ci-image.yml).
-- CI: Add a reusable "Build Container" workflow and Docker app/CI Dockerfiles to produce release images (
-  /.github/workflows/build-container.yml, docker/app/Dockerfile, docker/ci/Dockerfile).
+- CI: Add a deterministic CI dependency image workflow to build/push a cached "deps" image for CI
+  (/.github/workflows/build-ci-image.yml).
+- CI: Add a reusable "Build Container" workflow and Docker app/CI Dockerfiles to produce release images
+  (/.github/workflows/build-container.yml, docker/app/Dockerfile, docker/ci/Dockerfile).
 - CI: Containerized CI runners — CI jobs now use a pre-built CI image (ghcr.io/.../home-energy-monitoring-ci:latest) to
   speed up checks (Black, Ruff, MyPy, Pytest).
 - Build: Multi-platform container builds enabled (linux/amd64, linux/arm64) using Buildx and QEMU in container build
   workflow.
 - Deployment: Add production/dev deployment layout and example env (deployment/compose.yml, deployment/.env.example) and
   helper commands (docker/cmds.txt).
-- Database: Add a TextFile database backend that persists measurements as per-day JSON Lines (
-  src/databases/text_file/textfiledb.py) and register it in database factory.
+- Database: Add a TextFile database backend that persists measurements as per-day JSON Lines
+  (src/databases/text_file/textfiledb.py) and register it in database factory.
 - Telemetry: Add timezone config for collection and propagate it into collectors (config.yaml + src/config.py,
   BaseCollector timezone support).
 - Collectors: Make collectors timezone-aware and use configured timezone when producing timestamps (Fronius, IEC,
@@ -245,17 +255,17 @@ All notable changes to this project will be documented in this file.
 
 - Release automation: release workflows improved to export version/tag outputs and trigger container builds as part of
   the release flow (.github/workflows/prepare-release-pr.yml, .github/workflows/release-main.yml).
-- CI workflows: CI now builds/uses a CI dependency image (build-ci-image) and references newer docker actions (
-  build-push v7, login v4); workflows simplified by running linters/tests inside the CI container.
+- CI workflows: CI now builds/uses a CI dependency image (build-ci-image) and references newer docker actions
+  (build-push v7, login v4); workflows simplified by running linters/tests inside the CI container.
 - Collector factory & config: collection timezone added and passed to collector constructors; collectors now localize
   timestamps using the configured timezone.
 - Code quality / robustness:
-    - Collector manager now continues storing measurements to remaining databases when one database.store() fails and
+    - Collector manager now continues storing measurements to remaining databases when one database.store () fails and
       logs exceptions (src/manager/collector_manager.py).
     - InfluxDB write logging fixed to log points correctly (src/databases/influxdb/influxdb.py).
     - Safer resource handling in TextFile database and other components.
-- Project layout: application Dockerfile split into builder/runtime stages and project Docker layout reorganized (
-  docker/app, docker/ci).
+- Project layout: application Dockerfile split into builder/runtime stages and project Docker layout reorganized
+  (docker/app, docker/ci).
 
 ### Fixed
 
@@ -386,7 +396,8 @@ First version with basic functionality to monitor grid meters, pv inverter, envi
 - **Logging** - Integrated comprehensive logging throughout the
   application ([#37](https://github.com/ksw1984/home-energy-monitoring/pull/37))
 - **Code Quality** - Workflow setup with pre-commit hooks, ruff, black, and mypy
-  configuration ([#19](https://github.com/ksw1984/home-energy-monitoring/pull/19), [#22](https://github.com/ksw1984/home-energy-monitoring/pull/22), [#21](https://github.com/ksw1984/home-energy-monitoring/pull/21))
+  configuration
+  ([#19](https://github.com/ksw1984/home-energy-monitoring/pull/19), [#22](https://github.com/ksw1984/home-energy-monitoring/pull/22), [#21](https://github.com/ksw1984/home-energy-monitoring/pull/21))
 - **Test Coverage** - Improved test coverage ([#31](https://github.com/ksw1984/home-energy-monitoring/pull/31))
 
 ### Other

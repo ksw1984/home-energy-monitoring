@@ -354,6 +354,20 @@ class FroniusSymoInverterCollector(BaseCollector):
 
         return self._sunspec_device
 
+    def _reset_sunspec_device(self) -> None:
+        """Close and discard the current SunSpec connection."""
+        if self._sunspec_device is not None:
+            try:
+                self._sunspec_device.close()
+            except Exception:
+                logger.debug(
+                    "Error while closing SunSpec device",
+                    exc_info=True,
+                )
+
+        self._sunspec_device = None
+        self._sunspec_scanned = False
+
     def _collect_mppt_measurements(
         self,
         timestamp: datetime,
@@ -444,13 +458,25 @@ class FroniusSymoInverterCollector(BaseCollector):
     ) -> list[Measurement]:
         """Collect all relevant SunSpec measurements."""
 
-        try:
-            measurements: list[Measurement] = []
+        for attempt in range(2):
+            try:
+                measurements: list[Measurement] = []
 
-            measurements.extend(self._collect_mppt_measurements(timestamp))
-            measurements.extend(self._collect_ac_measurements(timestamp))
+                measurements.extend(self._collect_mppt_measurements(timestamp))
+                measurements.extend(self._collect_ac_measurements(timestamp))
 
-            return measurements
+                return measurements
 
-        except Exception as exc:
-            raise FroniusCollectorError("Could not collect Fronius SunSpec data") from exc
+            except Exception as exc:
+                logger.exception(
+                    "SunSpec collection failed (attempt %d/2): %s",
+                    attempt + 1,
+                    exc_info=exc,
+                )
+
+                self._reset_sunspec_device()
+
+                if attempt == 1:
+                    raise FroniusCollectorError(f"Could not collect Fronius SunSpec data: {exc}") from exc
+
+        return []
