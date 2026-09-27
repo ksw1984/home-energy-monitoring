@@ -125,6 +125,7 @@ storage:
     calculated:
       - inverter_efficiency
       - heat_pump_power
+      # - household_power_draw
 
 estimators:
   - type: kalman
@@ -143,10 +144,22 @@ calculators:
 
         inputs:
           grid_power:
-            source: meter_grid
+            source: meter_grid_dlms
             metric: grid_active_power
           household_power:
-            source: meter_household
+            source: meter_household_dlms
+            metric: grid_active_power
+
+      - source: calculated
+        metric: household_power_draw
+        unit: kW
+        formula: "household_power + pv_power"
+        inputs:
+          pv_power:
+            source: inverter_fronius
+            metric: pv_power
+          household_power:
+            source: meter_household_dlms
             metric: grid_active_power
 
       - source: calculated

@@ -260,9 +260,9 @@ jobs:
 
           The normal CI workflow already validates:
 
-          - Black
-          - Ruff
-          - MyPy
+          - Ruff formatting
+          - Ruff linting/checking
+          - Pyrefly type checking
           - Pytest
 
           After this PR is merged, the Release Main workflow will:

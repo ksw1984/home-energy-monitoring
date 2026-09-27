@@ -412,9 +412,7 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-The config includes ruff, black, mypy and basic sanity hooks.
-
-
+The config includes Ruff formatting, Ruff linting/checking, Pyrefly type checking and basic sanity hooks.
 
 ### CI checks
 
