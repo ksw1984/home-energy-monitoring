@@ -143,10 +143,10 @@ calculators:
 
         inputs:
           grid_power:
-            source: meter_grid
+            source: meter_grid_dlms
             metric: grid_active_power
           household_power:
-            source: meter_household
+            source: meter_household_dlms
             metric: grid_active_power
 
       - source: calculated
