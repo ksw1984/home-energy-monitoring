@@ -69,6 +69,56 @@ collectors:
       latitude: 52.4
       longitude: 13.7
 
+  # Shelly
+
+  # Shelly Plug PM Gen3
+  - type: shelly_pm
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_pm_washer
+      ip: 192.168.178.201
+      timeout: 2.0
+
+  - type: shelly_pm
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_pm_dryer
+      ip: 192.168.178.203
+      timeout: 2.0
+
+  # Shelly Outdoor Plug S Gen3
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_outdoor_plug_lawnmower
+      ip: 192.168.178.204
+      timeout: 2.0
+
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_outdoor_plug
+      ip: 192.168.178.205
+      timeout: 2.0
+
+
+  # Shelly Plug M Gen3
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_plug_m
+      ip: 192.168.178.206
+      timeout: 2.0
+
+
+
+
+
 databases:
   # InfluxDB instance used to store measurements
   - type: influxdb
@@ -122,10 +172,21 @@ storage:
         - precipitation_probability
         - cloud_cover
 
+    shelly_plug_pm_washer:
+      - apower
+
+    shelly_plug_pm_dryer:
+      - apower
+
+    shelly_outdoor_plug_lawnmower:
+      - apower
+
     calculated:
       - inverter_efficiency
       - heat_pump_power
       # - household_power_draw
+
+
 
 estimators:
   - type: kalman
