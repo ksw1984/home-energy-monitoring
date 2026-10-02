@@ -32,3 +32,13 @@ repos:
         entry: poetry run pyrefly check
         language: system
         pass_filenames: false
+
+  # Shelly JavaScript syntax
+  - repo: local
+    hooks:
+      - id: biome-shelly-js
+        name: Biome - Shelly JavaScript
+        entry: biome check --write --indent-style space --indent-width 4 --line-ending lf
+        language: system
+        types: [ javascript ]
+        files: ^src/collectors/shelly/shelly_gen3_collector/scripts/.*\.js$
