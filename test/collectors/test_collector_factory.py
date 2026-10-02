@@ -179,13 +179,43 @@ def test_create_collectors_creates_all_enabled_types():
                 "longitude": 13.7213,
             },
         ),
+        make_collector_config(
+            "shelly_pm",
+            {
+                "source": "shelly_plug_pm_washer",
+                "ip": "192.168.178.201",
+                "timeout": 2.0,
+            },
+        ),
+        make_collector_config(
+            "shelly_switch",
+            {
+                "source": "shelly_outdoor_plug",
+                "ip": "192.168.178.204",
+                "timeout": 2.0,
+            },
+        ),
     )
 
     with (
-        patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls,
-        patch("src.collectors.collector_factory.IecCollector") as iec_cls,
-        patch("src.collectors.collector_factory.RademacherEnvironmentSensorCollector") as environment_cls,
-        patch("src.collectors.collector_factory.OpenMeteoWeatherCollector") as weather_cls,
+        patch(
+            "src.collectors.collector_factory.FroniusSymoInverterCollector",
+        ) as fronius_cls,
+        patch(
+            "src.collectors.collector_factory.IecCollector",
+        ) as iec_cls,
+        patch(
+            "src.collectors.collector_factory.RademacherEnvironmentSensorCollector",
+        ) as environment_cls,
+        patch(
+            "src.collectors.collector_factory.OpenMeteoWeatherCollector",
+        ) as weather_cls,
+        patch(
+            "src.collectors.collector_factory.ShellyPmCollector",
+        ) as shelly_pm_cls,
+        patch(
+            "src.collectors.collector_factory.ShellySwitchCollector",
+        ) as shelly_switch_cls,
     ):
         result = create_collectors(config)
 
@@ -194,6 +224,8 @@ def test_create_collectors_creates_all_enabled_types():
         iec_cls.return_value,
         environment_cls.return_value,
         weather_cls.return_value,
+        shelly_pm_cls.return_value,
+        shelly_switch_cls.return_value,
     ]
 
     fronius_cls.assert_called_once_with(
@@ -226,6 +258,24 @@ def test_create_collectors_creates_all_enabled_types():
         enabled=True,
         latitude=52.4567,
         longitude=13.7213,
+    )
+
+    shelly_pm_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
+        interval=300,
+        enabled=True,
+        source="shelly_plug_pm_washer",
+        ip="192.168.178.201",
+        timeout=2.0,
+    )
+
+    shelly_switch_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
+        interval=300,
+        enabled=True,
+        source="shelly_outdoor_plug",
+        ip="192.168.178.204",
+        timeout=2.0,
     )
 
 
@@ -327,3 +377,83 @@ def test_create_collectors_raises_for_unknown_type():
         match="Unknown collector type: unknown",
     ):
         create_collectors(config)
+
+
+def test_create_shelly_pm_collector():
+    collector_config = make_collector_config(
+        "shelly_pm",
+        {
+            "source": "shelly_plug_pm_washer",
+            "ip": "192.168.178.201",
+            "timeout": 2.0,
+        },
+    )
+    config = make_config(collector_config)
+
+    with patch("src.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
+        result = create_collectors(config)
+
+    shelly_pm_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
+        interval=collector_config.interval,
+        enabled=True,
+        source="shelly_plug_pm_washer",
+        ip="192.168.178.201",
+        timeout=2.0,
+    )
+
+    assert result == [shelly_pm_cls.return_value]
+
+
+def test_create_shelly_switch_collector():
+    collector_config = make_collector_config(
+        "shelly_switch",
+        {
+            "source": "shelly_outdoor_plug",
+            "ip": "192.168.178.204",
+            "timeout": 2.0,
+        },
+    )
+    config = make_config(collector_config)
+
+    with patch("src.collectors.collector_factory.ShellySwitchCollector") as shelly_switch_cls:
+        result = create_collectors(config)
+
+    shelly_switch_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
+        interval=collector_config.interval,
+        enabled=True,
+        source="shelly_outdoor_plug",
+        ip="192.168.178.204",
+        timeout=2.0,
+    )
+
+    assert result == [shelly_switch_cls.return_value]
+
+
+def test_create_shelly_pm_collector_preserves_disabled_state():
+    config = make_config(
+        make_collector_config(
+            "shelly_pm",
+            {
+                "source": "shelly_plug_pm_washer",
+                "ip": "192.168.178.201",
+                "timeout": 2.0,
+            },
+            enabled=False,
+        )
+    )
+
+    with patch("src.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
+        result = create_collectors(config)
+
+    assert result == [shelly_pm_cls.return_value]
+
+    shelly_pm_cls.assert_called_once_with(
+        timezone=config.collection.timezone,
+        interval=300,
+        enabled=False,
+        source="shelly_plug_pm_washer",
+        ip="192.168.178.201",
+        timeout=2.0,
+    )
