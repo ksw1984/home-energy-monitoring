@@ -567,7 +567,7 @@ def test_get_current_power_watt_calls_fronius(
 
     mock_get.assert_called_once_with(
         "http://192.168.178.25/solar_api/v1/GetPowerFlowRealtimeData.fcgi",
-        timeout=5,
+        timeout=3,
     )
 
 

@@ -14,36 +14,59 @@ const finishedPower_W = 5; // Dryer is considered finished below this power
 // Notification
 const ntfyUrl = "http://192.168.178.11:8090/trockner-7f92";
 
+function switchToSlowChecks() {
+    Timer.clear(checkTimer);
+    checkTimer = Timer.set(slowInterval_ms, true, checkPower);
+
+    print("Switched to", slowInterval_ms / 60000, "minute checks");
+}
+
+function switchToFastChecks() {
+    Timer.clear(checkTimer);
+    checkTimer = Timer.set(fastInterval_ms, true, checkPower);
+
+    print("Switched to", fastInterval_ms / 1000, "second checks");
+}
+
+function sendFinishedNotification() {
+    Shelly.call(
+        "HTTP.POST",
+        {
+            url: ntfyUrl,
+            body: "Dryer finished",
+            content_type: "text/plain",
+            headers: {
+                Title: "Trockner fertig",
+            },
+        },
+        function (_result, error_code, error_message) {
+            print("ntfy:", error_code, error_message);
+        },
+    );
+}
+
 function checkPower() {
     Shelly.call(
         "PM1.GetStatus",
         { id: 0 },
-        (result, error_code, error_message) => {
+        function (result, error_code, error_message) {
             if (error_code !== 0) {
                 print("PM1 error:", error_message);
                 return;
             }
 
             const power_W = result.apower;
+
             print("Dryer:", power_W, "W");
 
             // Dryer is running
             if (power_W > runningPower_W) {
                 if (!running) {
                     print("Dryer started");
+                    running = true;
 
-                    // Switch to fast checks
-                    Timer.clear(checkTimer);
-                    checkTimer = Timer.set(fastInterval_ms, true, checkPower);
-
-                    print(
-                        "Switched to",
-                        fastInterval_ms / 1000,
-                        "second checks",
-                    );
+                    switchToFastChecks();
                 }
-
-                running = true;
 
                 // Cancel a pending finish timer
                 if (finishTimer !== null) {
@@ -55,10 +78,11 @@ function checkPower() {
                 return;
             }
 
-            // Cancel the finish timer if power rises back to the finished threshold
+            // Cancel the finish timer if power rises again
             if (finishTimer !== null && power_W >= finishedPower_W) {
                 Timer.clear(finishTimer);
                 finishTimer = null;
+
                 print("Finish timer cancelled");
             }
 
@@ -72,65 +96,18 @@ function checkPower() {
                     "minute timer",
                 );
 
-                finishTimer = Timer.set(finishDelay_ms, false, () => {
+                finishTimer = Timer.set(finishDelay_ms, false, function () {
                     finishTimer = null;
 
-                    Shelly.call(
-                        "PM1.GetStatus",
-                        { id: 0 },
-                        (result, error_code, error_message) => {
-                            if (error_code !== 0) {
-                                print("PM1 error:", error_message);
-                                return;
-                            }
+                    // The dryer stayed below the threshold
+                    sendFinishedNotification();
 
-                            const currentPower_W = result.apower;
+                    running = false;
 
-                            if (currentPower_W < finishedPower_W && running) {
-                                Shelly.call(
-                                    "HTTP.POST",
-                                    {
-                                        url: ntfyUrl,
-                                        body: "Dryer finished",
-                                        content_type: "text/plain",
-                                        headers: {
-                                            Title: "Trockner fertig",
-                                        },
-                                    },
-                                    (_result, error_code, error_message) => {
-                                        print(
-                                            "ntfy:",
-                                            error_code,
-                                            error_message,
-                                        );
-                                    },
-                                );
+                    print("Dryer marked as finished");
 
-                                running = false;
-                                print("Dryer marked as finished");
-
-                                // Return to slow checks
-                                Timer.clear(checkTimer);
-                                checkTimer = Timer.set(
-                                    slowInterval_ms,
-                                    true,
-                                    checkPower,
-                                );
-
-                                print(
-                                    "Switched to",
-                                    slowInterval_ms / 60000,
-                                    "minute checks",
-                                );
-                            } else {
-                                print(
-                                    "Dryer is still active:",
-                                    currentPower_W,
-                                    "W",
-                                );
-                            }
-                        },
-                    );
+                    // Return to slow checks
+                    switchToSlowChecks();
                 });
             }
         },

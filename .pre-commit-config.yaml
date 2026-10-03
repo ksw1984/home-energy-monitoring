@@ -38,7 +38,7 @@ repos:
     hooks:
       - id: biome-shelly-js
         name: Biome - Shelly JavaScript
-        entry: biome check --write --indent-style space --indent-width 4 --line-ending lf
+        entry: biome check --write
         language: system
         types: [ javascript ]
         files: ^src/collectors/shelly/shelly_gen3_collector/scripts/.*\.js$
