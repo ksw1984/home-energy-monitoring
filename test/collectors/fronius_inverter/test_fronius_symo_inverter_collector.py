@@ -567,7 +567,7 @@ def test_get_current_power_watt_calls_fronius(
 
     mock_get.assert_called_once_with(
         "http://192.168.178.25/solar_api/v1/GetPowerFlowRealtimeData.fcgi",
-        timeout=3,
+        timeout=5,
     )
 
 
@@ -609,7 +609,6 @@ def test_fronius_api_error_is_detected(
     collector,
     mock_response,
     mock_get,
-    disable_sunspec_collection,
 ):
     error_response = {
         **FRONIUS_RESPONSE,
@@ -630,7 +629,33 @@ def test_fronius_api_error_is_detected(
         RuntimeError,
         match="Something went wrong",
     ):
-        collector.collect()
+        collector._get_data()
+
+
+def test_collect_handles_fronius_api_error(
+    collector,
+    mock_response,
+    mock_get,
+    disable_sunspec_collection,
+):
+    error_response = {
+        **FRONIUS_RESPONSE,
+        "Head": {
+            **FRONIUS_RESPONSE["Head"],
+            "Status": {
+                "Code": 1,
+                "Reason": "Something went wrong",
+                "UserMessage": "Fronius API error",
+            },
+        },
+    }
+
+    mock_response.json.return_value = error_response
+    mock_get.return_value = mock_response
+
+    measurements = collector.collect()
+
+    assert measurements == []
 
 
 # ============================================================================
@@ -680,6 +705,71 @@ def test_get_current_power_returns_zero_when_inverter_is_offline(
     )
 
     assert collector.get_current_power_watt() == 0.0
+
+
+def test_zero_pv_switches_to_offline_interval(
+    collector,
+    mock_response,
+    mock_get,
+    disable_sunspec_collection,
+):
+    response = {
+        **FRONIUS_RESPONSE,
+        "Body": {
+            **FRONIUS_RESPONSE["Body"],
+            "Data": {
+                **FRONIUS_RESPONSE["Body"]["Data"],
+                "Site": {
+                    **FRONIUS_RESPONSE["Body"]["Data"]["Site"],
+                    "P_PV": 0,
+                },
+            },
+        },
+    }
+
+    mock_response.json.return_value = response
+    mock_get.return_value = mock_response
+
+    collector._use_offline_interval = False
+
+    measurements = collector.collect()
+
+    assert measurements
+    assert measurements[0].metric == "pv_power"
+    assert measurements[0].value == 0.0
+    assert collector._use_offline_interval is True
+
+
+def test_positive_pv_restores_normal_interval(
+    collector,
+    mock_response,
+    mock_get,
+    disable_sunspec_collection,
+):
+    response = {
+        **FRONIUS_RESPONSE,
+        "Body": {
+            **FRONIUS_RESPONSE["Body"],
+            "Data": {
+                **FRONIUS_RESPONSE["Body"]["Data"],
+                "Site": {
+                    **FRONIUS_RESPONSE["Body"]["Data"]["Site"],
+                    "P_PV": 1234,
+                },
+            },
+        },
+    }
+
+    mock_response.json.return_value = response
+    mock_get.return_value = mock_response
+
+    collector._use_offline_interval = True
+
+    measurements = collector.collect()
+
+    assert measurements
+    assert measurements[0].value == 1234.0
+    assert collector._use_offline_interval is False
 
 
 def test_collect_ac_measurements(

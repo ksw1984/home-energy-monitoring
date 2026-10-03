@@ -186,7 +186,7 @@ def test_output(caplog):
     assert "2026-08-27T12:00:00" in caplog.text
     assert "test" in caplog.text
     assert "temperature" in caplog.text
-    assert "20.500" in caplog.text
+    assert "20.5" in caplog.text
     assert "°C" in caplog.text
     assert "src.manager.measurement_manager" in caplog.text
 
