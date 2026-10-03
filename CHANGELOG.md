@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.10.1 - 2026-10-03
+
+### Fixed
+
+- Log output values allow 4 decimals and align decimal point
+- Fronius inverter offline polling with 300s, reverting to set interval when data can be collected.
+
 ## 0.10.0 - 2026-10-03
 
 ### Added
