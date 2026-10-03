@@ -46,7 +46,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         source: str = "fronius",
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
-        timeout: float = 3.0,
+        timeout: float = 5.0,
         latitude: float = 54.3217,
         longitude: float = 12.3456,
     ) -> None:
@@ -73,6 +73,10 @@ class FroniusSymoInverterCollector(BaseCollector):
         self.inverter_url = f"http://{inverter_ip}/{inverter_url}"
         self.timeout = timeout
 
+        self.normal_interval = interval
+        self.offline_interval = 300
+        self._use_offline_interval = False
+
         # Modbus
         self.modbus_ip = inverter_ip
         self.modbus_port = 502
@@ -87,7 +91,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         self._zero_power_since: datetime | None = None
         self._energy_recorded_for_date: date | None = None
 
-    def collect(self) -> list[Measurement]:
+    def collect(self) -> list[Measurement]:  # noqa: C901
         """
         Collect the current PV power and, when appropriate, daily energy.
 
@@ -107,15 +111,46 @@ class FroniusSymoInverterCollector(BaseCollector):
         # REST data
         try:
             data = self._get_data()
-        except requests.exceptions.RequestException as exc:
-            logger.info(f"Fronius inverter unavailable: {exc}. No measurement recorded.")
+        except (requests.exceptions.RequestException, RuntimeError) as exc:
+            logger.info(
+                "Fronius inverter '%s' unavailable: %s. Switching to %ss polling.",
+                self.inverter_ip,
+                exc,
+                self.offline_interval,
+            )
+            self._use_offline_interval = True
             return []
 
         timestamp = self.localize_timestamp(datetime.fromisoformat(data["Head"]["Timestamp"]))
-        site = data["Body"]["Data"]["Site"]
 
+        site = data["Body"]["Data"]["Site"]
         pv_power_raw = site["P_PV"]
-        pv_power = float(pv_power_raw) if pv_power_raw is not None else 0.0
+
+        if pv_power_raw is None:
+            pv_power = 0.0
+
+            if not self._use_offline_interval:
+                logger.info(
+                    "Fronius inverter '%s': P_PV is unavailable. Switching to %ss polling.",
+                    self.inverter_ip,
+                    self.offline_interval,
+                )
+
+            self._use_offline_interval = True
+        else:
+            pv_power = float(pv_power_raw)
+
+            if pv_power > 0.0 and self._use_offline_interval:
+                logger.info(
+                    "Fronius inverter '%s': PV data available again (%.1f W). Restoring configured %ss polling.",
+                    self.inverter_ip,
+                    pv_power,
+                    self.normal_interval,
+                )
+                self._use_offline_interval = False
+
+            elif pv_power == 0.0:
+                self._use_offline_interval = True
 
         measurements = [
             self._measurement(
@@ -129,7 +164,10 @@ class FroniusSymoInverterCollector(BaseCollector):
         try:
             measurements.extend(self._collect_sunspec_measurements(timestamp))
         except FroniusCollectorError as exc:
-            logger.warning(f"Could not collect Fronius SunSpec data: {exc}")
+            logger.warning(
+                "Could not collect Fronius SunSpec data: %s",
+                exc,
+            )
 
         # Final day data
         if self._should_finalize_day(timestamp, pv_power):
@@ -470,10 +508,10 @@ class FroniusSymoInverterCollector(BaseCollector):
                 return measurements
 
             except Exception as exc:
-                logger.exception(
-                    "SunSpec collection failed (attempt %d/2): %s",
+                logger.warning(
+                    "Fronius SunSpec unavailable (attempt %d/2): %s",
                     attempt + 1,
-                    exc_info=exc,
+                    exc,
                 )
 
                 self._reset_sunspec_device()
