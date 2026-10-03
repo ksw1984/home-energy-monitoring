@@ -46,6 +46,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         source: str = "fronius",
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",
+        timeout: float = 3.0,
         latitude: float = 54.3217,
         longitude: float = 12.3456,
     ) -> None:
@@ -70,6 +71,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         # REST call
         self.inverter_ip = inverter_ip
         self.inverter_url = f"http://{inverter_ip}/{inverter_url}"
+        self.timeout = timeout
 
         # Modbus
         self.modbus_ip = inverter_ip
@@ -185,7 +187,7 @@ class FroniusSymoInverterCollector(BaseCollector):
             requests.exceptions.RequestException: If the HTTP request fails.
             RuntimeError: If the Fronius API reports an error.
         """
-        response = requests.get(self.inverter_url, timeout=5)
+        response = requests.get(self.inverter_url, timeout=self.timeout)
         response.raise_for_status()
 
         data = response.json()
