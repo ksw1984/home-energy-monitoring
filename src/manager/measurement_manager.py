@@ -588,11 +588,11 @@ class MeasurementManager:
             status = f"{calculated}{estimated}{selected}"
 
             logger.info(
-                "%-25s %-25s %-25s %1.3f %-5s %-4s",
+                "%-25s %-25s %-25s %s %-5s %-4s",
                 measurement.timestamp.isoformat(),
                 measurement.source,
                 measurement.metric,
-                measurement.value,
+                f"{measurement.value:.6f}".rstrip("0").rstrip("."),
                 measurement.unit or "",
                 status,
             )
