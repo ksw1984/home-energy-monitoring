@@ -78,7 +78,6 @@ collectors:
     attributes:
       source: shelly_plug_pm_washer
       ip: 192.168.178.201
-      timeout: 2.0
 
   - type: shelly_pm
     enabled: true
@@ -86,7 +85,6 @@ collectors:
     attributes:
       source: shelly_plug_pm_dryer
       ip: 192.168.178.203
-      timeout: 2.0
 
   # Shelly Outdoor Plug S Gen3
   - type: shelly_switch
@@ -95,7 +93,6 @@ collectors:
     attributes:
       source: shelly_outdoor_plug_lawnmower
       ip: 192.168.178.204
-      timeout: 2.0
 
   - type: shelly_switch
     enabled: false
@@ -103,7 +100,6 @@ collectors:
     attributes:
       source: shelly_outdoor_plug
       ip: 192.168.178.205
-      timeout: 2.0
 
 
   # Shelly Plug M Gen3
@@ -113,7 +109,6 @@ collectors:
     attributes:
       source: shelly_plug_m
       ip: 192.168.178.206
-      timeout: 2.0
 
 
 
