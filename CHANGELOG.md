@@ -2,6 +2,76 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.10.0 - 2026-10-03
+
+### Added
+
+- Shelly Gen3 support:
+    - New Shelly collectors for Shelly Plug PM Gen3 (`shelly_pm`) and Shelly switch-based devices (`shelly_switch`).
+    - Shelly Gen3 collector base implementation with HTTP RPC handling and normalized units (kW, V, A, kWh).
+    - Two Shelly JavaScript helper scripts for appliance finish detection (washer and dryer) and Biome-compatible
+      formatting/linting configuration for those scripts.
+    - Tests for Shelly collectors and RPC parsing/validation.
+
+- Tooling:
+    - Biome configuration (biome.json) and a pre-commit hook to run Biome checks on Shelly scripts.
+
+- Configuration:
+    - Example Shelly collector entries added to the default `config.yaml` (plug PM and switch devices).
+    - Storage mappings for Shelly power measurements added.
+
+### Changed
+
+- Fronius collector:
+    - Introduced a configurable HTTP timeout parameter and switched from the fixed 5s timeout to the new configurable
+      `timeout` (defaults to 3s).
+    - Improved SunSpec handling: the collector will reset and discard a failed SunSpec device, retry collection once,
+      and avoid leaving stale SunSpec sessions open.
+
+- DLMS / Landis+Gyr:
+    - DLMS protocol now returns normalized float values and applies per-OBIS unit multipliers at protocol level so
+      callers get values in the intended engineering units (e.g., W -> kW).
+    - DLMS collector now explicitly converts register results to floats before creating Measurement objects.
+
+- Collector factory and configuration:
+    - Added `shelly_pm` and `shelly_switch` collector types to the factory.
+    - Updated default config examples and storage sections to reference DLMS source names (`meter_grid_dlms`,
+      `meter_household_dlms`) and the new Shelly sources.
+    - Collector implementations now return no measurements when disabled (consistently across collectors).
+
+- Measurement manager:
+    - Simplified filtering logic for which measurements are persisted (daily metrics remain special-cased; current
+      metrics no longer managed via a small fixed list).
+
+- Tests & CI:
+    - Expanded unit tests to cover Shelly collectors and updated existing tests to match renamed sources and DLMS
+      behavior.
+    - README and CI docs updated to reflect current tooling (Ruff formatting/linting, Pyrefly type checking, Biome for
+      JS).
+
+### Fixed
+
+- Fronius SunSpec reliability:
+    - Reset and reconnect logic prevents stale SunSpec device state; second attempt allowed before surfacing an error.
+
+- DLMS correctness:
+    - Ensure DLMS register raw values are validated, scaled with the meter-provided scaler, and then multiplied by a
+      configured unit multiplier so final values are correct floats in engineering units.
+    - Prevent non-numeric DLMS register responses from being returned silently.
+
+- Collector behavior:
+    - Avoid opening serial or network connections for collectors marked as disabled.
+    - Ensure collector connection state is reset on serial/timeout/protocol failures so subsequent collection attempts
+      can reconnect.
+
+- Collector factory and config:
+    - Fixed factory wiring and tests for newly added Shelly collector types and updated config key usage for meter
+      sources.
+
+- Documentation & tooling:
+    - Fixed README and release text to match the actual lint/type-check toolchain and added Biome hook for Shelly
+      scripts.
+
 ## 0.9.2 - 2026-09-27
 
 ### Fixed

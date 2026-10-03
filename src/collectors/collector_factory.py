@@ -8,6 +8,8 @@ from src.collectors.landys_gyr_zmd310_meter.iec.iec_collector import IecCollecto
 from src.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
 )
+from src.collectors.shelly.shelly_gen3_collector.shelly_gen3_pm_collector import ShellyPmCollector
+from src.collectors.shelly.shelly_gen3_collector.shelly_gen3_switch_collector import ShellySwitchCollector
 from src.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
@@ -46,6 +48,12 @@ def create_collectors(config):
 
         elif collector_config.type == "weather":
             collectors.append(OpenMeteoWeatherCollector(**common_kwargs))
+
+        elif collector_config.type == "shelly_pm":
+            collectors.append(ShellyPmCollector(**common_kwargs))
+
+        elif collector_config.type == "shelly_switch":
+            collectors.append(ShellySwitchCollector(**common_kwargs))
 
         else:
             raise ValueError(f"Unknown collector type: {collector_config.type}")
