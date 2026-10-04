@@ -1121,3 +1121,21 @@ def test_process_measurements_runs_estimator_then_calculator():
             calculated_measurement,
         ],
     )
+
+
+def test_format_measurement_value():
+    test_cases = [
+        (0, "        0.0   "),
+        (236.6, "      236.6   "),
+        (0.005, "        0.005 "),
+        (0.0031, "        0.0031"),
+        (0.057, "        0.057 "),
+        (193049400.0, "193049400.0   "),
+        (18967.278, "    18967.278 "),
+    ]
+
+    for value, expected in test_cases:
+        result = MeasurementManager.format_measurement_value(value)
+
+        assert len(result) == 14
+        assert result == expected

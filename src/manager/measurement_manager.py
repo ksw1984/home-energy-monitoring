@@ -587,15 +587,32 @@ class MeasurementManager:
 
             status = f"{calculated}{estimated}{selected}"
 
-            value = f"{measurement.value:.4f}".rstrip("0").rstrip(".")
-            value = f"{value:>14}"
-
             logger.info(
                 "%-25s %-25s %-25s %s %-5s %-4s",
                 measurement.timestamp.isoformat(),
                 measurement.source,
                 measurement.metric,
-                value,
+                self.format_measurement_value(measurement.value),
                 measurement.unit or "",
                 status,
             )
+
+    @staticmethod
+    def format_measurement_value(
+        value: float,
+        integer_width: int = 9,
+        decimal_width: int = 4,
+    ) -> str:
+        """Format a value with an aligned decimal point and up to 4 decimals."""
+        formatted = f"{value:.{decimal_width}f}"
+        integer_part, decimal_part = formatted.split(".")
+
+        decimal_part = decimal_part.rstrip("0")
+
+        if not decimal_part:
+            decimal_part = "0"
+
+        integer_text = f"{integer_part:>{integer_width}}"
+        decimal_text = f".{decimal_part}"
+
+        return f"{integer_text}{decimal_text}{' ' * (decimal_width - len(decimal_part))}"
