@@ -241,13 +241,34 @@ storage:
         - cloud_cover
 
     shelly_plug_pm_washer:
-      - apower
+      - power
 
     shelly_plug_pm_dryer:
-      - apower
+      - power
 
     shelly_outdoor_plug_lawnmower:
-      - apower
+      - power
+
+    shelly_plug_m_refrigirator:
+      - power
+
+    shelly_plug_m_dishwasher:
+      - power
+
+    shelly_plug_m_zehnder:
+      - power
+
+    shelly_plug_m_server:
+      - power
+
+    shelly_plug_m_tenways:
+      - power
+
+    shelly_plug_m_az_k:
+      - power
+
+    shelly_plug_m_az_h:
+      - power
 
     calculated:
       - inverter_efficiency
