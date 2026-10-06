@@ -5,11 +5,11 @@ let checkTimer = null;
 // Timing configuration
 const slowInterval_ms = 10 * 60 * 1000; // 10 minutes
 const fastInterval_ms = 10 * 1000; // 10 seconds
-const finishDelay_ms = 5 * 60 * 1000; // 5 minutes
+const finishDelay_ms = 3 * 60 * 1000; // 3 minutes
 
 // Power thresholds
 const runningPower_W = 100; // Detect dryer starting
-const finishedPower_W = 5; // Detect dryer stopped
+const finishedPower_W = 15; // Detect dryer stopped
 
 // Notification
 const ntfyUrl = "http://192.168.178.11:8090/trockner-7f92";
