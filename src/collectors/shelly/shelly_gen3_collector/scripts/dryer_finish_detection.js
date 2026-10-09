@@ -5,11 +5,11 @@ let checkTimer = null;
 // Timing configuration
 const slowInterval_ms = 10 * 60 * 1000; // 10 minutes
 const fastInterval_ms = 10 * 1000; // 10 seconds
-const finishDelay_ms = 5 * 60 * 1000; // 5 minutes
+const finishDelay_ms = 3 * 60 * 1000; // 3 minutes
 
 // Power thresholds
-const runningPower_W = 100; // Dryer is considered running above this power
-const finishedPower_W = 5; // Dryer is considered finished below this power
+const runningPower_W = 100; // Detect dryer starting
+const finishedPower_W = 15; // Detect dryer stopped
 
 // Notification
 const ntfyUrl = "http://192.168.178.11:8090/trockner-7f92";
@@ -45,6 +45,43 @@ function sendFinishedNotification() {
     );
 }
 
+function startFinishTimer() {
+    if (finishTimer !== null) {
+        return;
+    }
+
+    print(
+        "Below",
+        finishedPower_W,
+        "W - starting",
+        finishDelay_ms / 60000,
+        "minute timer",
+    );
+
+    finishTimer = Timer.set(finishDelay_ms, false, function () {
+        finishTimer = null;
+
+        sendFinishedNotification();
+
+        running = false;
+
+        print("Dryer marked as finished");
+
+        switchToSlowChecks();
+    });
+}
+
+function cancelFinishTimer() {
+    if (finishTimer === null) {
+        return;
+    }
+
+    Timer.clear(finishTimer);
+    finishTimer = null;
+
+    print("Finish timer cancelled");
+}
+
 function checkPower() {
     Shelly.call(
         "PM1.GetStatus",
@@ -59,56 +96,36 @@ function checkPower() {
 
             print("Dryer:", power_W, "W");
 
-            // Dryer is running
-            if (power_W > runningPower_W) {
-                if (!running) {
-                    print("Dryer started");
+            // ------------------------------------------------------------
+            // IDLE -> RUNNING
+            // ------------------------------------------------------------
+            if (!running) {
+                if (power_W > runningPower_W) {
                     running = true;
 
-                    switchToFastChecks();
-                }
+                    print("Dryer started:", power_W, "W");
 
-                // Cancel a pending finish timer
-                if (finishTimer !== null) {
-                    Timer.clear(finishTimer);
-                    finishTimer = null;
-                    print("Finish timer cancelled");
+                    switchToFastChecks();
                 }
 
                 return;
             }
 
-            // Cancel the finish timer if power rises again
-            if (finishTimer !== null && power_W >= finishedPower_W) {
-                Timer.clear(finishTimer);
-                finishTimer = null;
+            // ------------------------------------------------------------
+            // RUNNING
+            // ------------------------------------------------------------
 
-                print("Finish timer cancelled");
+            // Dryer is above the finish threshold again.
+            // Cancel a pending finish timer, but remain RUNNING.
+            if (power_W >= finishedPower_W) {
+                cancelFinishTimer();
+                return;
             }
 
-            // Dryer was running and power dropped below the finished threshold
-            if (running && power_W < finishedPower_W && finishTimer === null) {
-                print(
-                    "Below",
-                    finishedPower_W,
-                    "W - starting",
-                    finishDelay_ms / 60000,
-                    "minute timer",
-                );
-
-                finishTimer = Timer.set(finishDelay_ms, false, function () {
-                    finishTimer = null;
-
-                    // The dryer stayed below the threshold
-                    sendFinishedNotification();
-
-                    running = false;
-
-                    print("Dryer marked as finished");
-
-                    // Return to slow checks
-                    switchToSlowChecks();
-                });
+            // Dryer is below the finish threshold.
+            // Start the finish timer if none is running.
+            if (power_W < finishedPower_W) {
+                startFinishTimer();
             }
         },
     );

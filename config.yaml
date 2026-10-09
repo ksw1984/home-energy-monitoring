@@ -71,7 +71,7 @@ collectors:
 
   # Shelly
 
-  # Shelly Plug PM Gen3
+  # Shelly Plug PM Gen3: SPM01 - SPM02
   - type: shelly_pm
     enabled: true
     interval: 10
@@ -84,44 +84,116 @@ collectors:
     interval: 10
     attributes:
       source: shelly_plug_pm_dryer
-      ip: 192.168.178.203
+      ip: 192.168.178.200
 
-  # Shelly Outdoor Plug S Gen3
+  # Shelly Outdoor Plug S Gen3: SPO03 - SPO04
   - type: shelly_switch
     enabled: true
     interval: 10
     attributes:
       source: shelly_outdoor_plug_lawnmower
-      ip: 192.168.178.204
+      ip: 192.168.178.203
 
   - type: shelly_switch
     enabled: false
     interval: 10
     attributes:
       source: shelly_outdoor_plug
+      ip: 192.168.178.204
+
+  # Shelly Plug M Gen3: SP-05 - SP-16
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_refrigirator
       ip: 192.168.178.205
 
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_dishwasher
+      ip: 192.168.178.206
 
-  # Shelly Plug M Gen3
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_zehnder
+      ip: 192.168.178.207
+
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_server
+      ip: 192.168.178.208
+
   - type: shelly_switch
     enabled: false
     interval: 10
     attributes:
-      source: shelly_plug_m
-      ip: 192.168.178.206
+      source: shelly_plug_m_felix
+      ip: 192.168.178.209
 
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_tenways
+      ip: 192.168.178.210
 
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_az_k
+      ip: 192.168.178.211
 
+  - type: shelly_switch
+    enabled: true
+    interval: 10
+    attributes:
+      source: shelly_plug_m_az_h
+      ip: 192.168.178.212
 
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_plug_m_sp13
+      ip: 192.168.178.213
+
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_plug_m_sp14
+      ip: 192.168.178.214
+
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_plug_m_sp15
+      ip: 192.168.178.215
+
+  - type: shelly_switch
+    enabled: false
+    interval: 10
+    attributes:
+      source: shelly_plug_m_sp16
+      ip: 192.168.178.216
 
 databases:
   # InfluxDB instance used to store measurements
   - type: influxdb
-    enabled: false
+    enabled: true
     attributes:
       url: http://influxdb:8086
       org: home-energy
-      bucket: energy
+      bucket: home
 
   - type: text_file
     enabled: true
@@ -168,25 +240,44 @@ storage:
         - cloud_cover
 
     shelly_plug_pm_washer:
-      - apower
+      - power
 
     shelly_plug_pm_dryer:
-      - apower
+      - power
 
     shelly_outdoor_plug_lawnmower:
-      - apower
+      - power
+
+    shelly_plug_m_refrigirator:
+      - power
+
+    shelly_plug_m_dishwasher:
+      - power
+
+    shelly_plug_m_zehnder:
+      - power
+
+    shelly_plug_m_server:
+      - power
+
+    shelly_plug_m_tenways:
+      - power
+
+    shelly_plug_m_az_k:
+      - power
+
+    shelly_plug_m_az_h:
+      - power
 
     calculated:
       - inverter_efficiency
       - heat_pump_power
-      # - household_power_draw
-
-
+      - household_power_draw
 
 estimators:
   - type: kalman
     enabled: true
-    lookback: 2
+    lookback: 1
 
 calculators:
   - type: formula
@@ -209,7 +300,7 @@ calculators:
       - source: calculated
         metric: household_power_draw
         unit: kW
-        formula: "household_power + pv_power"
+        formula: "household_power + pv_power*0.001"
         inputs:
           pv_power:
             source: inverter_fronius

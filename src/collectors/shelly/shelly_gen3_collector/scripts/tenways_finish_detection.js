@@ -8,11 +8,11 @@ const fastInterval_ms = 10 * 1000; // 10 seconds
 const finishDelay_ms = 5 * 60 * 1000; // 5 minutes
 
 // Power thresholds
-const runningPower_W = 100; // Detect washer running
-const finishedPower_W = 5; // Detect washer stopped
+const runningPower_W = 80; // Detect charging
+const finishedPower_W = 1; // Detect charging finished
 
 // Notification
-const ntfyUrl = "http://192.168.178.11:8090/waschmaschine-7f92";
+const ntfyUrl = "http://192.168.178.11:8090/tenways-7f92";
 
 function switchToSlowChecks() {
     Timer.clear(checkTimer);
@@ -28,21 +28,56 @@ function switchToFastChecks() {
     print("Switched to", fastInterval_ms / 1000, "second checks");
 }
 
-function sendFinishedNotification() {
+function sendNotification(message) {
     Shelly.call(
         "HTTP.POST",
         {
             url: ntfyUrl,
-            body: "Washer finished",
+            body: message,
             content_type: "text/plain",
             headers: {
-                Title: "Waschmaschine fertig",
+                Title: "Tenways-Laden",
             },
         },
         function (_result, error_code, error_message) {
-            print("ntfy:", error_code, error_message);
+            if (error_code !== 0) {
+                print("ntfy error:", error_code, error_message);
+            }
         },
     );
+}
+
+function finishCharging() {
+    print("Charging finished - switching Shelly output OFF");
+
+    Shelly.call(
+        "Switch.Set",
+        {
+            id: 0,
+            on: false,
+        },
+        function (_result, error_code, error_message) {
+            if (error_code !== 0) {
+                print("Switch OFF error:", error_code, error_message);
+
+                sendNotification(
+                    "Tenways fertig geladen, aber die Steckdose konnte nicht ausgeschaltet werden!",
+                );
+
+                return;
+            }
+
+            print("Shelly output switched OFF");
+
+            sendNotification(
+                "Tenways fertig geladen. Steckdose wurde automatisch ausgeschaltet.",
+            );
+        },
+    );
+
+    running = false;
+
+    switchToSlowChecks();
 }
 
 function startFinishTimer() {
@@ -60,14 +95,7 @@ function startFinishTimer() {
 
     finishTimer = Timer.set(finishDelay_ms, false, function () {
         finishTimer = null;
-
-        sendFinishedNotification();
-
-        running = false;
-
-        print("Washer marked as finished");
-
-        switchToSlowChecks();
+        finishCharging();
     });
 }
 
@@ -88,22 +116,24 @@ function checkPower() {
         { id: 0 },
         function (result, error_code, error_message) {
             if (error_code !== 0) {
-                print("PM1 error:", error_message);
+                print("PM1 error:", error_code, error_message);
                 return;
             }
 
             const power_W = result.apower;
 
-            print("Washer:", power_W, "W");
+            print("Tenways charger:", power_W, "W");
 
-            // ------------------------------------------------------------
-            // IDLE -> RUNNING
-            // ------------------------------------------------------------
+            // IDLE -> CHARGING
             if (!running) {
                 if (power_W > runningPower_W) {
                     running = true;
 
-                    print("Washer started:", power_W, "W");
+                    print("Charging started:", power_W, "W");
+
+                    sendNotification(
+                        "Tenways wird geladen. Leistung: " + power_W + " W.",
+                    );
 
                     switchToFastChecks();
                 }
@@ -111,19 +141,13 @@ function checkPower() {
                 return;
             }
 
-            // ------------------------------------------------------------
-            // RUNNING
-            // ------------------------------------------------------------
-
-            // Washer is clearly running again.
-            // Cancel a pending finish timer, but stay in RUNNING state.
+            // CHARGING
             if (power_W >= finishedPower_W) {
                 cancelFinishTimer();
                 return;
             }
 
-            // Washer is below the finish threshold.
-            // Start the finish timer if none is running.
+            // Below 1 W: start finish timer
             if (power_W < finishedPower_W) {
                 startFinishTimer();
             }
@@ -135,7 +159,7 @@ function checkPower() {
 checkTimer = Timer.set(slowInterval_ms, true, checkPower);
 
 print(
-    "Washer finish detection script started - initial interval:",
+    "Tenways charging detection started - initial interval:",
     slowInterval_ms / 60000,
     "minutes",
 );
