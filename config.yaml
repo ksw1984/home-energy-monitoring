@@ -101,7 +101,6 @@ collectors:
       source: shelly_outdoor_plug
       ip: 192.168.178.204
 
-
   # Shelly Plug M Gen3: SP-05 - SP-16
   - type: shelly_switch
     enabled: true
@@ -190,11 +189,11 @@ collectors:
 databases:
   # InfluxDB instance used to store measurements
   - type: influxdb
-    enabled: false
+    enabled: true
     attributes:
       url: http://influxdb:8086
       org: home-energy
-      bucket: energy
+      bucket: home
 
   - type: text_file
     enabled: true
@@ -273,14 +272,12 @@ storage:
     calculated:
       - inverter_efficiency
       - heat_pump_power
-      # - household_power_draw
-
-
+      - household_power_draw
 
 estimators:
   - type: kalman
     enabled: true
-    lookback: 2
+    lookback: 1
 
 calculators:
   - type: formula
@@ -303,7 +300,7 @@ calculators:
       - source: calculated
         metric: household_power_draw
         unit: kW
-        formula: "household_power + pv_power"
+        formula: "household_power + pv_power*0.001"
         inputs:
           pv_power:
             source: inverter_fronius
