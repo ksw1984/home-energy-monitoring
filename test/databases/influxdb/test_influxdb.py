@@ -79,9 +79,11 @@ def test_store_writes_measurements():
 
     assert len(points) == 2
 
-    assert points[0].to_line_protocol().startswith("temperature,source=rademacher value=20.5")
+    point_1 = points[0].to_line_protocol()
+    assert point_1.startswith('temperature,source=rademacher measurement_type="current",unit="°C",value=20.5')
 
-    assert points[1].to_line_protocol().startswith("humidity,source=weather value=60")
+    point_2 = points[1].to_line_protocol()
+    assert point_2.startswith('humidity,source=weather measurement_type="current",unit="°C",value=60')
 
 
 def test_store_with_empty_measurements_writes_empty_list():
