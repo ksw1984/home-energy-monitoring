@@ -353,6 +353,7 @@ bems:
     max_measurement_age_s: 20
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
+    live_poll_interval_s: 5
 
   profiles:
     anker_solarbank_max_ac:

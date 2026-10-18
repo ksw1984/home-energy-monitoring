@@ -133,6 +133,7 @@ class BemsControlConfig:
     max_measurement_age_s: float
     history_alignment_tolerance_s: float
     simulation_ramp_seconds: float
+    live_poll_interval_s: float
 
 
 @dataclass(frozen=True)
@@ -375,11 +376,14 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         max_measurement_age_s=float(raw_control.get("max_measurement_age_s", 20.0)),
         history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
         simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
+        live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
     )
     if control.deadband_w < 0 or control.max_output_power_w < 0:
         raise ValueError("BEMS deadband and output power limit cannot be negative")
     if min(control.max_measurement_age_s, control.history_alignment_tolerance_s, control.simulation_ramp_seconds) < 0:
         raise ValueError("BEMS time settings cannot be negative")
+    if control.live_poll_interval_s <= 0:
+        raise ValueError("BEMS live_poll_interval_s must be positive")
 
     database_types = [item["type"] for item in config_data.get("databases", [])]
     default_history_database = "influxdb" if "influxdb" in database_types else (database_types[0] if database_types else "")
