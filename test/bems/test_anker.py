@@ -26,6 +26,9 @@ class FakeAnkerClient:
         self.soc = soc
         self.calls: list[tuple[str, int, int]] = []
 
+    async def read_device_identification(self) -> dict[int, str]:
+        return {0: "Anker", 1: "A17E2", 2: "1.0.0"}
+
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         assert address == BATTERY_POWER_REGISTER
         assert count == 7
@@ -65,6 +68,20 @@ def test_anker_state_normalizes_signed_power_soc_and_energy():
     state = asyncio.run(discharging.get_state())
     assert state.charge_power_w == 0
     assert state.discharge_power_w == 400
+
+
+def test_anker_identity_reads_product_code_and_firmware_revision():
+    adapter = AnkerBatteryAdapter(
+        client=FakeAnkerClient(),
+        capacity_wh=7000,
+        max_charge_power_w=3500,
+        max_discharge_power_w=3500,
+    )
+
+    identity = asyncio.run(adapter.get_identity())
+
+    assert identity.model == "A17E2"
+    assert identity.firmware_version == "1.0.0"
 
 
 def test_anker_state_rejects_invalid_soc():
@@ -154,3 +171,32 @@ def test_anker_tcp_client_times_out_on_nonresponsive_device():
                 await client.read_input_registers(BATTERY_POWER_REGISTER, 7)
 
     asyncio.run(run())
+
+
+def test_anker_tcp_client_parses_modbus_device_identification():
+    """Read standard Basic Device Identification objects for model and revision."""
+
+    async def run():
+        async def handle(reader, writer):
+            header = await reader.readexactly(7)
+            length = struct.unpack(">H", header[4:6])[0]
+            pdu = await reader.readexactly(length - 1)
+            assert pdu == bytes((0x2B, 0x0E, 0x01, 0x00))
+            payload = bytes((0x2B, 0x0E, 0x01, 0x01, 0x00, 0x00, 0x03))
+            for object_id, value in ((0, b"Anker"), (1, b"A17E2"), (2, b"1.0.0")):
+                payload += bytes((object_id, len(value))) + value
+            response_header = struct.pack(">HHHB", struct.unpack(">H", header[:2])[0], 0, len(payload) + 1, header[6])
+            writer.write(response_header + payload)
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        async with server:
+            client = AnkerModbusTcpClient(host="127.0.0.1", port=port, timeout_s=1)
+            result = await client.read_device_identification()
+            await client.close()
+        return result
+
+    assert asyncio.run(run()) == {0: "Anker", 1: "A17E2", 2: "1.0.0"}

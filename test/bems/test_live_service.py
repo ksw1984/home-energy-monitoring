@@ -2,7 +2,7 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 
-from src.bems.domain import BatteryPowerCommand, BatteryState
+from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 from src.bems.live import LiveControlService
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
@@ -54,6 +54,7 @@ class RecordingBattery:
         self.timestamp = datetime(2026, 10, 18, tzinfo=UTC)
         self.power_w = 0.0
         self.fail_reads = fail_reads
+        self.fail_identity = False
         self.fail_sets = False
         self.command_refresh_interval_s: float | None = None
 
@@ -61,6 +62,11 @@ class RecordingBattery:
         if self.fail_reads:
             raise ConnectionError("mock read failed")
         return BatteryState(self.timestamp, 50, 3500, max(0, self.power_w), max(0, -self.power_w))
+
+    async def get_identity(self) -> BatteryIdentity:
+        if self.fail_identity:
+            raise ConnectionError("mock identity read failed")
+        return BatteryIdentity("A17E2", "1.0.0")
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         if self.fail_sets:
@@ -73,7 +79,12 @@ class RecordingBattery:
 def live_config():
     """Use the repository's default BEMS settings with one enabled live device."""
     assert config_obj.bems is not None
-    device = replace(config_obj.bems.devices[0], id="test_live", mode="live")
+    device = replace(
+        config_obj.bems.devices[0],
+        id="test_live",
+        mode="live",
+        attributes={"expected_model": "A17E2", "supported_firmware_versions": ["1.0.0"]},
+    )
     return replace(config_obj.bems, devices=[device])
 
 
@@ -106,7 +117,63 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert len(battery.targets) == 1
     assert battery.targets[0].power_w == -500
     metrics = {point.metric for point in output_database.writes}
-    assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok"} <= metrics
+    assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
+
+
+def test_live_service_blocks_unapproved_firmware_and_records_compatibility():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    output_database = MemoryDatabase()
+    battery = RecordingBattery()
+    settings = live_config()
+    device = replace(settings.devices[0], attributes={"expected_model": "A17E2", "supported_firmware_versions": ["1.0.1"]})
+    service = LiveControlService(
+        config=replace(settings, devices=[device]),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[output_database],
+        batteries={"test_live": battery},
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1))) == 1
+
+    assert battery.targets == []
+    assert any(point.metric == "device_alive" and point.value == 1 for point in output_database.writes)
+    assert any(point.metric == "firmware_compatible" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "control_ok" and point.value == 0 for point in output_database.writes)
+
+
+def test_live_service_blocks_when_firmware_allowlist_is_missing():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    battery = RecordingBattery()
+    settings = live_config()
+    device = replace(settings.devices[0], attributes={"expected_model": "A17E2"})
+    service = LiveControlService(
+        config=replace(settings, devices=[device]),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+
+    asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
+
+    assert battery.targets == []
+
+
+def test_live_service_blocks_control_when_device_identity_is_unavailable():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    output_database = MemoryDatabase()
+    battery = RecordingBattery()
+    battery.fail_identity = True
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[output_database],
+        batteries={"test_live": battery},
+    )
+
+    asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
+
+    assert battery.targets == []
+    assert any(point.metric == "device_alive" and point.value == 0 for point in output_database.writes)
 
 
 def test_live_service_requests_zero_when_inputs_become_stale():

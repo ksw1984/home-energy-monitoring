@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, UTC
 
 from src.bems.controller import GridBalancingController
-from src.bems.domain import align_power_samples, Battery, BatteryPowerCommand, BatteryProfile, BatteryState
+from src.bems.domain import align_power_samples, Battery, BatteryIdentity, BatteryPowerCommand, BatteryProfile, BatteryState
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
@@ -136,7 +136,30 @@ class LiveControlService:
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
             profile = self._profile_for_device(device)
             try:
+                identity = await battery.get_identity()
                 before = await battery.get_state()
+                compatible, reason = self._firmware_compatibility(device, identity)
+                if not compatible:
+                    logger.error(
+                        "BEMS live control blocked for %s: %s (model=%s firmware=%s)",
+                        device_id,
+                        reason,
+                        identity.model,
+                        identity.firmware_version,
+                    )
+                    outputs.extend(
+                        self._state_measurements(
+                            device,
+                            timestamp,
+                            0.0,
+                            before,
+                            control_ok=0,
+                            stale=0,
+                            identity=identity,
+                            firmware_compatible=False,
+                        )
+                    )
+                    continue
                 requested_power_w = self.controller.calculate_setpoint(
                     grid_power_w=grid_power_w,
                     state=before,
@@ -154,7 +177,18 @@ class LiveControlService:
                     self._last_requested_power[device_id] = requested_power_w
                     self._last_command_at[device_id] = timestamp
                 state = await battery.get_state()
-                outputs.extend(self._state_measurements(device, timestamp, requested_power_w, state, control_ok=1, stale=0))
+                outputs.extend(
+                    self._state_measurements(
+                        device,
+                        timestamp,
+                        requested_power_w,
+                        state,
+                        control_ok=1,
+                        stale=0,
+                        identity=identity,
+                        firmware_compatible=True,
+                    )
+                )
             except Exception:
                 logger.exception("BEMS adapter operation failed for device %s", device_id)
                 outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0))
@@ -169,12 +203,41 @@ class LiveControlService:
         for device_id, battery in self.batteries.items():
             device = self.devices[device_id]
             try:
+                identity = await battery.get_identity()
+                compatible, reason = self._firmware_compatibility(device, identity)
+                if not compatible:
+                    logger.error("BEMS stale-input failsafe blocked for %s: %s", device_id, reason)
+                    state = await battery.get_state()
+                    outputs.extend(
+                        self._state_measurements(
+                            device,
+                            timestamp,
+                            0.0,
+                            state,
+                            control_ok=0,
+                            stale=1,
+                            identity=identity,
+                            firmware_compatible=False,
+                        )
+                    )
+                    continue
                 if self._last_requested_power.get(device_id) != 0.0:
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=0.0))
                     self._last_requested_power[device_id] = 0.0
                     self._last_command_at[device_id] = timestamp
                 state = await battery.get_state()
-                outputs.extend(self._state_measurements(device, timestamp, 0.0, state, control_ok=1, stale=1))
+                outputs.extend(
+                    self._state_measurements(
+                        device,
+                        timestamp,
+                        0.0,
+                        state,
+                        control_ok=1,
+                        stale=1,
+                        identity=identity,
+                        firmware_compatible=True,
+                    )
+                )
             except Exception:
                 logger.exception("BEMS stale-input failsafe failed for device %s", device_id)
                 outputs.extend(self._error_measurements(device, timestamp, 0.0, stale=1))
@@ -200,6 +263,23 @@ class LiveControlService:
             charge_efficiency=item.charge_efficiency,
             discharge_efficiency=item.discharge_efficiency,
         )
+
+    @staticmethod
+    def _firmware_compatibility(device: BemsDeviceConfig, identity: BatteryIdentity) -> tuple[bool, str]:
+        """Require a configured exact model and firmware allowlist for live writes."""
+        expected_model = device.attributes.get("expected_model")
+        supported_versions = device.attributes.get("supported_firmware_versions")
+        if not isinstance(expected_model, str) or not expected_model:
+            return False, "attributes.expected_model is missing"
+        if identity.model != expected_model:
+            return False, f"reported model does not match expected model {expected_model!r}"
+        if not isinstance(supported_versions, list) or not supported_versions:
+            return False, "attributes.supported_firmware_versions must be a non-empty exact allowlist"
+        if any(not isinstance(version, str) or not version or "*" in version for version in supported_versions):
+            return False, "firmware allowlist entries must be non-empty exact strings without wildcards"
+        if identity.firmware_version not in supported_versions:
+            return False, "reported firmware is not explicitly allowlisted"
+        return True, "compatible"
 
     async def _query(
         self,
@@ -248,11 +328,13 @@ class LiveControlService:
         *,
         control_ok: int,
         stale: int,
+        identity: BatteryIdentity,
+        firmware_compatible: bool,
     ) -> list[Measurement]:
         """Represent the requested target, observed state, and service status."""
         source = f"bems_live_{device.id}"
         actual_power = state.charge_power_w - state.discharge_power_w
-        return [
+        measurements = [
             Measurement(timestamp, source, "requested_power", requested_power_w, "W"),
             Measurement(state.timestamp, source, "actual_power", actual_power, "W"),
             Measurement(state.timestamp, source, "soc", state.soc_percent, "%"),
@@ -260,7 +342,16 @@ class LiveControlService:
             Measurement(timestamp, source, "battery_available", float(state.available), "bool"),
             Measurement(timestamp, source, "control_ok", float(control_ok), "bool"),
             Measurement(timestamp, source, "stale_input", float(stale), "bool"),
+            Measurement(timestamp, source, "device_alive", 1.0, "bool"),
+            Measurement(timestamp, source, "firmware_compatible", float(firmware_compatible), "bool"),
         ]
+        try:
+            version_code = float(identity.firmware_version)
+        except ValueError:
+            version_code = None
+        if version_code is not None:
+            measurements.append(Measurement(timestamp, source, "firmware_version_code", version_code, "version"))
+        return measurements
 
     @staticmethod
     def _error_measurements(device: BemsDeviceConfig, timestamp: datetime, requested_power_w: float, *, stale: int) -> list[Measurement]:
@@ -271,6 +362,8 @@ class LiveControlService:
             Measurement(timestamp, source, "battery_available", 0.0, "bool"),
             Measurement(timestamp, source, "control_ok", 0.0, "bool"),
             Measurement(timestamp, source, "stale_input", float(stale), "bool"),
+            Measurement(timestamp, source, "device_alive", 0.0, "bool"),
+            Measurement(timestamp, source, "firmware_compatible", 0.0, "bool"),
         ]
 
     @staticmethod
@@ -306,6 +399,10 @@ class MockBatteryAdapter:
             discharge_power_w=max(0.0, -self.power_w),
             available=self.available,
         )
+
+    async def get_identity(self) -> BatteryIdentity:
+        """Expose a synthetic identity for explicitly requested dry-run control."""
+        return BatteryIdentity("BEMS-MOCK", "mock")
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         """Accept an instantaneous, profile-limited target for dry-run purposes."""

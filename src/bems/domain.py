@@ -36,6 +36,14 @@ class BatteryState:
 
 
 @dataclass(frozen=True)
+class BatteryIdentity:
+    """Identity reported by a live device during its compatibility preflight."""
+
+    model: str
+    firmware_version: str
+
+
+@dataclass(frozen=True)
 class BatteryPowerCommand:
     """Timestamped signed AC setpoint: positive charges, negative discharges."""
 
@@ -59,6 +67,10 @@ class Battery(Protocol):
 
     async def get_state(self) -> BatteryState:
         """Read a normalized battery state without assuming a vendor API."""
+        ...
+
+    async def get_identity(self) -> BatteryIdentity:
+        """Read model and firmware identity; live control requires this check."""
         ...
 
     async def set_power(self, command: BatteryPowerCommand) -> None:

@@ -379,6 +379,8 @@ bems:
   devices:
     # For a live device, set mode: live and add attributes such as:
     # vendor: anker, host: 192.168.178.x, port: 502, allow_control: true
+    # expected_model: A17E2, supported_firmware_versions: ["<exact verified version>"]
+    # A missing or unapproved identity keeps all power writes blocked.
     # Enable Modbus TCP for the battery in the Anker app before using it.
     - id: anker_sim
       profile: anker_solarbank_max_ac
@@ -393,3 +395,32 @@ bems:
       enabled: true
       initial_soc_percent: 50
       max_output_power_w: 800
+
+    # Separate live instances are present but inactive until the hardware is installed.
+    - id: anker_live
+      profile: anker_solarbank_max_ac
+      mode: live
+      enabled: false
+      initial_soc_percent: 50
+      max_output_power_w: 800
+      attributes:
+        vendor: anker
+        host: "<anker-ip>"
+        port: 502
+        allow_control: false
+        expected_model: "<reported-product-code>"
+        supported_firmware_versions: ["<exact-verified-firmware-revision>"]
+
+    - id: marstek_live
+      profile: marstek_venus_e_3_5120
+      mode: live
+      enabled: false
+      initial_soc_percent: 50
+      max_output_power_w: 800
+      attributes:
+        vendor: marstek
+        host: "<marstek-ip>"
+        port: 30000
+        allow_control: false
+        expected_model: "<reported-model>"
+        supported_firmware_versions: ["<exact-verified-firmware-token>"]

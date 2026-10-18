@@ -125,6 +125,18 @@ def test_marstek_state_normalizes_soc_energy_and_power():
     assert state.discharge_power_w == 420
 
 
+def test_marstek_identity_reads_model_and_exact_reported_version_token():
+    """Compatibility gating uses the identity returned by the local device API."""
+    client = FakeMarstekClient([{"device": "VenusE", "ver": 150}])
+    battery = MarstekBatteryAdapter(client=client, capacity_wh=5120, max_charge_power_w=2500, max_discharge_power_w=2500)
+
+    identity = asyncio.run(battery.get_identity())
+
+    assert identity.model == "VenusE"
+    assert identity.firmware_version == "150"
+    assert client.calls[0][0] == "Marstek.GetDevice"
+
+
 def test_marstek_state_rejects_missing_or_invalid_fields():
     """Missing actual power and out-of-range SOC are reported as API errors."""
     battery = MarstekBatteryAdapter(
@@ -139,6 +151,18 @@ def test_marstek_state_rejects_missing_or_invalid_fields():
     battery.client = FakeMarstekClient([{"bat_soc": 101, "bat_power": 0}])
     with pytest.raises(MarstekApiError, match="SOC"):
         asyncio.run(battery.get_state())
+
+
+def test_marstek_identity_requires_model_and_version():
+    battery = MarstekBatteryAdapter(
+        client=FakeMarstekClient([{"device": "VenusE"}]),
+        capacity_wh=5120,
+        max_charge_power_w=2500,
+        max_discharge_power_w=2500,
+    )
+
+    with pytest.raises(MarstekApiError, match="version token"):
+        asyncio.run(battery.get_identity())
 
 
 def test_marstek_writes_are_opt_in_and_power_is_bounded():

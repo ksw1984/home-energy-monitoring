@@ -7,7 +7,7 @@ import socket
 from datetime import datetime, UTC
 from typing import Any
 
-from src.bems.domain import BatteryPowerCommand, BatteryState
+from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 
 MAX_UDP_PORT = 65535
 MAX_DATAGRAM_SIZE = 65535
@@ -119,6 +119,22 @@ class MarstekBatteryAdapter:
             discharge_power_w=max(-power, 0.0),
             available=True,
         )
+
+    async def get_identity(self) -> BatteryIdentity:
+        """Query the local device descriptor used for live compatibility gating.
+
+        Marstek documents ``device`` and numeric ``ver`` in ``Marstek.GetDevice``.
+        The version is kept as the exact reported token; deployments must verify
+        that it identifies the firmware on their Venus E 3.0 before allowlisting it.
+        """
+        result = await self.client.request("Marstek.GetDevice", {"ble_mac": "0"})
+        model = result.get("device")
+        version = result.get("ver")
+        if not isinstance(model, str) or not model.strip():
+            raise MarstekApiError("Marstek device response is missing a valid model")
+        if isinstance(version, bool) or not isinstance(version, int | float) or not math.isfinite(version):
+            raise MarstekApiError("Marstek device response is missing a valid version token")
+        return BatteryIdentity(model=model, firmware_version=str(version))
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         """Set signed AC power in Passive mode, only after explicit write opt-in."""

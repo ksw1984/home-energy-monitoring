@@ -6,7 +6,7 @@ import struct
 from datetime import datetime, UTC
 from typing import Protocol
 
-from src.bems.domain import BatteryPowerCommand, BatteryState
+from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 
 MODBUS_DEFAULT_PORT = 502
 MODBUS_DEFAULT_UNIT_ID = 1
@@ -16,9 +16,12 @@ MODBUS_MAX_UNIT_ID = 255
 MODBUS_MAX_READ_COUNT = 125
 MODBUS_MAX_PDU_LENGTH = 254
 MODBUS_MIN_RESPONSE_LENGTH = 2
+MODBUS_DEVICE_ID_HEADER_SIZE = 7
 MODBUS_INPUT_READ = 0x04
 MODBUS_WRITE_SINGLE = 0x06
 MODBUS_WRITE_MULTIPLE = 0x10
+MODBUS_ENCAPSULATED_INTERFACE = 0x2B
+MODBUS_READ_DEVICE_ID = 0x0E
 UINT16_MAX = 65535
 SOC_REGISTER = 10014
 BATTERY_POWER_REGISTER = 10008
@@ -40,6 +43,10 @@ class RegisterClient(Protocol):
 
     async def read_input_registers(self, address: int, count: int) -> list[int]:
         """Read a consecutive range of input registers (function code 04)."""
+        ...
+
+    async def read_device_identification(self) -> dict[int, str]:
+        """Read standard Modbus Device Identification objects."""
         ...
 
     async def write_register(self, address: int, value: int) -> None:
@@ -95,6 +102,38 @@ class AnkerModbusTcpClient:
         ):
             raise AnkerModbusError("Anker returned an invalid input-register response")
         return list(struct.unpack(f">{count}H", response[2:]))
+
+    async def read_device_identification(self) -> dict[int, str]:
+        """Read the basic vendor/product/revision objects (0x00-0x02).
+
+        Unsupported device identification is treated as a failed preflight by
+        the caller; the adapter never guesses a firmware version from registers.
+        """
+        request = bytes((MODBUS_ENCAPSULATED_INTERFACE, MODBUS_READ_DEVICE_ID, 0x01, 0x00))
+        response = await self._transact(request)
+        if len(response) < MODBUS_DEVICE_ID_HEADER_SIZE or response[:2] != bytes((MODBUS_ENCAPSULATED_INTERFACE, MODBUS_READ_DEVICE_ID)):
+            raise AnkerModbusError("Anker returned an invalid device-identification response")
+        if response[2] & 0x80:
+            raise AnkerModbusError("Anker does not support Modbus Device Identification")
+        object_count = response[6]
+        offset = MODBUS_DEVICE_ID_HEADER_SIZE
+        objects: dict[int, str] = {}
+        for _ in range(object_count):
+            if offset + 2 > len(response):
+                raise AnkerModbusError("Anker device-identification response is truncated")
+            object_id, value_length = response[offset], response[offset + 1]
+            offset += 2
+            value = response[offset : offset + value_length]
+            if len(value) != value_length:
+                raise AnkerModbusError("Anker device-identification object is truncated")
+            try:
+                objects[object_id] = value.decode("ascii").strip()
+            except UnicodeDecodeError as error:
+                raise AnkerModbusError("Anker device-identification value is not ASCII") from error
+            offset += value_length
+        if offset != len(response):
+            raise AnkerModbusError("Anker device-identification response has trailing data")
+        return objects
 
     async def write_register(self, address: int, value: int) -> None:
         """Write one holding register and require the device's echoed response."""
@@ -195,6 +234,15 @@ class AnkerBatteryAdapter:
             discharge_power_w=max(-bems_power, 0.0),
             available=True,
         )
+
+    async def get_identity(self) -> BatteryIdentity:
+        """Read model and firmware from standard Modbus identification objects."""
+        objects = await self.client.read_device_identification()
+        model = objects.get(1, "")
+        firmware = objects.get(2, "")
+        if not model or not firmware:
+            raise AnkerModbusError("Anker identification lacks product code or firmware revision")
+        return BatteryIdentity(model=model, firmware_version=firmware)
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         """Switch to third-party mode once, then write a bounded signed 32-bit target."""

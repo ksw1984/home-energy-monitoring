@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from dataclasses import replace
 from datetime import datetime, UTC
 
 from src.bems.anker import AnkerBatteryAdapter, AnkerModbusTcpClient
@@ -116,8 +117,22 @@ async def _run(*, dry_run: bool, once: bool) -> None:
         for database in enabled:
             database.connect()
         batteries, clients = _create_adapters(devices, config, dry_run=dry_run)
+        service_config = config
+        if dry_run:
+            service_config = replace(
+                config,
+                devices=[
+                    replace(
+                        device,
+                        attributes={"expected_model": "BEMS-MOCK", "supported_firmware_versions": ["mock"]},
+                    )
+                    if device.id in batteries
+                    else device
+                    for device in config.devices
+                ],
+            )
         service = LiveControlService(
-            config=config,
+            config=service_config,
             input_database=input_database,
             output_databases=enabled,
             batteries=batteries,
