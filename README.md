@@ -397,7 +397,7 @@ The measurement manager:
 
 ## Battery Energy Management System
 
-The optional BEMS evaluates historical battery savings and runs a separate live control process. It supports isolated battery simulations, live control with mock batteries, and opt-in Anker and Marstek adapters. The BEMS does not add polling work to the HEMS process.
+The optional BEMS evaluates historical battery savings with local CSV/HTML reports and runs a separate live control process. It supports isolated battery simulations, live control with mock batteries, and opt-in Anker and Marstek adapters. Historical simulations read the configured database but do not write simulation results back to it.
 
 See the [BEMS README](src/bems/README.md) for configuration and step-by-step instructions for historical simulations, mock live runs, and real battery control.
 

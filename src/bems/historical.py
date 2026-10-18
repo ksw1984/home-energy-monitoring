@@ -1,12 +1,15 @@
-"""Historical replay and persistence for independent BEMS simulation runs."""
+"""Historical replay and local report generation for independent BEMS runs."""
 
 import asyncio
+from collections import defaultdict
 from datetime import datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from src.bems.controller import GridBalancingController
-from src.bems.domain import align_power_samples, BatteryPowerCommand, BatteryProfile, BemsPowerSample
+from src.bems.domain import align_power_samples, BatteryPowerCommand, BatteryProfile
 from src.bems.economics import interval_cost_cents
+from src.bems.report import append_measurements, build_device_report
 from src.bems.reserve import night_reserve_wh
 from src.bems.simulation import SimulatedBattery
 from src.collectors.definitions.common.measurement import Measurement
@@ -69,17 +72,11 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
     stop: datetime,
     config: BemsConfig,
     history_database: BaseDatabase,
-    output_databases: list[BaseDatabase],
+    output_dir: Path,
     device_ids: set[str] | None = None,
     run_id: str | None = None,
-    resume: bool = False,
 ) -> str:
-    """Replay available meter points and persist results under a unique run ID.
-
-    A normal run starts at each configured SOC. ``resume`` restores the last
-    complete checkpoint for the explicit run ID and skips processed timestamps.
-    Input data is consumed in one-hour chunks to bound each query.
-    """
+    """Replay meter history and write a local report without writing to databases."""
     if start.tzinfo is None or stop.tzinfo is None:
         raise ValueError("historical simulation range must include timezone offsets")
     if stop <= start:
@@ -97,41 +94,20 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
     if not selected:
         raise ValueError("No enabled simulation devices selected")
 
-    if resume and not run_id:
-        raise ValueError("--resume requires an existing --run-id")
     run_id = run_id or uuid4().hex[:12]
+    report_dir = output_dir / run_id
+    report_dir.mkdir(parents=True, exist_ok=True)
     controller = GridBalancingController(deadband_w=config.control.deadband_w)
     batteries: dict[str, SimulatedBattery] = {}
     previous_samples = {}
     previous_actual_powers: dict[str, float] = {}
     reference_costs: dict[str, float] = {}
     battery_costs: dict[str, float] = {}
-    outputs: list[Measurement] = []
+    outputs: dict[str, list[Measurement]] = defaultdict(list)
+    result_files = {device.id: report_dir / f"measurements_{device.id}.jsonl" for device in selected}
+    for result_file in result_files.values():
+        result_file.write_text("", encoding="utf-8")
     processed_samples = 0
-
-    if resume:
-        for device in selected:
-            source = _simulation_source(device.id, run_id)
-            checkpoint = await _load_checkpoint(history_database, source, start)
-            if checkpoint is None:
-                raise RuntimeError(f"No saved checkpoint found for {source}; cannot resume")
-            checkpoint_time, values = checkpoint
-            if checkpoint_time >= stop:
-                raise ValueError("resume stop must be later than the saved checkpoint")
-            batteries[device.id] = _create_battery(
-                device,
-                config,
-                checkpoint_time,
-                energy_wh=values["energy_stored"],
-                charge_loss_wh=values["charge_loss_total"],
-                discharge_loss_wh=values["discharge_loss_total"],
-                actual_power_w=values["actual_power"],
-                target_power_w=values["requested_power"],
-            )
-            previous_samples[device.id] = _sample_from_checkpoint(checkpoint_time, values)
-            previous_actual_powers[device.id] = values["actual_power"]
-            reference_costs[device.id] = values["cost_reference_total"]
-            battery_costs[device.id] = values["cost_with_battery_total"]
 
     chunk_start = start
     while chunk_start < stop:
@@ -182,8 +158,6 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                 previous_actual_powers[device.id] = 0.0
 
             for sample in samples:
-                # A resumed run can reread its initial range; skip checkpoints
-                # already persisted so neither energy nor costs are counted twice.
                 prior_checkpoint = previous_samples.get(device.id)
                 if prior_checkpoint is not None and sample.timestamp <= prior_checkpoint.timestamp:
                     continue
@@ -230,7 +204,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                 source = _simulation_source(device.id, run_id)
                 # Metrics share the source and timestamp but remain separate
                 # measurements, including cumulative costs and restart state.
-                outputs.extend(
+                outputs[device.id].extend(
                     [
                         Measurement(sample.timestamp, source, "requested_power", setpoint, "W"),
                         Measurement(sample.timestamp, source, "actual_power", actual_power, "W"),
@@ -249,21 +223,37 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                             reference_costs[device.id] - battery_costs[device.id],
                             "ct",
                         ),
-                        Measurement(sample.timestamp, source, "checkpoint_grid_w", sample.grid_w, "W"),
-                        Measurement(sample.timestamp, source, "checkpoint_household_w", sample.household_w, "W"),
-                        Measurement(sample.timestamp, source, "checkpoint_heat_pump_w", sample.heat_pump_w, "W"),
-                        Measurement(sample.timestamp, source, "checkpoint_pv_w", sample.pv_w or 0.0, "W"),
+                        Measurement(sample.timestamp, source, "household_power_reference", sample.household_w, "W"),
+                        Measurement(sample.timestamp, source, "heat_pump_power_reference", sample.heat_pump_w, "W"),
+                        Measurement(sample.timestamp, source, "pv_power_reference", sample.pv_w or 0.0, "W"),
                     ]
                 )
                 previous_samples[device.id] = sample
                 previous_actual_powers[device.id] = actual_power
 
-        await _store_in_batches(output_databases, outputs)
-        outputs.clear()
+        for device in selected:
+            append_measurements(result_files[device.id], outputs[device.id])
+            outputs[device.id].clear()
         chunk_start = chunk_stop
 
     if processed_samples == 0:
         raise RuntimeError("No matching historical grid and household measurement points found in the requested range")
+    for device in selected:
+        build_device_report(
+            measurement_path=result_files[device.id],
+            report_dir=report_dir,
+            device_id=device.id,
+            timezone=config.night.timezone,
+            chart_start=start,
+            chart_stop=stop,
+            max_interval_seconds=config.control.history_alignment_tolerance_s,
+        )
+    (report_dir / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>BEMS simulation reports</title><h1>BEMS simulation reports</h1><ul>'
+        + "".join(f'<li><a href="report_{device.id}.html">{device.id}</a></li>' for device in selected)
+        + "</ul>",
+        encoding="utf-8",
+    )
     return run_id
 
 
@@ -279,53 +269,6 @@ def _create_battery(device: BemsDeviceConfig, config: BemsConfig, start: datetim
     )
 
 
-CHECKPOINT_METRICS = (
-    "requested_power",
-    "actual_power",
-    "energy_stored",
-    "charge_loss_total",
-    "discharge_loss_total",
-    "cost_reference_total",
-    "cost_with_battery_total",
-    "checkpoint_grid_w",
-    "checkpoint_household_w",
-    "checkpoint_heat_pump_w",
-    "checkpoint_pv_w",
-)
-
-
-async def _load_checkpoint(database: BaseDatabase, source: str, start: datetime):
-    """Find the latest timestamp where every required checkpoint metric exists."""
-    series = await asyncio.gather(*(_query_series(database, source=source, metric=metric, start=start, stop=None) for metric in CHECKPOINT_METRICS))
-    by_metric = dict(zip(CHECKPOINT_METRICS, series, strict=True))
-    common_times = set.intersection(*({point.timestamp for point in points} for points in series))
-    if not common_times:
-        return None
-    timestamp = max(common_times)
-    values = {metric: next(point.value for point in by_metric[metric] if point.timestamp == timestamp) for metric in CHECKPOINT_METRICS}
-    return timestamp, values
-
-
-def _sample_from_checkpoint(timestamp: datetime, values: dict[str, float]):
-    """Restore prior cascade readings needed to continue interval costing."""
-    return BemsPowerSample(
-        timestamp=timestamp,
-        grid_w=values["checkpoint_grid_w"],
-        household_w=values["checkpoint_household_w"],
-        heat_pump_w=values["checkpoint_heat_pump_w"],
-        pv_w=values["checkpoint_pv_w"],
-    )
-
-
 def _simulation_source(device_id: str, run_id: str) -> str:
     """Build a stable, run-scoped measurement source for one simulation device."""
     return f"bems_sim_{device_id}_{run_id}"
-
-
-async def _store_in_batches(databases: list[BaseDatabase], measurements: list[Measurement]) -> None:
-    """Write one already bounded result batch to every enabled database."""
-    if not measurements:
-        return
-    for database in databases:
-        if database.enabled:
-            await database.store(measurements)
