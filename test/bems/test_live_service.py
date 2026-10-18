@@ -55,6 +55,7 @@ class RecordingBattery:
         self.power_w = 0.0
         self.fail_reads = fail_reads
         self.fail_sets = False
+        self.command_refresh_interval_s: float | None = None
 
     async def get_state(self) -> BatteryState:
         if self.fail_reads:
@@ -183,3 +184,26 @@ def test_live_service_requires_adapters_only_for_enabled_live_devices():
             output_databases=[],
             batteries={},
         )
+
+
+def test_live_service_refreshes_time_limited_vendor_setpoints():
+    """A vendor adapter can renew an unchanged command before it expires."""
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    input_database = MemoryDatabase(input_measurements(timestamp))
+    battery = RecordingBattery()
+    battery.command_refresh_interval_s = 20
+    service = LiveControlService(
+        config=live_config(),
+        input_database=input_database,
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
+    assert len(battery.targets) == 1
+
+    next_timestamp = timestamp + timedelta(seconds=22)
+    input_database.measurements.extend(input_measurements(next_timestamp))
+    assert asyncio.run(service.run_once(now=next_timestamp + timedelta(seconds=1))) == 1
+    assert len(battery.targets) == 2
+    assert battery.targets[0].power_w == battery.targets[1].power_w

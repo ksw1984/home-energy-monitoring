@@ -46,6 +46,7 @@ class LiveControlService:
         self._last_fresh_input: datetime | None = None
         self._stale = False
         self._last_requested_power: dict[str, float] = {}
+        self._last_command_at: dict[str, datetime] = {}
 
     async def run_once(self, *, now: datetime | None = None) -> int:
         """Process each newly stored grid point once and return the count handled."""
@@ -143,9 +144,15 @@ class LiveControlService:
                     device_max_output_power_w=device.max_output_power_w,
                     global_max_output_power_w=self.config.control.max_output_power_w,
                 )
-                if self._last_requested_power.get(device_id) != requested_power_w:
+                refresh_after = getattr(battery, "command_refresh_interval_s", None)
+                last_command_at = self._last_command_at.get(device_id)
+                refresh_due = (
+                    refresh_after is not None and last_command_at is not None and (timestamp - last_command_at).total_seconds() >= refresh_after
+                )
+                if self._last_requested_power.get(device_id) != requested_power_w or refresh_due:
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=requested_power_w))
                     self._last_requested_power[device_id] = requested_power_w
+                    self._last_command_at[device_id] = timestamp
                 state = await battery.get_state()
                 outputs.extend(self._state_measurements(device, timestamp, requested_power_w, state, control_ok=1, stale=0))
             except Exception:
@@ -165,6 +172,7 @@ class LiveControlService:
                 if self._last_requested_power.get(device_id) != 0.0:
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=0.0))
                     self._last_requested_power[device_id] = 0.0
+                    self._last_command_at[device_id] = timestamp
                 state = await battery.get_state()
                 outputs.extend(self._state_measurements(device, timestamp, 0.0, state, control_ok=1, stale=1))
             except Exception:
