@@ -71,7 +71,7 @@ class MarstekUdpClient:
                 raise MarstekApiError(f"Marstek {method} response has no result object")
             return result
 
-    def close(self) -> None:
+    async def close(self) -> None:
         """Release resources; the client opens and closes a UDP socket per request."""
         # Kept as a lifecycle hook so adapters can be shut down uniformly.
 

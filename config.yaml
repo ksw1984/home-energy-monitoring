@@ -377,6 +377,9 @@ bems:
       discharge_efficiency: 0.935
 
   devices:
+    # For a live device, set mode: live and add attributes such as:
+    # vendor: anker, host: 192.168.178.x, port: 502, allow_control: true
+    # Enable Modbus TCP for the battery in the Anker app before using it.
     - id: anker_sim
       profile: anker_solarbank_max_ac
       mode: simulation
