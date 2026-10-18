@@ -7,6 +7,7 @@ from uuid import uuid4
 from src.bems.controller import GridBalancingController
 from src.bems.domain import align_power_samples, BatteryPowerCommand, BatteryProfile, BemsPowerSample
 from src.bems.economics import interval_cost_cents
+from src.bems.reserve import night_reserve_wh
 from src.bems.simulation import SimulatedBattery
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
@@ -211,6 +212,19 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     profile=battery.profile,
                     device_max_output_power_w=device.max_output_power_w,
                     global_max_output_power_w=config.control.max_output_power_w,
+                    household_power_w=sample.household_w,
+                    heat_pump_power_w=sample.heat_pump_w,
+                    heat_pump_reserve_wh=night_reserve_wh(
+                        timestamp=sample.timestamp,
+                        profile=battery.profile,
+                        baseline_household_w=config.night.baseline_household_w,
+                        latitude=config.night.latitude,
+                        longitude=config.night.longitude,
+                        timezone=config.night.timezone,
+                        dusk_margin_minutes=config.night.dusk_margin_minutes,
+                        dawn_margin_minutes=config.night.dawn_margin_minutes,
+                    ),
+                    control_interval_s=config.control.history_alignment_tolerance_s or 10.0,
                 )
                 await battery.set_power(BatteryPowerCommand(timestamp=sample.timestamp, power_w=setpoint))
                 source = _simulation_source(device.id, run_id)

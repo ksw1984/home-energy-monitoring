@@ -5,7 +5,8 @@ import logging
 from datetime import datetime, timedelta, UTC
 
 from src.bems.controller import GridBalancingController
-from src.bems.domain import align_power_samples, Battery, BatteryIdentity, BatteryPowerCommand, BatteryProfile, BatteryState
+from src.bems.domain import align_power_samples, Battery, BatteryIdentity, BatteryPowerCommand, BatteryProfile, BatteryState, BemsPowerSample
+from src.bems.reserve import night_reserve_wh
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
@@ -103,7 +104,7 @@ class LiveControlService:
                 continue
             self._last_fresh_input = sample.timestamp
             self._stale = False
-            await self._control_sample(current_time, sample.grid_w, current_time)
+            await self._control_sample(sample, current_time)
             handled += 1
 
         if not samples:
@@ -128,8 +129,9 @@ class LiveControlService:
             except TimeoutError:
                 continue
 
-    async def _control_sample(self, timestamp: datetime, grid_power_w: float, now: datetime) -> None:
+    async def _control_sample(self, sample: BemsPowerSample, now: datetime) -> None:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
+        timestamp = sample.timestamp
         outputs: list[Measurement] = []
         for device_id, battery in self.batteries.items():
             device = self.devices[device_id]
@@ -161,11 +163,24 @@ class LiveControlService:
                     )
                     continue
                 requested_power_w = self.controller.calculate_setpoint(
-                    grid_power_w=grid_power_w,
+                    grid_power_w=sample.grid_w - before.charge_power_w + before.discharge_power_w,
                     state=before,
                     profile=profile,
                     device_max_output_power_w=device.max_output_power_w,
                     global_max_output_power_w=self.config.control.max_output_power_w,
+                    household_power_w=sample.household_w - before.charge_power_w + before.discharge_power_w,
+                    heat_pump_power_w=sample.heat_pump_w,
+                    heat_pump_reserve_wh=night_reserve_wh(
+                        timestamp=timestamp,
+                        profile=profile,
+                        baseline_household_w=self.config.night.baseline_household_w,
+                        latitude=self.config.night.latitude,
+                        longitude=self.config.night.longitude,
+                        timezone=self.config.night.timezone,
+                        dusk_margin_minutes=self.config.night.dusk_margin_minutes,
+                        dawn_margin_minutes=self.config.night.dawn_margin_minutes,
+                    ),
+                    control_interval_s=self.config.control.live_poll_interval_s,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)
                 last_command_at = self._last_command_at.get(device_id)

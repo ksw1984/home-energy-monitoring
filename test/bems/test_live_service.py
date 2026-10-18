@@ -115,9 +115,36 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert asyncio.run(service.run_once(now=now)) == 1
     assert asyncio.run(service.run_once(now=now)) == 0
     assert len(battery.targets) == 1
-    assert battery.targets[0].power_w == -500
+    assert battery.targets[0].power_w == -300
     metrics = {point.metric for point in output_database.writes}
     assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
+
+
+def test_live_controller_reconstructs_load_before_existing_battery_output():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    points = input_measurements(timestamp)
+    battery = RecordingBattery()
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(points),
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+    asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
+    assert battery.targets[-1].power_w == -300
+
+    # The next meter point reflects the prior 300 W discharge: grid import is
+    # 200 W and household import is zero, but the underlying load is unchanged.
+    second_timestamp = timestamp + timedelta(seconds=5)
+    points.extend(
+        [
+            Measurement(second_timestamp, points[0].source, points[0].metric, -200, "W"),
+            Measurement(second_timestamp, points[1].source, points[1].metric, 0, "W"),
+            Measurement(second_timestamp, points[2].source, points[2].metric, 200, "W"),
+        ]
+    )
+    asyncio.run(service.run_once(now=second_timestamp + timedelta(seconds=1)))
+    assert battery.targets[-1].power_w == -300
 
 
 def test_live_service_blocks_unapproved_firmware_and_records_compatibility():
@@ -191,7 +218,7 @@ def test_live_service_requests_zero_when_inputs_become_stale():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=25)))
 
-    assert [command.power_w for command in battery.targets] == [-500, 0]
+    assert [command.power_w for command in battery.targets] == [-300, 0]
     assert any(point.metric == "stale_input" and point.value == 1 for point in output_database.writes)
 
 
@@ -270,7 +297,10 @@ def test_live_service_refreshes_time_limited_vendor_setpoints():
     assert len(battery.targets) == 1
 
     next_timestamp = timestamp + timedelta(seconds=22)
-    input_database.measurements.extend(input_measurements(next_timestamp))
+    next_points = input_measurements(next_timestamp)
+    next_points[0] = replace(next_points[0], value=-200)
+    next_points[1] = replace(next_points[1], value=0)
+    input_database.measurements.extend(next_points)
     assert asyncio.run(service.run_once(now=next_timestamp + timedelta(seconds=1))) == 1
     assert len(battery.targets) == 2
     assert battery.targets[0].power_w == battery.targets[1].power_w

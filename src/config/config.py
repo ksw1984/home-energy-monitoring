@@ -137,6 +137,16 @@ class BemsControlConfig:
 
 
 @dataclass(frozen=True)
+class BemsNightConfig:
+    baseline_household_w: float
+    latitude: float
+    longitude: float
+    timezone: str
+    dusk_margin_minutes: int
+    dawn_margin_minutes: int
+
+
+@dataclass(frozen=True)
 class BatteryProfileConfig:
     name: str
     capacity_wh: float
@@ -166,6 +176,7 @@ class BemsConfig:
     inputs: BemsInputsConfig
     tariffs: BemsTariffConfig
     control: BemsControlConfig
+    night: BemsNightConfig
     profiles: dict[str, BatteryProfileConfig]
     devices: list[BemsDeviceConfig]
 
@@ -312,6 +323,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
     raw_inputs = raw.get("inputs", {})
     raw_control = raw.get("control", {})
     raw_tariffs = raw.get("tariffs", {})
+    raw_night = raw.get("night", {})
 
     def measurement_ref(name: str, default_source: str, default_metric: str) -> BemsMeasurementRef:
         item = raw_inputs.get(name, {})
@@ -385,6 +397,17 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
     if control.live_poll_interval_s <= 0:
         raise ValueError("BEMS live_poll_interval_s must be positive")
 
+    night = BemsNightConfig(
+        baseline_household_w=float(raw_night.get("baseline_household_w", 250.0)),
+        latitude=float(raw_night.get("latitude", 52.4)),
+        longitude=float(raw_night.get("longitude", 13.7)),
+        timezone=str(raw_night.get("timezone", config_data.get("collection", {}).get("timezone", "Europe/Berlin"))),
+        dusk_margin_minutes=int(raw_night.get("dusk_margin_minutes", 30)),
+        dawn_margin_minutes=int(raw_night.get("dawn_margin_minutes", 30)),
+    )
+    if night.baseline_household_w < 0 or min(night.dusk_margin_minutes, night.dawn_margin_minutes) < 0:
+        raise ValueError("BEMS night baseline and margins cannot be negative")
+
     database_types = [item["type"] for item in config_data.get("databases", [])]
     default_history_database = "influxdb" if "influxdb" in database_types else (database_types[0] if database_types else "")
     history_database = str(raw.get("history_database", default_history_database))
@@ -405,6 +428,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
             household_import_ct_per_kwh=float(raw_tariffs.get("household_import_ct_per_kwh", 30.0)),
         ),
         control=control,
+        night=night,
         profiles=profiles,
         devices=devices,
     )

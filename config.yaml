@@ -355,6 +355,14 @@ bems:
     simulation_ramp_seconds: 10
     live_poll_interval_s: 5
 
+  night:
+    baseline_household_w: 250
+    latitude: 52.4
+    longitude: 13.7
+    timezone: Europe/Berlin
+    dusk_margin_minutes: 30
+    dawn_margin_minutes: 30
+
   profiles:
     anker_solarbank_max_ac:
       name: Anker SOLIX Solarbank Max AC

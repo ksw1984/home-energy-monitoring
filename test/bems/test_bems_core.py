@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, UTC
 from src.bems.controller import GridBalancingController
 from src.bems.domain import align_power_samples, BatteryPowerCommand, BatteryProfile, BatteryState, normalize_grid_meter
 from src.bems.economics import interval_cost_cents
+from src.bems.reserve import night_reserve_wh, ZeroSolarForecastProvider
 from src.bems.simulation import SimulatedBattery
 from src.bems.vendor_mocks import MockBatteryEndpoint
 from src.collectors.definitions.common.measurement import Measurement
@@ -87,6 +88,48 @@ def test_controller_clamps_output_and_honors_soc_limits():
         controller.calculate_setpoint(grid_power_w=300, state=low, profile=profile(), device_max_output_power_w=700, global_max_output_power_w=800)
         == 0
     )
+
+
+def test_controller_prioritizes_household_and_reserves_energy_from_heat_pump():
+    controller = GridBalancingController(deadband_w=20)
+    profile_ = profile()
+    state = BatteryState(datetime(2026, 1, 1, tzinfo=UTC), 50, 500, 0, 0)
+    kwargs = {
+        "grid_power_w": 1000,
+        "state": state,
+        "profile": profile_,
+        "device_max_output_power_w": 800,
+        "global_max_output_power_w": 800,
+        "household_power_w": 300,
+        "heat_pump_power_w": 700,
+        "control_interval_s": 10,
+    }
+    assert controller.calculate_setpoint(**kwargs, heat_pump_reserve_wh=500) == -300
+    assert controller.calculate_setpoint(**kwargs, heat_pump_reserve_wh=0) == -800
+
+
+def test_night_reserve_and_forecast_default():
+    timestamp = datetime(2026, 1, 15, 12, tzinfo=UTC)
+    reserve_profile = profile(capacity_wh=7000)
+    reserve = night_reserve_wh(
+        timestamp=timestamp,
+        profile=reserve_profile,
+        baseline_household_w=250,
+        latitude=52.4,
+        longitude=13.7,
+        timezone="Europe/Berlin",
+    )
+    assert reserve > 100
+    before_dawn_reserve = night_reserve_wh(
+        timestamp=datetime(2026, 1, 15, 2, tzinfo=UTC),
+        profile=reserve_profile,
+        baseline_household_w=250,
+        latitude=52.4,
+        longitude=13.7,
+        timezone="Europe/Berlin",
+    )
+    assert 100 < before_dawn_reserve < reserve
+    assert ZeroSolarForecastProvider().expected_pv_energy_kwh(timestamp) == 0
 
 
 def test_costs_use_household_tariff_and_export_tariff():
