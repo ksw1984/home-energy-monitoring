@@ -30,7 +30,12 @@ class GridBalancingController:
             requested_power_w = -grid_power_w
             if state.soc_percent >= profile.max_soc_percent:
                 return 0.0
-            return min(requested_power_w, profile.max_charge_power_w)
+            charge_limit_w = min(
+                profile.max_charge_power_w,
+                max(0.0, device_max_output_power_w),
+                max(0.0, global_max_output_power_w),
+            )
+            return min(requested_power_w, charge_limit_w)
 
         if grid_power_w <= self.deadband_w:
             return 0.0
@@ -45,11 +50,22 @@ class GridBalancingController:
         if output_limit_w <= 0:
             return 0.0
 
+        # Keep the configured import margin at the grid connection. This cap
+        # applies to the combined household and heat-pump discharge request.
+        grid_headroom_w = max(0.0, grid_power_w - self.deadband_w)
+        if grid_headroom_w <= 0:
+            return 0.0
+
         # Household demand has first claim on available battery output. Heat-pump
         # demand is served only by energy above the reserve for the coming night.
         household_demand_w = max(0.0, household_power_w if household_power_w is not None else grid_power_w)
-        household_discharge_w = min(household_demand_w, output_limit_w)
+        household_discharge_w = min(household_demand_w, output_limit_w, grid_headroom_w)
         energy_above_reserve_wh = max(0.0, state.energy_wh - heat_pump_reserve_wh)
         reserve_limited_hp_w = energy_above_reserve_wh * profile.discharge_efficiency * 3600.0 / max(1.0, control_interval_s)
-        heat_pump_discharge_w = min(max(0.0, heat_pump_power_w), max(0.0, output_limit_w - household_discharge_w), reserve_limited_hp_w)
+        heat_pump_discharge_w = min(
+            max(0.0, heat_pump_power_w),
+            max(0.0, output_limit_w - household_discharge_w),
+            max(0.0, grid_headroom_w - household_discharge_w),
+            reserve_limited_hp_w,
+        )
         return -(household_discharge_w + heat_pump_discharge_w)
