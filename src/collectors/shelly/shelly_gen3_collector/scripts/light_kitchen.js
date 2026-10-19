@@ -10,190 +10,274 @@
  */
 
 const CHECK_MS = 30000;
+
 const MORNING_START = 360; // 06:00
 const EVENING_END = 1290; // 21:30
 
-let running = false;
-let lastDecision = null;
+let manualOverride = false;
+let manualOverrideStart = 0;
+let overrideUntil = 0;
 
-function minutesOfDay(date) {
-    return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
-}
+let expectedState = null;
+let ignoreEventsUntil = 0;
+const running = true;
 
-function sameLocalDay(timestamp, date) {
-    const d = new Date(timestamp * 1000);
-    return (
-        d.getFullYear() === date.getFullYear() &&
-        d.getMonth() === date.getMonth() &&
-        d.getDate() === date.getDate()
-    );
-}
-
-function todayEvent(result, date) {
-    if (!result) return null;
-
-    if (typeof result.prev === "number" && sameLocalDay(result.prev, date)) {
-        return result.prev;
-    }
-
-    if (typeof result.next === "number" && sameLocalDay(result.next, date)) {
-        return result.next;
-    }
-
-    return null;
-}
-
-function formatTime(timestamp) {
-    const d = new Date(timestamp * 1000);
-    return (
-        ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2)
-    );
+function log(msg) {
+    print("[LightControl] " + msg);
 }
 
 function setOutput(on, reason) {
     const status = Shelly.getComponentStatus("switch", 0);
 
     if (!status) {
-        console.log("ERROR: Switch status unavailable");
+        log("Cannot read switch status: " + reason);
         return;
     }
 
-    if (status.output === on) return;
+    if (status.output === on) {
+        return;
+    }
+
+    expectedState = on;
+    ignoreEventsUntil = Date.now() + 2000;
 
     Shelly.call(
         "Switch.Set",
         { id: 0, on: on },
-        function (result, err, message) {
-            if (err) {
-                console.log("ERROR Switch.Set:", err, message);
-                return;
+        function (res, errCode, errMsg) {
+            if (errCode !== 0) {
+                expectedState = null;
+                log("Switch.Set failed: " + errMsg);
+            } else {
+                log("Switched " + (on ? "ON" : "OFF") + ": " + reason);
             }
-
-            console.log("Output:", on ? "ON" : "OFF", "|", reason);
         },
     );
 }
 
 function failSafe(reason) {
-    running = false;
-    console.log("ERROR:", reason, "- switching OFF");
-    setOutput(false, reason);
+    log("Fail-safe: " + reason);
+
+    if (!manualOverride) {
+        setOutput(false, reason);
+    }
+}
+
+function getTodayEvent(result, nowTs) {
+    if (!result) {
+        return null;
+    }
+
+    const nowDate = new Date(nowTs * 1000);
+    const todayYear = nowDate.getFullYear();
+    const todayMonth = nowDate.getMonth();
+    const todayDay = nowDate.getDate();
+
+    function isToday(ts) {
+        if (typeof ts !== "number" || ts <= 0) {
+            return false;
+        }
+
+        const d = new Date(ts * 1000);
+
+        return (
+            d.getFullYear() === todayYear &&
+            d.getMonth() === todayMonth &&
+            d.getDate() === todayDay
+        );
+    }
+
+    if (isToday(result.prev)) {
+        return result.prev;
+    }
+
+    if (isToday(result.next)) {
+        return result.next;
+    }
+
+    return null;
+}
+
+function nextFixedBoundary(hour, minute, afterTs) {
+    const d = new Date(afterTs * 1000);
+
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const day = d.getDate();
+
+    // Calculate today's local midnight from the current timestamp.
+    const midnight =
+        afterTs - (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds());
+
+    let candidate = midnight + hour * 3600 + minute * 60;
+
+    // Adjust for timezone offset changes.
+    const targetDate = new Date(candidate * 1000);
+    const offsetNow = d.getTimezoneOffset();
+    const offsetTarget = targetDate.getTimezoneOffset();
+
+    candidate += (offsetNow - offsetTarget) * 60;
+
+    if (candidate <= afterTs) {
+        const nextDay = new Date((midnight + 86400) * 1000);
+        let nextMidnight = midnight + 86400;
+
+        const dayOffset = nextDay.getTimezoneOffset();
+        nextMidnight += (offsetNow - dayOffset) * 60;
+
+        candidate = nextMidnight + hour * 3600 + minute * 60;
+
+        const targetNext = new Date(candidate * 1000);
+        candidate += (dayOffset - targetNext.getTimezoneOffset()) * 60;
+    }
+
+    return candidate;
+}
+
+function nextBoundary(afterTs, sunriseTs, sunsetTs) {
+    const candidates = [];
+
+    candidates.push(nextFixedBoundary(6, 0, afterTs));
+    candidates.push(nextFixedBoundary(21, 30, afterTs));
+
+    if (sunriseTs && sunriseTs > afterTs) {
+        candidates.push(sunriseTs);
+    }
+
+    if (sunsetTs && sunsetTs > afterTs) {
+        candidates.push(sunsetTs);
+    }
+
+    let next = candidates[0];
+
+    for (let i = 1; i < candidates.length; i++) {
+        if (candidates[i] < next) {
+            next = candidates[i];
+        }
+    }
+
+    return next;
 }
 
 function evaluate() {
-    if (running) return;
-    running = true;
-
-    const sys = Shelly.getComponentStatus("sys");
-
-    if (!sys || typeof sys.unixtime !== "number" || sys.unixtime < 1700000000) {
-        failSafe("System time invalid");
+    if (!running) {
         return;
     }
 
-    const nowTimestamp = sys.unixtime;
-    const now = new Date(nowTimestamp * 1000);
-    const currentMinutes = minutesOfDay(now);
+    Shelly.call("Sys.GetStatus", {}, function (sys, errCode, errMsg) {
+        if (errCode !== 0 || !sys || !sys.unixtime) {
+            failSafe("Cannot get system time");
+            return;
+        }
 
-    // Get sunrise using Shelly's solar-time calculation.
-    Shelly.call(
-        "Schedule.Eval",
-        {
-            timespec: "@sunrise",
-            now: nowTimestamp,
-        },
-        function (rise, riseErr, riseMessage) {
-            if (riseErr || !rise) {
-                failSafe(
-                    "Schedule.Eval @sunrise: " + riseErr + " " + riseMessage,
+        const nowTs = sys.unixtime;
+        const nowDate = new Date(nowTs * 1000);
+
+        const currentMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+
+        Shelly.call(
+            "Schedule.Eval",
+            { timespec: "@sunrise", now: nowTs },
+            function (sunriseResult, sunriseErr) {
+                if (sunriseErr !== 0 || !sunriseResult) {
+                    failSafe("Cannot calculate sunrise");
+                    return;
+                }
+
+                Shelly.call(
+                    "Schedule.Eval",
+                    { timespec: "@sunset", now: nowTs },
+                    function (sunsetResult, sunsetErr) {
+                        if (sunsetErr !== 0 || !sunsetResult) {
+                            failSafe("Cannot calculate sunset");
+                            return;
+                        }
+
+                        const sunriseTs = getTodayEvent(sunriseResult, nowTs);
+                        const sunsetTs = getTodayEvent(sunsetResult, nowTs);
+
+                        if (!sunriseTs || !sunsetTs) {
+                            failSafe("Sunrise or sunset unavailable for today");
+                            return;
+                        }
+
+                        // Release a manual override at the next phase boundary.
+                        if (manualOverride) {
+                            if (overrideUntil === 0) {
+                                overrideUntil = nextBoundary(
+                                    manualOverrideStart,
+                                    sunriseTs,
+                                    sunsetTs,
+                                );
+                            }
+
+                            if (nowTs >= overrideUntil) {
+                                manualOverride = false;
+                                overrideUntil = 0;
+                                log("Manual override expired");
+                            } else {
+                                return;
+                            }
+                        }
+
+                        const sunriseMinutes =
+                            new Date(sunriseTs * 1000).getHours() * 60 +
+                            new Date(sunriseTs * 1000).getMinutes();
+
+                        const sunsetMinutes =
+                            new Date(sunsetTs * 1000).getHours() * 60 +
+                            new Date(sunsetTs * 1000).getMinutes();
+
+                        let shouldBeOn = false;
+
+                        // Evening: after sunset, but before 21:30.
+                        if (
+                            currentMinutes >= sunsetMinutes &&
+                            currentMinutes < EVENING_END
+                        ) {
+                            shouldBeOn = true;
+                        }
+
+                        // Morning: from 06:00 until sunrise.
+                        if (
+                            currentMinutes >= MORNING_START &&
+                            currentMinutes < sunriseMinutes
+                        ) {
+                            shouldBeOn = true;
+                        }
+
+                        setOutput(shouldBeOn, "Automatic schedule");
+                    },
                 );
-                return;
-            }
-
-            // Get sunset using the same API.
-            Shelly.call(
-                "Schedule.Eval",
-                {
-                    timespec: "@sunset",
-                    now: nowTimestamp,
-                },
-                function (sun, sunErr, sunMessage) {
-                    if (sunErr || !sun) {
-                        failSafe(
-                            "Schedule.Eval @sunset: " +
-                                sunErr +
-                                " " +
-                                sunMessage,
-                        );
-                        return;
-                    }
-
-                    const sunriseTimestamp = todayEvent(rise, now);
-                    const sunsetTimestamp = todayEvent(sun, now);
-
-                    if (sunriseTimestamp === null || sunsetTimestamp === null) {
-                        failSafe("Solar event for today is missing");
-                        return;
-                    }
-
-                    const sunrise = new Date(sunriseTimestamp * 1000);
-                    const sunset = new Date(sunsetTimestamp * 1000);
-
-                    const sunriseMinutes = minutesOfDay(sunrise);
-                    const sunsetMinutes = minutesOfDay(sunset);
-
-                    // Condition 1:
-                    // Turn ON after sunset, but only before 21:30.
-                    const eveningOn =
-                        sunsetMinutes < EVENING_END &&
-                        currentMinutes >= sunsetMinutes &&
-                        currentMinutes < EVENING_END;
-
-                    // Condition 2:
-                    // At and after 21:30, the evening window is closed.
-
-                    // Condition 3:
-                    // At 06:00, turn ON only if sunrise is still ahead.
-                    const morningOn =
-                        sunriseMinutes > MORNING_START &&
-                        currentMinutes >= MORNING_START &&
-                        currentMinutes < sunriseMinutes;
-
-                    // Condition 4:
-                    // At sunrise, the morning window ends automatically.
-                    const desired = morningOn || eveningOn;
-
-                    const reason = morningOn
-                        ? "Morning window"
-                        : eveningOn
-                          ? "Evening window"
-                          : "Outside active windows";
-
-                    const decisionKey = desired ? "ON" : "OFF";
-
-                    if (lastDecision !== decisionKey) {
-                        console.log(
-                            "Time:",
-                            sys.time,
-                            "| Sunrise:",
-                            formatTime(sunriseTimestamp),
-                            "| Sunset:",
-                            formatTime(sunsetTimestamp),
-                            "| Target:",
-                            decisionKey,
-                        );
-                        lastDecision = decisionKey;
-                    }
-
-                    running = false;
-                    setOutput(desired, reason);
-                },
-            );
-        },
-    );
+            },
+        );
+    });
 }
 
-console.log("Light control started using Shelly solar times");
+Shelly.addEventHandler(function (event) {
+    if (!event || event.component !== "switch:0" || !event.info) {
+        return;
+    }
+
+    if (typeof event.info.state !== "boolean") {
+        return;
+    }
+
+    const state = event.info.state;
+
+    // Ignore events caused by this script's own recent command.
+    if (expectedState === state && Date.now() <= ignoreEventsUntil) {
+        expectedState = null;
+        return;
+    }
+
+    manualOverride = true;
+    manualOverrideStart = Math.floor(Date.now() / 1000);
+    overrideUntil = 0;
+
+    log("Manual override activated: " + (state ? "ON" : "OFF"));
+});
+
+Timer.set(CHECK_MS, true, evaluate);
 
 evaluate();
-Timer.set(CHECK_MS, true, evaluate);
