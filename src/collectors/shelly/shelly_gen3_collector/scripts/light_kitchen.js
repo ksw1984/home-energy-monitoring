@@ -1,31 +1,52 @@
 /*
  * Shelly Plug M Gen3 — Automatic Light Control
  *
- * Evening: Sunset until 21:30 -> ON, then OFF
- * Morning: 06:00 until sunrise -> ON
- * Otherwise: OFF
+ * Schedule:
+ *   - Turn ON at sunset, but only if sunset is before 21:30.
+ *   - Turn OFF at 21:30, regardless of sunset.
+ *   - Turn ON at 06:00 only if sunrise is still in the future.
+ *   - Turn OFF at sunrise.
  *
- * Solar times: Shelly Schedule.Eval API
- * Location and time zone: Shelly device settings
+ * Manual override:
+ *   - Manual switching is respected until the next schedule boundary.
+ *   - The next boundary is the earliest upcoming 06:00, 21:30,
+ *     sunrise or sunset event.
+ *   - Restarting the script clears the override and immediately
+ *     applies the schedule for the current time.
+ *
+ * Implementation:
+ *   - Uses Shelly Schedule.Eval for fixed and solar event timestamps.
+ *   - Compares Unix timestamps directly; no custom date arithmetic.
+ *   - Checks the schedule every 30 seconds.
+ *
+ * Note:
+ *   - Device location and timezone must be configured in Shelly.
  */
 
 const CHECK_MS = 30000;
 
-const MORNING_START = 360; // 06:00
-const EVENING_END = 1290; // 21:30
+const EVENTS = [
+    { name: "06:00", spec: "0 0 6 * * *", on: true },
+    { name: "21:30", spec: "0 30 21 * * *", on: false },
+    { name: "sunrise", spec: "@sunrise", on: false },
+    { name: "sunset", spec: "@sunset", on: true },
+];
 
 let manualOverride = false;
-let manualOverrideStart = 0;
 let overrideUntil = 0;
 
 let expectedState = null;
 let ignoreEventsUntil = 0;
-const running = true;
 
 function log(msg) {
     print("[LightControl] " + msg);
 }
 
+/*
+ * Switch the output only when its current state differs.
+ * A short-lived expectedState marker helps distinguish commands
+ * issued by this script from manual switch changes.
+ */
 function setOutput(on, reason) {
     const status = Shelly.getComponentStatus("switch", 0);
 
@@ -55,6 +76,123 @@ function setOutput(on, reason) {
     );
 }
 
+/*
+ * Read the previous and next occurrence of each event using
+ * Shelly's Schedule.Eval API.
+ *
+ * Calls are made sequentially to avoid overlapping requests.
+ * callback receives (results, null) on success or (null, error).
+ */
+function getEvents(nowTs, callback) {
+    const results = [];
+    let index = 0;
+
+    function next() {
+        if (index >= EVENTS.length) {
+            callback(results, null);
+            return;
+        }
+
+        const event = EVENTS[index];
+
+        Shelly.call(
+            "Schedule.Eval",
+            { timespec: event.spec, now: nowTs },
+            function (result, errCode, errMsg) {
+                if (errCode !== 0 || !result) {
+                    callback(
+                        null,
+                        "Schedule.Eval failed for " +
+                            event.name +
+                            ": " +
+                            errMsg,
+                    );
+                    return;
+                }
+
+                results.push({
+                    name: event.name,
+                    spec: event.spec,
+                    prev: result.prev || 0,
+                    next: result.next || 0,
+                });
+
+                index++;
+                next();
+            },
+        );
+    }
+
+    next();
+}
+
+/*
+ * Find the next schedule boundary after the supplied timestamp.
+ * All times are returned by Shelly as Unix timestamps, so no
+ * local date calculations or timezone-offset calculations are needed.
+ */
+function findNextBoundary(events, afterTs) {
+    let nextBoundary = 0;
+
+    for (let i = 0; i < events.length; i++) {
+        const t = events[i].next;
+
+        if (t > afterTs && (!nextBoundary || t < nextBoundary)) {
+            nextBoundary = t;
+        }
+    }
+
+    return nextBoundary;
+}
+
+/*
+ * Find the most recent occurrence of a named event.
+ * The result is a timestamp, or 0 if no previous occurrence exists.
+ */
+function findPreviousEvent(events, name) {
+    for (let i = 0; i < events.length; i++) {
+        if (events[i].name === name) {
+            return events[i].prev;
+        }
+    }
+
+    return 0;
+}
+
+/*
+ * Determine the desired output from the actual event timestamps.
+ *
+ * Morning ON window:
+ *   06:00 <= now < sunrise
+ *
+ * Evening ON window:
+ *   sunset <= now < 21:30
+ *
+ * Comparing timestamps directly also handles the cases where
+ * sunrise is before 06:00 or sunset is after 21:30.
+ */
+function calculateDesiredState(events, nowTs) {
+    const morningStart = findPreviousEvent(events, "06:00");
+    const eveningEnd = findPreviousEvent(events, "21:30");
+    const sunrise = findPreviousEvent(events, "sunrise");
+    const sunset = findPreviousEvent(events, "sunset");
+
+    if (!morningStart || !eveningEnd || !sunrise || !sunset) {
+        return null;
+    }
+
+    const morningOn = nowTs >= morningStart && nowTs < sunrise;
+
+    const eveningOn = nowTs >= sunset && nowTs < eveningEnd;
+
+    return morningOn || eveningOn;
+}
+
+/*
+ * Fail-safe behavior:
+ * if time or schedule information cannot be retrieved, log the
+ * problem and turn OFF unless a manual override is active.
+ */
 function failSafe(reason) {
     log("Fail-safe: " + reason);
 
@@ -63,221 +201,112 @@ function failSafe(reason) {
     }
 }
 
-function getTodayEvent(result, nowTs) {
-    if (!result) {
-        return null;
-    }
-
-    const nowDate = new Date(nowTs * 1000);
-    const todayYear = nowDate.getFullYear();
-    const todayMonth = nowDate.getMonth();
-    const todayDay = nowDate.getDate();
-
-    function isToday(ts) {
-        if (typeof ts !== "number" || ts <= 0) {
-            return false;
-        }
-
-        const d = new Date(ts * 1000);
-
-        return (
-            d.getFullYear() === todayYear &&
-            d.getMonth() === todayMonth &&
-            d.getDate() === todayDay
-        );
-    }
-
-    if (isToday(result.prev)) {
-        return result.prev;
-    }
-
-    if (isToday(result.next)) {
-        return result.next;
-    }
-
-    return null;
-}
-
-function nextFixedBoundary(hour, minute, afterTs) {
-    const d = new Date(afterTs * 1000);
-
-    const year = d.getFullYear();
-    const month = d.getMonth();
-    const day = d.getDate();
-
-    // Calculate today's local midnight from the current timestamp.
-    const midnight =
-        afterTs - (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds());
-
-    let candidate = midnight + hour * 3600 + minute * 60;
-
-    // Adjust for timezone offset changes.
-    const targetDate = new Date(candidate * 1000);
-    const offsetNow = d.getTimezoneOffset();
-    const offsetTarget = targetDate.getTimezoneOffset();
-
-    candidate += (offsetNow - offsetTarget) * 60;
-
-    if (candidate <= afterTs) {
-        const nextDay = new Date((midnight + 86400) * 1000);
-        let nextMidnight = midnight + 86400;
-
-        const dayOffset = nextDay.getTimezoneOffset();
-        nextMidnight += (offsetNow - dayOffset) * 60;
-
-        candidate = nextMidnight + hour * 3600 + minute * 60;
-
-        const targetNext = new Date(candidate * 1000);
-        candidate += (dayOffset - targetNext.getTimezoneOffset()) * 60;
-    }
-
-    return candidate;
-}
-
-function nextBoundary(afterTs, sunriseTs, sunsetTs) {
-    const candidates = [];
-
-    candidates.push(nextFixedBoundary(6, 0, afterTs));
-    candidates.push(nextFixedBoundary(21, 30, afterTs));
-
-    if (sunriseTs && sunriseTs > afterTs) {
-        candidates.push(sunriseTs);
-    }
-
-    if (sunsetTs && sunsetTs > afterTs) {
-        candidates.push(sunsetTs);
-    }
-
-    let next = candidates[0];
-
-    for (let i = 1; i < candidates.length; i++) {
-        if (candidates[i] < next) {
-            next = candidates[i];
-        }
-    }
-
-    return next;
-}
-
+/*
+ * Evaluate the schedule.
+ *
+ * A restart starts with manualOverride=false, so the current
+ * schedule is applied immediately.
+ */
 function evaluate() {
-    if (!running) {
-        return;
-    }
-
     Shelly.call("Sys.GetStatus", {}, function (sys, errCode, errMsg) {
         if (errCode !== 0 || !sys || !sys.unixtime) {
-            failSafe("Cannot get system time");
+            failSafe("Cannot get system time: " + errMsg);
             return;
         }
 
         const nowTs = sys.unixtime;
-        const nowDate = new Date(nowTs * 1000);
 
-        const currentMinutes = nowDate.getHours() * 60 + nowDate.getMinutes();
+        getEvents(nowTs, function (events, error) {
+            if (error) {
+                failSafe(error);
+                return;
+            }
 
-        Shelly.call(
-            "Schedule.Eval",
-            { timespec: "@sunrise", now: nowTs },
-            function (sunriseResult, sunriseErr) {
-                if (sunriseErr !== 0 || !sunriseResult) {
-                    failSafe("Cannot calculate sunrise");
+            /*
+             * While manually overridden, leave the output alone
+             * until the next schedule boundary.
+             */
+            if (manualOverride) {
+                if (overrideUntil && nowTs < overrideUntil) {
                     return;
                 }
 
-                Shelly.call(
-                    "Schedule.Eval",
-                    { timespec: "@sunset", now: nowTs },
-                    function (sunsetResult, sunsetErr) {
-                        if (sunsetErr !== 0 || !sunsetResult) {
-                            failSafe("Cannot calculate sunset");
-                            return;
-                        }
+                manualOverride = false;
+                overrideUntil = 0;
+                log("Manual override expired");
+            }
 
-                        const sunriseTs = getTodayEvent(sunriseResult, nowTs);
-                        const sunsetTs = getTodayEvent(sunsetResult, nowTs);
+            const desiredState = calculateDesiredState(events, nowTs);
 
-                        if (!sunriseTs || !sunsetTs) {
-                            failSafe("Sunrise or sunset unavailable for today");
-                            return;
-                        }
+            if (desiredState === null) {
+                failSafe("Required schedule event unavailable");
+                return;
+            }
 
-                        // Release a manual override at the next phase boundary.
-                        if (manualOverride) {
-                            if (overrideUntil === 0) {
-                                overrideUntil = nextBoundary(
-                                    manualOverrideStart,
-                                    sunriseTs,
-                                    sunsetTs,
-                                );
-                            }
-
-                            if (nowTs >= overrideUntil) {
-                                manualOverride = false;
-                                overrideUntil = 0;
-                                log("Manual override expired");
-                            } else {
-                                return;
-                            }
-                        }
-
-                        const sunriseMinutes =
-                            new Date(sunriseTs * 1000).getHours() * 60 +
-                            new Date(sunriseTs * 1000).getMinutes();
-
-                        const sunsetMinutes =
-                            new Date(sunsetTs * 1000).getHours() * 60 +
-                            new Date(sunsetTs * 1000).getMinutes();
-
-                        let shouldBeOn = false;
-
-                        // Evening: after sunset, but before 21:30.
-                        if (
-                            currentMinutes >= sunsetMinutes &&
-                            currentMinutes < EVENING_END
-                        ) {
-                            shouldBeOn = true;
-                        }
-
-                        // Morning: from 06:00 until sunrise.
-                        if (
-                            currentMinutes >= MORNING_START &&
-                            currentMinutes < sunriseMinutes
-                        ) {
-                            shouldBeOn = true;
-                        }
-
-                        setOutput(shouldBeOn, "Automatic schedule");
-                    },
-                );
-            },
-        );
+            setOutput(desiredState, "Automatic schedule");
+        });
     });
 }
 
+/*
+ * Detect manual changes to switch:0.
+ * Script-generated switch commands are ignored when they match
+ * the expected state and occur within the short ignore window.
+ *
+ * For a genuine manual change, calculate the next boundary using
+ * the same Shelly API events used by the scheduler.
+ */
 Shelly.addEventHandler(function (event) {
-    if (!event || event.component !== "switch:0" || !event.info) {
-        return;
-    }
-
-    if (typeof event.info.state !== "boolean") {
+    if (
+        !event ||
+        event.component !== "switch:0" ||
+        !event.info ||
+        typeof event.info.state !== "boolean"
+    ) {
         return;
     }
 
     const state = event.info.state;
 
-    // Ignore events caused by this script's own recent command.
+    // Ignore a recent event caused by our own command.
     if (expectedState === state && Date.now() <= ignoreEventsUntil) {
         expectedState = null;
         return;
     }
 
     manualOverride = true;
-    manualOverrideStart = Math.floor(Date.now() / 1000);
     overrideUntil = 0;
 
     log("Manual override activated: " + (state ? "ON" : "OFF"));
+
+    Shelly.call("Sys.GetStatus", {}, function (sys, errCode, errMsg) {
+        if (errCode !== 0 || !sys || !sys.unixtime) {
+            log("Cannot calculate manual override boundary");
+            return;
+        }
+
+        const nowTs = sys.unixtime;
+
+        getEvents(nowTs, function (events, error) {
+            if (error) {
+                log("Cannot calculate override boundary: " + error);
+                return;
+            }
+
+            overrideUntil = findNextBoundary(events, nowTs);
+
+            if (!overrideUntil) {
+                log("No upcoming schedule boundary found");
+            }
+        });
+    });
 });
 
+/*
+ * Start periodic evaluation and immediately apply the current
+ * schedule. Timer.set uses the Shelly scripting API signature:
+ * Timer.set(milliseconds, repeat, callback).
+ */
 Timer.set(CHECK_MS, true, evaluate);
 
 evaluate();
