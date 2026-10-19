@@ -135,20 +135,22 @@ class InfluxDatabase(BaseDatabase):
         if start_time is None:
             raise ValueError("start or after must be provided")
         start_literal = json.dumps(start_time.isoformat())
-        stop_range = f"datetime(v: {json.dumps(stop.isoformat())})" if stop is not None else "now()"
+        # Flux parses RFC3339 timestamps with time(); datetime() is not a
+        # built-in Flux function and makes the query fail at runtime.
+        stop_range = f"time(v: {json.dumps(stop.isoformat())})" if stop is not None else "now()"
         metric_set = ", ".join(json.dumps(metric) for metric in metrics)
         source_literal = json.dumps(source)
         query = (
             f"from(bucket: {json.dumps(self.bucket)})\n"
-            f"  |> range(start: datetime(v: {start_literal}), stop: {stop_range})\n"
+            f"  |> range(start: time(v: {start_literal}), stop: {stop_range})\n"
             f"  |> filter(fn: (r) => r.source == {source_literal})\n"
             f"  |> filter(fn: (r) => contains(value: r._measurement, set: [{metric_set}]))\n"
             '  |> filter(fn: (r) => r._field == "value" or r._field == "unit" or r._field == "measurement_type")\n'
         )
         if after is not None:
-            query += f"  |> filter(fn: (r) => r._time > datetime(v: {json.dumps(after.isoformat())}))\n"
+            query += f"  |> filter(fn: (r) => r._time > time(v: {json.dumps(after.isoformat())}))\n"
         if stop is not None:
-            query += f"  |> filter(fn: (r) => r._time < datetime(v: {json.dumps(stop.isoformat())}))\n"
+            query += f"  |> filter(fn: (r) => r._time < time(v: {json.dumps(stop.isoformat())}))\n"
         query += (
             '  |> pivot(rowKey: ["_time", "_measurement", "source"], columnKey: ["_field"], valueColumn: "_value")\n'
             '  |> sort(columns: ["_time"])\n'
