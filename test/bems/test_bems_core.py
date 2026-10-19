@@ -2,7 +2,14 @@ import asyncio
 from datetime import datetime, timedelta, UTC
 
 from src.bems.controller import GridBalancingController
-from src.bems.domain import align_power_samples, BatteryPowerCommand, BatteryProfile, BatteryState, normalize_grid_meter
+from src.bems.domain import (
+    align_power_samples,
+    BatteryPowerCommand,
+    BatteryProfile,
+    BatteryState,
+    estimate_power_without_battery,
+    normalize_grid_meter,
+)
 from src.bems.economics import interval_cost_cents
 from src.bems.reserve import night_reserve_wh, ZeroSolarForecastProvider
 from src.bems.simulation import SimulatedBattery
@@ -44,12 +51,90 @@ def test_bems_config_rejects_unknown_profile_reference():
         _load_bems_config({"bems": {"profiles": {}, "devices": [{"id": "x", "profile": "missing"}]}})
 
 
-def test_meter_sign_is_normalized_and_alignment_does_not_look_ahead():
+def test_meter_import_sign_and_alignment_do_not_look_ahead():
     t0 = datetime(2026, 1, 1, tzinfo=UTC)
-    assert normalize_grid_meter(measurement("grid_active_power", -420, timestamp=t0)) == 420
-    grid = [measurement("grid_active_power", -420, timestamp=t0 + timedelta(seconds=5))]
-    household_future = [measurement("grid_active_power", -200, timestamp=t0 + timedelta(seconds=6))]
+    assert normalize_grid_meter(measurement("grid_active_power", 420, timestamp=t0)) == 420
+    grid = [measurement("grid_active_power", 420, timestamp=t0 + timedelta(seconds=5))]
+    household_future = [measurement("grid_active_power", 200, timestamp=t0 + timedelta(seconds=6))]
     assert align_power_samples(grid, household_future, [], tolerance_seconds=10) == []
+
+
+def test_legacy_dlms_power_without_unit_is_interpreted_as_kw():
+    point = measurement(
+        "grid_active_power",
+        0.42,
+        source="meter_grid_dlms",
+        unit="",
+    )
+
+    assert normalize_grid_meter(point) == pytest.approx(420)
+
+
+def test_positive_meter_import_triggers_discharge_and_soc_falls():
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    sample = align_power_samples(
+        [measurement("grid_active_power", 230, source="meter_grid_dlms", timestamp=timestamp)],
+        [measurement("grid_active_power", 210, source="meter_household_dlms", timestamp=timestamp)],
+        [],
+        tolerance_seconds=10,
+    )[0]
+    battery = SimulatedBattery(profile=profile(), initial_soc_percent=50, max_output_power_w=800, ramp_seconds=0, timestamp=timestamp)
+    controller = GridBalancingController(deadband_w=20)
+    state = asyncio.run(battery.get_state())
+    setpoint = controller.calculate_setpoint(
+        grid_power_w=sample.grid_w,
+        household_power_w=sample.household_w,
+        heat_pump_power_w=sample.heat_pump_w,
+        heat_pump_reserve_wh=100,
+        state=state,
+        profile=battery.profile,
+        device_max_output_power_w=800,
+        global_max_output_power_w=800,
+    )
+    asyncio.run(battery.set_power(BatteryPowerCommand(timestamp, setpoint)))
+    state_after_discharge = battery.advance_to(timestamp + timedelta(minutes=1))
+
+    assert sample.grid_w == 230
+    assert setpoint == -210
+    assert sample.grid_w + setpoint == 20
+    assert battery.actual_power_w < 0
+    assert state_after_discharge.soc_percent < state.soc_percent
+
+
+def test_baseline_estimate_uses_actual_battery_delivery_not_requested_power():
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    actual = BatteryState(timestamp, 50, 500, charge_power_w=0, discharge_power_w=480)
+
+    assert estimate_power_without_battery(20, actual) == 500
+
+    charging = BatteryState(timestamp, 50, 500, charge_power_w=300, discharge_power_w=0)
+    assert estimate_power_without_battery(800, charging) == 500
+
+
+def test_export_requests_charge_but_honors_800_w_global_and_device_limits():
+    controller = GridBalancingController(deadband_w=20)
+    setpoint = controller.calculate_setpoint(
+        grid_power_w=-2000,
+        state=BatteryState(datetime(2026, 1, 1, tzinfo=UTC), 50, 500, 0, 0),
+        profile=profile(max_charge_power_w=3500),
+        device_max_output_power_w=800,
+        global_max_output_power_w=800,
+    )
+
+    assert setpoint == 800
+
+
+def test_simulated_battery_caps_charge_and_discharge_at_configured_limit():
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    battery = SimulatedBattery(
+        profile=profile(max_charge_power_w=3500), initial_soc_percent=50, max_output_power_w=800, ramp_seconds=0, timestamp=timestamp
+    )
+
+    asyncio.run(battery.set_power(BatteryPowerCommand(timestamp, 2500)))
+    assert battery.actual_power_w == 800
+
+    asyncio.run(battery.set_power(BatteryPowerCommand(timestamp, -2500)))
+    assert battery.actual_power_w == -800
 
 
 def test_battery_applies_charge_and_discharge_efficiencies():
@@ -74,6 +159,19 @@ def test_battery_ramp_and_soc_boundary_limit_actual_energy():
     state = battery.advance_to(t0 + timedelta(seconds=10))
     assert state.energy_wh <= 1000
     assert battery.charge_loss_wh > 0
+
+
+def test_repeated_identical_setpoint_does_not_restart_power_ramp():
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    battery = SimulatedBattery(profile=profile(), initial_soc_percent=50, max_output_power_w=1000, ramp_seconds=10, timestamp=t0)
+
+    asyncio.run(battery.set_power(BatteryPowerCommand(t0, 500)))
+    for second in range(1, 11):
+        timestamp = t0 + timedelta(seconds=second)
+        battery.advance_to(timestamp)
+        asyncio.run(battery.set_power(BatteryPowerCommand(timestamp, 500)))
+
+    assert battery.actual_power_w == 500
 
 
 def test_controller_clamps_output_and_honors_soc_limits():
@@ -108,6 +206,23 @@ def test_controller_prioritizes_household_and_reserves_energy_from_heat_pump():
     assert controller.calculate_setpoint(**kwargs, heat_pump_reserve_wh=0) == -800
 
 
+def test_controller_keeps_configured_import_margin_and_prevents_grid_export():
+    controller = GridBalancingController(deadband_w=20)
+    setpoint = controller.calculate_setpoint(
+        grid_power_w=500,
+        state=BatteryState(datetime(2026, 1, 1, tzinfo=UTC), 50, 500, 0, 0),
+        profile=profile(),
+        device_max_output_power_w=800,
+        global_max_output_power_w=800,
+        household_power_w=300,
+        heat_pump_power_w=700,
+        heat_pump_reserve_wh=0,
+    )
+
+    assert setpoint == -480
+    assert 500 + setpoint == 20
+
+
 def test_night_reserve_and_forecast_default():
     timestamp = datetime(2026, 1, 15, 12, tzinfo=UTC)
     reserve_profile = profile(capacity_wh=7000)
@@ -128,8 +243,37 @@ def test_night_reserve_and_forecast_default():
         longitude=13.7,
         timezone="Europe/Berlin",
     )
-    assert 100 < before_dawn_reserve < reserve
+    assert reserve == 700
+    assert before_dawn_reserve > reserve
+    assert before_dawn_reserve <= reserve_profile.capacity_wh
     assert ZeroSolarForecastProvider().expected_pv_energy_kwh(timestamp) == 0
+
+
+def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
+    local_morning = datetime(2026, 10, 19, 5, 5, tzinfo=UTC)
+    reserve_profile = profile(capacity_wh=7000, max_discharge_power_w=3500)
+    reserve = night_reserve_wh(
+        timestamp=local_morning,
+        profile=reserve_profile,
+        baseline_household_w=250,
+        latitude=52.4,
+        longitude=13.7,
+        timezone="Europe/Berlin",
+    )
+    assert reserve == 700
+
+    state = BatteryState(local_morning, 51, 3570, 0, 0)
+    setpoint = GridBalancingController().calculate_setpoint(
+        grid_power_w=2260,
+        household_power_w=460,
+        heat_pump_power_w=1800,
+        heat_pump_reserve_wh=reserve,
+        state=state,
+        profile=reserve_profile,
+        device_max_output_power_w=2000,
+        global_max_output_power_w=2000,
+    )
+    assert setpoint == -2000
 
 
 def test_costs_use_household_tariff_and_export_tariff():

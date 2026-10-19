@@ -93,8 +93,8 @@ def input_measurements(timestamp: datetime) -> list[Measurement]:
     bems = config_obj.bems
     assert bems is not None
     return [
-        Measurement(timestamp, bems.inputs.grid.source, bems.inputs.grid.metric, -500, "W"),
-        Measurement(timestamp, bems.inputs.household.source, bems.inputs.household.metric, -300, "W"),
+        Measurement(timestamp, bems.inputs.grid.source, bems.inputs.grid.metric, 500, "W"),
+        Measurement(timestamp, bems.inputs.household.source, bems.inputs.household.metric, 300, "W"),
         Measurement(timestamp, bems.inputs.pv.source, bems.inputs.pv.metric, 200, "W"),
     ]
 
@@ -115,14 +115,20 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert asyncio.run(service.run_once(now=now)) == 1
     assert asyncio.run(service.run_once(now=now)) == 0
     assert len(battery.targets) == 1
-    assert battery.targets[0].power_w == -300
+    assert battery.targets[0].power_w == -480
     metrics = {point.metric for point in output_database.writes}
     assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
 
 
 def test_live_controller_reconstructs_load_before_existing_battery_output():
     timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
-    points = input_measurements(timestamp)
+    bems = config_obj.bems
+    assert bems is not None
+    points = [
+        Measurement(timestamp, bems.inputs.grid.source, bems.inputs.grid.metric, 500, "W"),
+        Measurement(timestamp, bems.inputs.household.source, bems.inputs.household.metric, 500, "W"),
+        Measurement(timestamp, bems.inputs.pv.source, bems.inputs.pv.metric, 0, "W"),
+    ]
     battery = RecordingBattery()
     service = LiveControlService(
         config=live_config(),
@@ -131,20 +137,20 @@ def test_live_controller_reconstructs_load_before_existing_battery_output():
         batteries={"test_live": battery},
     )
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
-    assert battery.targets[-1].power_w == -300
+    assert battery.targets[-1].power_w == -480
 
-    # The next meter point reflects the prior 300 W discharge: grid import is
-    # 200 W and household import is zero, but the underlying load is unchanged.
+    # The next meter point reflects the prior 480 W discharge and sits at the
+    # 20 W deadband. Actual delivery reconstructs the original 500 W demand.
     second_timestamp = timestamp + timedelta(seconds=5)
     points.extend(
         [
-            Measurement(second_timestamp, points[0].source, points[0].metric, -200, "W"),
-            Measurement(second_timestamp, points[1].source, points[1].metric, 0, "W"),
-            Measurement(second_timestamp, points[2].source, points[2].metric, 200, "W"),
+            Measurement(second_timestamp, points[0].source, points[0].metric, 20, "W"),
+            Measurement(second_timestamp, points[1].source, points[1].metric, 20, "W"),
+            Measurement(second_timestamp, points[2].source, points[2].metric, 0, "W"),
         ]
     )
     asyncio.run(service.run_once(now=second_timestamp + timedelta(seconds=1)))
-    assert battery.targets[-1].power_w == -300
+    assert battery.targets[-1].power_w == -480
 
 
 def test_live_service_blocks_unapproved_firmware_and_records_compatibility():
@@ -218,7 +224,7 @@ def test_live_service_requests_zero_when_inputs_become_stale():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=25)))
 
-    assert [command.power_w for command in battery.targets] == [-300, 0]
+    assert [command.power_w for command in battery.targets] == [-480, 0]
     assert any(point.metric == "stale_input" and point.value == 1 for point in output_database.writes)
 
 
@@ -298,8 +304,10 @@ def test_live_service_refreshes_time_limited_vendor_setpoints():
 
     next_timestamp = timestamp + timedelta(seconds=22)
     next_points = input_measurements(next_timestamp)
-    next_points[0] = replace(next_points[0], value=-200)
-    next_points[1] = replace(next_points[1], value=0)
+    # Keep the same underlying load after accounting for the previously
+    # delivered -480 W battery output.
+    next_points[0] = replace(next_points[0], value=20)
+    next_points[1] = replace(next_points[1], value=-180)
     input_database.measurements.extend(next_points)
     assert asyncio.run(service.run_once(now=next_timestamp + timedelta(seconds=1))) == 1
     assert len(battery.targets) == 2

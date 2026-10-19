@@ -130,3 +130,32 @@ def test_close_closes_client():
     database.close()
 
     client.close.assert_called_once()
+
+
+def test_measurement_query_uses_flux_time_literals():
+    client = MagicMock()
+    client.write_api.return_value = MagicMock()
+    with patch(
+        "src.databases.influxdb.influxdb.InfluxDBClient",
+        return_value=client,
+    ):
+        database = InfluxDatabase(
+            url="http://localhost:8086",
+            token="test-token",
+            org="home-energy",
+            bucket="energy",
+        )
+
+    query = database._build_measurement_query(
+        source="meter_grid_dlms",
+        metrics=["grid_active_power"],
+        start=datetime(2026, 10, 4, tzinfo=UTC),
+        stop=datetime(2026, 10, 5, tzinfo=UTC),
+        after=datetime(2026, 10, 4, 12, tzinfo=UTC),
+        limit=1000,
+    )
+
+    assert 'range(start: time(v: "2026-10-04T00:00:00+00:00")' in query
+    assert 'stop: time(v: "2026-10-05T00:00:00+00:00")' in query
+    assert 'r._time > time(v: "2026-10-04T12:00:00+00:00")' in query
+    assert "datetime(" not in query
