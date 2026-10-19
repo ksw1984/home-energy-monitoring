@@ -191,7 +191,7 @@ databases:
   - type: influxdb
     enabled: true
     attributes:
-      url: http://influxdb:8086
+      url: http://192.168.178.11:8086
       org: home-energy
       bucket: home
 
@@ -349,7 +349,7 @@ bems:
 
   control:
     deadband_w: 20
-    max_output_power_w: 800
+    max_output_power_w: 3500
     max_measurement_age_s: 20
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
@@ -394,14 +394,14 @@ bems:
       profile: anker_solarbank_max_ac
       mode: simulation
       enabled: true
-      initial_soc_percent: 50
+      initial_soc_percent: 95
       max_output_power_w: 800
 
     - id: marstek_sim
       profile: marstek_venus_e_3_5120
       mode: simulation
       enabled: true
-      initial_soc_percent: 50
+      initial_soc_percent: 95
       max_output_power_w: 800
 
     # Separate live instances are present but inactive until the hardware is installed.
@@ -417,7 +417,7 @@ bems:
         port: 502
         allow_control: false
         expected_model: "<reported-product-code>"
-        supported_firmware_versions: ["<exact-verified-firmware-revision>"]
+        supported_firmware_versions: [ "<exact-verified-firmware-revision>" ]
 
     - id: marstek_live
       profile: marstek_venus_e_3_5120
@@ -431,4 +431,4 @@ bems:
         port: 30000
         allow_control: false
         expected_model: "<reported-model>"
-        supported_firmware_versions: ["<exact-verified-firmware-token>"]
+        supported_firmware_versions: [ "<exact-verified-firmware-token>" ]
