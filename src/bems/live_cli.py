@@ -62,7 +62,7 @@ def _create_adapter(
             AnkerBatteryAdapter(
                 client=client,
                 capacity_wh=profile.capacity_wh,
-                max_charge_power_w=profile.max_charge_power_w,
+                max_charge_power_w=min(profile.max_charge_power_w, device.max_output_power_w, config.control.max_output_power_w),
                 max_discharge_power_w=min(profile.max_discharge_power_w, device.max_output_power_w, config.control.max_output_power_w),
                 allow_control=True,
             ),
@@ -73,7 +73,7 @@ def _create_adapter(
         MarstekBatteryAdapter(
             client=client,
             capacity_wh=profile.capacity_wh,
-            max_charge_power_w=profile.max_charge_power_w,
+            max_charge_power_w=min(profile.max_charge_power_w, device.max_output_power_w, config.control.max_output_power_w),
             max_discharge_power_w=min(profile.max_discharge_power_w, device.max_output_power_w, config.control.max_output_power_w),
             allow_control=True,
             passive_countdown_s=int(attributes.get("passive_countdown_s", 300)),

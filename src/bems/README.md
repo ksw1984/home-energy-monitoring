@@ -5,7 +5,7 @@ The BEMS controls and evaluates AC-coupled batteries independently of the HEMS p
 ## What it does
 
 - Reads grid, household, and PV power from the configured database.
-- Uses import-positive power internally; HEMS meter values are normalized at the BEMS boundary.
+- Uses import-positive power internally; HEMS meter values already use this sign convention and are converted to watts at the BEMS boundary.
 - Charges only from measured grid export (PV surplus).
 - Serves household demand first. Heat-pump demand is served only from energy above the calculated overnight reserve.
 - Limits power by battery profile, per-device setting, and the global BEMS limit.

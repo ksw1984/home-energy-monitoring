@@ -25,7 +25,7 @@ class SimulatedBattery:
     ) -> None:
         """Initialize from SOC or a checkpoint; powers use signed AC watts.
 
-        ``max_output_power_w`` limits discharge. Checkpoint energy and
+        ``max_output_power_w`` limits AC charge and discharge. Checkpoint energy and
         cumulative losses use Wh.
         """
         if not profile.min_soc_percent <= initial_soc_percent <= profile.max_soc_percent:
@@ -56,6 +56,8 @@ class SimulatedBattery:
         """Advance to command time and begin ramping toward its bounded target."""
         self.advance_to(command.timestamp)
         limit = self._power_limit(command.power_w)
+        if limit == self.target_power_w:
+            return
         self._ramp_start_power_w = self.actual_power_w
         self._ramp_start = command.timestamp
         self.target_power_w = limit
@@ -164,7 +166,7 @@ class SimulatedBattery:
     def _power_limit(self, power_w: float) -> float:
         """Clamp charge/discharge commands to their distinct AC limits."""
         if power_w > 0:
-            return min(power_w, self.profile.max_charge_power_w)
+            return min(power_w, self.profile.max_charge_power_w, self.max_output_power_w)
         return max(power_w, -self.max_output_power_w)
 
     def _min_energy_wh(self) -> float:

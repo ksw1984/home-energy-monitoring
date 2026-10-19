@@ -5,7 +5,16 @@ import logging
 from datetime import datetime, timedelta, UTC
 
 from src.bems.controller import GridBalancingController
-from src.bems.domain import align_power_samples, Battery, BatteryIdentity, BatteryPowerCommand, BatteryProfile, BatteryState, BemsPowerSample
+from src.bems.domain import (
+    align_power_samples,
+    Battery,
+    BatteryIdentity,
+    BatteryPowerCommand,
+    BatteryProfile,
+    BatteryState,
+    BemsPowerSample,
+    estimate_power_without_battery,
+)
 from src.bems.reserve import night_reserve_wh
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
@@ -163,12 +172,12 @@ class LiveControlService:
                     )
                     continue
                 requested_power_w = self.controller.calculate_setpoint(
-                    grid_power_w=sample.grid_w - before.charge_power_w + before.discharge_power_w,
+                    grid_power_w=estimate_power_without_battery(sample.grid_w, before),
                     state=before,
                     profile=profile,
                     device_max_output_power_w=device.max_output_power_w,
                     global_max_output_power_w=self.config.control.max_output_power_w,
-                    household_power_w=sample.household_w - before.charge_power_w + before.discharge_power_w,
+                    household_power_w=estimate_power_without_battery(sample.household_w, before),
                     heat_pump_power_w=sample.heat_pump_w,
                     heat_pump_reserve_wh=night_reserve_wh(
                         timestamp=timestamp,
