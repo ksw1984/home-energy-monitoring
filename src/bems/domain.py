@@ -62,6 +62,17 @@ class BemsPowerSample:
     pv_w: float | None = None
 
 
+def estimate_power_without_battery(measured_power_w: float, state: BatteryState) -> float:
+    """Recover underlying import-positive load using the battery's actual AC power.
+
+    A grid meter includes battery charging as extra import and battery
+    discharging as reduced import. Requested power is deliberately not used:
+    ramping, limits, and device regulation can make it differ from delivery.
+    """
+    actual_battery_power_w = state.charge_power_w - state.discharge_power_w
+    return measured_power_w - actual_battery_power_w
+
+
 class Battery(Protocol):
     """Async contract implemented by simulated and future live batteries."""
 
@@ -79,8 +90,25 @@ class Battery(Protocol):
 
 
 def _power_in_w(measurement: Measurement) -> float:
-    """Convert supported W/kW measurement units to watts."""
+    """Convert supported W/kW units to watts, inferring legacy DLMS units.
+
+    Older InfluxDB points may not contain the ``unit`` field. The configured
+    DLMS active-power metric is stored in kW, while the Fronius ``pv_power``
+    metric is stored in W.
+    """
     unit = measurement.unit.strip().lower()
+    if (
+        not unit
+        and measurement.metric == "grid_active_power"
+        and measurement.source
+        in {
+            "meter_grid_dlms",
+            "meter_household_dlms",
+        }
+    ):
+        unit = "kw"
+    elif not unit and measurement.source == "inverter_fronius" and measurement.metric == "pv_power":
+        unit = "w"
     if unit == "w":
         return measurement.value
     if unit == "kw":
@@ -96,8 +124,10 @@ def _utc(timestamp: datetime) -> datetime:
 
 
 def normalize_grid_meter(measurement: Measurement) -> float:
-    """Convert the HEMS meter sign (import negative) to BEMS sign (import positive)."""
-    return -_power_in_w(measurement)
+    """Convert the HEMS meter to watts; its sign already matches BEMS convention."""
+    # HEMS DLMS measurements use import-positive and export-negative values,
+    # which is also the convention used internally by BEMS.
+    return _power_in_w(measurement)
 
 
 def normalize_pv(measurement: Measurement) -> float:
