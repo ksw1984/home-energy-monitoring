@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 # ---------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+SOC_PERCENT_MAX = 100.0
 
 # Load local secrets and environment variables.
 load_dotenv(PROJECT_ROOT / ".env")
@@ -106,6 +107,81 @@ class CalculatorConfig:
 
 
 @dataclass(frozen=True)
+class BemsMeasurementRef:
+    source: str
+    metric: str
+
+
+@dataclass(frozen=True)
+class BemsInputsConfig:
+    grid: BemsMeasurementRef
+    household: BemsMeasurementRef
+    pv: BemsMeasurementRef
+
+
+@dataclass(frozen=True)
+class BemsTariffConfig:
+    feed_in_ct_per_kwh: float
+    heat_pump_import_ct_per_kwh: float
+    household_import_ct_per_kwh: float
+
+
+@dataclass(frozen=True)
+class BemsControlConfig:
+    deadband_w: float
+    max_output_power_w: float
+    max_measurement_age_s: float
+    history_alignment_tolerance_s: float
+    simulation_ramp_seconds: float
+    live_poll_interval_s: float
+
+
+@dataclass(frozen=True)
+class BemsNightConfig:
+    baseline_household_w: float
+    latitude: float
+    longitude: float
+    timezone: str
+    dusk_margin_minutes: int
+    dawn_margin_minutes: int
+
+
+@dataclass(frozen=True)
+class BatteryProfileConfig:
+    name: str
+    capacity_wh: float
+    min_soc_percent: float
+    max_soc_percent: float
+    max_charge_power_w: float
+    max_discharge_power_w: float
+    charge_efficiency: float
+    discharge_efficiency: float
+
+
+@dataclass(frozen=True)
+class BemsDeviceConfig:
+    id: str
+    profile: str
+    mode: str
+    enabled: bool
+    initial_soc_percent: float
+    max_output_power_w: float
+    attributes: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BemsConfig:
+    enabled: bool
+    history_database: str
+    inputs: BemsInputsConfig
+    tariffs: BemsTariffConfig
+    control: BemsControlConfig
+    night: BemsNightConfig
+    profiles: dict[str, BatteryProfileConfig]
+    devices: list[BemsDeviceConfig]
+
+
+@dataclass(frozen=True)
 class Config:
     collection: CollectionConfig
     collectors: list[ComponentConfig]
@@ -113,6 +189,7 @@ class Config:
     estimators: list[EstimatorConfig]
     calculators: list[CalculatorConfig]
     storage: StorageConfig
+    bems: BemsConfig | None = None
 
 
 # ---------------------------------------------------------
@@ -241,6 +318,122 @@ def load_calculator_configs(
     return configs
 
 
+def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901, PLR0912 - field-specific validation errors stay beside their checks.
+    raw = config_data.get("bems", {})
+    raw_inputs = raw.get("inputs", {})
+    raw_control = raw.get("control", {})
+    raw_tariffs = raw.get("tariffs", {})
+    raw_night = raw.get("night", {})
+
+    def measurement_ref(name: str, default_source: str, default_metric: str) -> BemsMeasurementRef:
+        item = raw_inputs.get(name, {})
+        return BemsMeasurementRef(
+            source=str(item.get("source", default_source)),
+            metric=str(item.get("metric", default_metric)),
+        )
+
+    profiles: dict[str, BatteryProfileConfig] = {}
+    for profile_id, item in raw.get("profiles", {}).items():
+        profile = BatteryProfileConfig(
+            name=str(item.get("name", profile_id)),
+            capacity_wh=float(item["capacity_wh"]),
+            min_soc_percent=float(item.get("min_soc_percent", 10.0)),
+            max_soc_percent=float(item.get("max_soc_percent", 100.0)),
+            max_charge_power_w=float(item["max_charge_power_w"]),
+            max_discharge_power_w=float(item["max_discharge_power_w"]),
+            charge_efficiency=float(item["charge_efficiency"]),
+            discharge_efficiency=float(item["discharge_efficiency"]),
+        )
+        if profile.capacity_wh <= 0:
+            raise ValueError(f"BEMS profile '{profile_id}' capacity_wh must be positive")
+        if not 0 <= profile.min_soc_percent < profile.max_soc_percent <= SOC_PERCENT_MAX:
+            raise ValueError(f"BEMS profile '{profile_id}' SOC limits must satisfy 0 <= min < max <= 100")
+        if profile.max_charge_power_w <= 0 or profile.max_discharge_power_w <= 0:
+            raise ValueError(f"BEMS profile '{profile_id}' charge and discharge limits must be positive")
+        if not 0 < profile.charge_efficiency <= 1 or not 0 < profile.discharge_efficiency <= 1:
+            raise ValueError(f"BEMS profile '{profile_id}' efficiencies must be in (0, 1]")
+        profiles[profile_id] = profile
+
+    devices = [
+        BemsDeviceConfig(
+            id=str(item["id"]),
+            profile=str(item["profile"]),
+            mode=str(item.get("mode", "simulation")),
+            enabled=bool(item.get("enabled", True)),
+            initial_soc_percent=float(item.get("initial_soc_percent", 50.0)),
+            max_output_power_w=float(item.get("max_output_power_w", 800.0)),
+            attributes=item.get("attributes", {}),
+        )
+        for item in raw.get("devices", [])
+    ]
+    device_ids = [device.id for device in devices]
+    if len(device_ids) != len(set(device_ids)):
+        raise ValueError("BEMS device IDs must be unique")
+    for device in devices:
+        if device.profile not in profiles:
+            raise ValueError(f"BEMS device '{device.id}' references unknown profile '{device.profile}'")
+        if device.mode not in {"simulation", "live"}:
+            raise ValueError(f"BEMS device '{device.id}' mode must be 'simulation' or 'live'")
+        if not 0 <= device.initial_soc_percent <= SOC_PERCENT_MAX:
+            raise ValueError(f"BEMS device '{device.id}' initial_soc_percent must be between 0 and 100")
+        profile = profiles[device.profile]
+        if not profile.min_soc_percent <= device.initial_soc_percent <= profile.max_soc_percent:
+            raise ValueError(f"BEMS device '{device.id}' initial SOC must be within its profile's SOC limits")
+        if device.max_output_power_w < 0:
+            raise ValueError(f"BEMS device '{device.id}' max_output_power_w cannot be negative")
+
+    control = BemsControlConfig(
+        deadband_w=float(raw_control.get("deadband_w", 20.0)),
+        max_output_power_w=float(raw_control.get("max_output_power_w", 800.0)),
+        max_measurement_age_s=float(raw_control.get("max_measurement_age_s", 20.0)),
+        history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
+        simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
+        live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
+    )
+    if control.deadband_w < 0 or control.max_output_power_w < 0:
+        raise ValueError("BEMS deadband and output power limit cannot be negative")
+    if min(control.max_measurement_age_s, control.history_alignment_tolerance_s, control.simulation_ramp_seconds) < 0:
+        raise ValueError("BEMS time settings cannot be negative")
+    if control.live_poll_interval_s <= 0:
+        raise ValueError("BEMS live_poll_interval_s must be positive")
+
+    night = BemsNightConfig(
+        baseline_household_w=float(raw_night.get("baseline_household_w", 250.0)),
+        latitude=float(raw_night.get("latitude", 52.4)),
+        longitude=float(raw_night.get("longitude", 13.7)),
+        timezone=str(raw_night.get("timezone", config_data.get("collection", {}).get("timezone", "Europe/Berlin"))),
+        dusk_margin_minutes=int(raw_night.get("dusk_margin_minutes", 30)),
+        dawn_margin_minutes=int(raw_night.get("dawn_margin_minutes", 30)),
+    )
+    if night.baseline_household_w < 0 or min(night.dusk_margin_minutes, night.dawn_margin_minutes) < 0:
+        raise ValueError("BEMS night baseline and margins cannot be negative")
+
+    database_types = [item["type"] for item in config_data.get("databases", [])]
+    default_history_database = "influxdb" if "influxdb" in database_types else (database_types[0] if database_types else "")
+    history_database = str(raw.get("history_database", default_history_database))
+    if raw and history_database not in database_types:
+        raise ValueError(f"BEMS history_database '{history_database}' is not configured under databases")
+
+    return BemsConfig(
+        enabled=bool(raw.get("enabled", bool(raw))),
+        history_database=history_database,
+        inputs=BemsInputsConfig(
+            grid=measurement_ref("grid", "meter_grid_dlms", "grid_active_power"),
+            household=measurement_ref("household", "meter_household_dlms", "grid_active_power"),
+            pv=measurement_ref("pv", "inverter_fronius", "pv_power"),
+        ),
+        tariffs=BemsTariffConfig(
+            feed_in_ct_per_kwh=float(raw_tariffs.get("feed_in_ct_per_kwh", 7.8)),
+            heat_pump_import_ct_per_kwh=float(raw_tariffs.get("heat_pump_import_ct_per_kwh", 22.0)),
+            household_import_ct_per_kwh=float(raw_tariffs.get("household_import_ct_per_kwh", 30.0)),
+        ),
+        control=control,
+        night=night,
+        profiles=profiles,
+        devices=devices,
+    )
+
+
 def load_config() -> Config:
     with CONFIG_FILE.open(encoding="utf-8") as file:
         config_data = yaml.safe_load(file)
@@ -260,6 +453,7 @@ def load_config() -> Config:
             enabled=config_data.get("storage", {}).get("enabled", True),
             measurements=load_storage_measurements(config_data),
         ),
+        bems=_load_bems_config(config_data),
     )
 
 

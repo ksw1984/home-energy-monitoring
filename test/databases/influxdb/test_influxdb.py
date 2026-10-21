@@ -79,9 +79,11 @@ def test_store_writes_measurements():
 
     assert len(points) == 2
 
-    assert points[0].to_line_protocol().startswith("temperature,source=rademacher value=20.5")
+    point_1 = points[0].to_line_protocol()
+    assert point_1.startswith('temperature,source=rademacher measurement_type="current",unit="°C",value=20.5')
 
-    assert points[1].to_line_protocol().startswith("humidity,source=weather value=60")
+    point_2 = points[1].to_line_protocol()
+    assert point_2.startswith('humidity,source=weather measurement_type="current",unit="°C",value=60')
 
 
 def test_store_with_empty_measurements_writes_empty_list():
@@ -128,3 +130,32 @@ def test_close_closes_client():
     database.close()
 
     client.close.assert_called_once()
+
+
+def test_measurement_query_uses_flux_time_literals():
+    client = MagicMock()
+    client.write_api.return_value = MagicMock()
+    with patch(
+        "src.databases.influxdb.influxdb.InfluxDBClient",
+        return_value=client,
+    ):
+        database = InfluxDatabase(
+            url="http://localhost:8086",
+            token="test-token",
+            org="home-energy",
+            bucket="energy",
+        )
+
+    query = database._build_measurement_query(
+        source="meter_grid_dlms",
+        metrics=["grid_active_power"],
+        start=datetime(2026, 10, 4, tzinfo=UTC),
+        stop=datetime(2026, 10, 5, tzinfo=UTC),
+        after=datetime(2026, 10, 4, 12, tzinfo=UTC),
+        limit=1000,
+    )
+
+    assert 'range(start: time(v: "2026-10-04T00:00:00+00:00")' in query
+    assert 'stop: time(v: "2026-10-05T00:00:00+00:00")' in query
+    assert 'r._time > time(v: "2026-10-04T12:00:00+00:00")' in query
+    assert "datetime(" not in query

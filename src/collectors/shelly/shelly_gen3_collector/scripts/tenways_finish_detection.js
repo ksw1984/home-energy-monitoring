@@ -112,11 +112,11 @@ function cancelFinishTimer() {
 
 function checkPower() {
     Shelly.call(
-        "PM1.GetStatus",
+        "Switch.GetStatus",
         { id: 0 },
         function (result, error_code, error_message) {
             if (error_code !== 0) {
-                print("PM1 error:", error_code, error_message);
+                print("Switch error:", error_code, error_message);
                 return;
             }
 

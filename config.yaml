@@ -191,7 +191,7 @@ databases:
   - type: influxdb
     enabled: true
     attributes:
-      url: http://influxdb:8086
+      url: http://192.168.178.11:8086
       org: home-energy
       bucket: home
 
@@ -324,3 +324,111 @@ calculators:
           dc2:
             source: inverter_fronius
             metric: mppt_2_power
+
+# Battery Energy Management System. Historical runs are started separately
+# with the BEMS command; these entries do not add work to the HEMS poll cycle.
+bems:
+  enabled: true
+  history_database: influxdb
+
+  inputs:
+    grid:
+      source: meter_grid_dlms
+      metric: grid_active_power
+    household:
+      source: meter_household_dlms
+      metric: grid_active_power
+    pv:
+      source: inverter_fronius
+      metric: pv_power
+
+  tariffs:
+    feed_in_ct_per_kwh: 7.8
+    heat_pump_import_ct_per_kwh: 22.0
+    household_import_ct_per_kwh: 30.0
+
+  control:
+    deadband_w: 20
+    max_output_power_w: 3500
+    max_measurement_age_s: 20
+    history_alignment_tolerance_s: 10
+    simulation_ramp_seconds: 10
+    live_poll_interval_s: 5
+
+  night:
+    baseline_household_w: 250
+    latitude: 52.4
+    longitude: 13.7
+    timezone: Europe/Berlin
+    dusk_margin_minutes: 30
+    dawn_margin_minutes: 30
+
+  profiles:
+    anker_solarbank_max_ac:
+      name: Anker SOLIX Solarbank Max AC
+      capacity_wh: 7000
+      min_soc_percent: 8
+      max_soc_percent: 100
+      max_charge_power_w: 3500
+      max_discharge_power_w: 3500
+      charge_efficiency: 0.8235
+      discharge_efficiency: 0.9705
+
+    marstek_venus_e_3_5120:
+      name: Marstek Venus E 3.0 5.12 kWh
+      capacity_wh: 5120
+      min_soc_percent: 10
+      max_soc_percent: 100
+      max_charge_power_w: 2500
+      max_discharge_power_w: 2500
+      charge_efficiency: 0.8235
+      discharge_efficiency: 0.9705
+
+  devices:
+    # For a live device, set mode: live and add attributes such as:
+    # vendor: anker, host: 192.168.178.x, port: 502, allow_control: true
+    # expected_model: A17E2, supported_firmware_versions: ["<exact verified version>"]
+    # A missing or unapproved identity keeps all power writes blocked.
+    # Enable Modbus TCP for the battery in the Anker app before using it.
+    - id: anker_sim
+      profile: anker_solarbank_max_ac
+      mode: simulation
+      enabled: true
+      initial_soc_percent: 95
+      max_output_power_w: 800
+
+    - id: marstek_sim
+      profile: marstek_venus_e_3_5120
+      mode: simulation
+      enabled: true
+      initial_soc_percent: 95
+      max_output_power_w: 800
+
+    # Separate live instances are present but inactive until the hardware is installed.
+    - id: anker_live
+      profile: anker_solarbank_max_ac
+      mode: live
+      enabled: false
+      initial_soc_percent: 50
+      max_output_power_w: 800
+      attributes:
+        vendor: anker
+        host: "<anker-ip>"
+        port: 502
+        allow_control: false
+        expected_model: "<reported-product-code>"
+        supported_firmware_versions: [ "<exact-verified-firmware-revision>" ]
+
+    - id: marstek_live
+      profile: marstek_venus_e_3_5120
+      mode: live
+      enabled: false
+      initial_soc_percent: 50
+      max_output_power_w: 800
+      attributes:
+        vendor: marstek
+        host: "<marstek-ip>"
+        port: 30000
+        allow_control: false
+        expected_model: "<reported-model>"
+        supported_firmware_versions: [ "<exact-verified-firmware-token>" ]
