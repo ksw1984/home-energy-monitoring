@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime, UTC
 
-from src.bems.batery_adapter.marstek import MarstekApiError, MarstekBatteryAdapter, MarstekUdpClient
+from src.bems.battery_adapter.marstek import MarstekApiError, MarstekBatteryAdapter, MarstekUdpClient
 from src.bems.domain import BatteryPowerCommand
 
 import pytest
@@ -54,7 +54,7 @@ def test_udp_client_sends_correlated_json_rpc_request(monkeypatch):
         async def fake_recv(_sock, _size):
             return b'{"id":1,"src":"VenusE","result":{"bat_soc":50}}', ("127.0.0.1", 30000)
 
-        monkeypatch.setattr("src.bems.marstek.socket.socket", FakeSocket)
+        monkeypatch.setattr("src.bems.battery_adapter.marstek.socket.socket", FakeSocket)
         loop = asyncio.get_running_loop()
         monkeypatch.setattr(loop, "sock_sendto", fake_send)
         monkeypatch.setattr(loop, "sock_recvfrom", fake_recv)
@@ -94,7 +94,7 @@ def test_udp_client_times_out_and_rejects_invalid_response(monkeypatch):
                 raise TimeoutError
             return b"not-json", ("127.0.0.1", 30000)
 
-        monkeypatch.setattr("src.bems.marstek.socket.socket", FakeSocket)
+        monkeypatch.setattr("src.bems.battery_adapter.marstek.socket.socket", FakeSocket)
         loop = asyncio.get_running_loop()
         monkeypatch.setattr(loop, "sock_sendto", fake_send)
         monkeypatch.setattr(loop, "sock_recvfrom", fake_recv)

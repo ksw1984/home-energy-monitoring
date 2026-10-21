@@ -4,7 +4,7 @@ import asyncio
 import struct
 from datetime import datetime, UTC
 
-from src.bems.batery_adapter.anker import (
+from src.bems.battery_adapter.anker import (
     AnkerBatteryAdapter,
     AnkerModbusError,
     AnkerModbusTcpClient,

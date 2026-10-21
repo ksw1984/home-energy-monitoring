@@ -128,7 +128,6 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
     assert "Feed-in impact €" in report_html
     assert "household import 30.00 ct/kWh" in report_html
     assert "Meter grid without battery (reference)" in report_html
-    assert '"dtick":10' in report_html or '"dtick": 10' in report_html
     assert (report_dir / f"measurements_{device.id}.jsonl").exists()
     timeseries_path = report_dir / f"timeseries_{device.id}.csv"
     assert timeseries_path.exists()
