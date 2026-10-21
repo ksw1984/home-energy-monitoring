@@ -17,7 +17,6 @@ from src.config.config import BemsTariffConfig
 
 import plotly.graph_objects as go
 import plotly.io as pio
-from plotly.subplots import make_subplots
 
 TIMESERIES_FIELDS = (
     "timestamp",
@@ -467,7 +466,7 @@ def _render_html(  # noqa: PLR0913, PLR0917 - explicit report metadata keeps ren
         },
         uirevision="power-chart",
     )
-    soc_fig = make_subplots(specs=[[{"secondary_y": True}]])
+    soc_fig = go.Figure()
     soc_fig.add_trace(
         go.Scattergl(
             x=times,
@@ -480,33 +479,56 @@ def _render_html(  # noqa: PLR0913, PLR0917 - explicit report metadata keeps ren
             fillcolor="rgba(8,145,178,0.12)",
             hovertemplate="%{x|%Y-%m-%d %H:%M:%S}<br>SOC: %{customdata:.1f}%<br>Stored energy: %{y:.2f} kWh<extra></extra>",
         ),
-        secondary_y=True,
     )
+
+    # calculate the ticks
+    energy_values = [float(row["energy_kwh"]) for row in chart]
+    soc_values = [float(row["soc"]) for row in chart]
+    min_energy = min(energy_values) if energy_values else None
+    min_soc = min(soc_values) if soc_values else None
+    max_energy = capacity_wh / 1000
+
+    # Whole-kWh ticks
+    energy_ticks = [float(k) for k in range(int(max_energy) + 1)]
+
+    tick_bucket = 0.15
+    if min_energy is not None and all(abs(min_energy - tick) > tick_bucket for tick in energy_ticks):
+        energy_ticks.append(min_energy)
+
+    energy_ticks = sorted(set(energy_ticks))
+
     soc_fig.update_layout(
         template="plotly_white",
         height=380,
         margin={"l": 65, "r": 25, "t": 20, "b": 50},
         hovermode="x unified",
         showlegend=False,
-        xaxis={"title": "Time", "type": "date", "rangeslider": {"visible": True}},
+        xaxis={
+            "title": "Time",
+            "type": "date",
+            "rangeslider": {"visible": True},
+        },
+        yaxis={
+            "title": "Stored energy (kWh)",
+            "range": [0, max_energy],
+            "tickmode": "array",
+            "tickvals": energy_ticks,
+            "ticktext": [f"{value:.2f}" for value in energy_ticks],
+            "gridcolor": "#e2e8f0",
+        },
         uirevision="soc-chart",
     )
-    soc_fig.update_yaxes(
-        title_text="State of charge (%)",
-        range=[0, 100],
-        dtick=10,
-        ticksuffix="%",
-        gridcolor="#e2e8f0",
-        secondary_y=False,
-    )
-    soc_fig.update_yaxes(
-        title_text="Stored energy (kWh)",
-        range=[0, capacity_wh / 1000],
-        dtick=capacity_wh / 5000,
-        ticksuffix=" kWh",
-        gridcolor="#ffedd5",
-        secondary_y=True,
-    )
+
+    if min_energy is not None and min_soc is not None:
+        soc_fig.add_hline(
+            y=min_energy,
+            line_dash="dash",
+            line_color="#ea580c",
+            line_width=1.5,
+            annotation_text=f"Minimum: {min_energy:.2f} kWh ({min_soc:.1f}% SOC)",
+            annotation_position="bottom right",
+        )
+
     savings_fig = go.Figure(
         go.Bar(
             x=[day for day, _ in daily_items],
@@ -532,16 +554,35 @@ def _render_html(  # noqa: PLR0913, PLR0917 - explicit report metadata keeps ren
     )
     plot_config = {"scrollZoom": True, "displaylogo": False, "responsive": True}
     savings_plot = (
-        pio.to_html(savings_fig, full_html=False, include_plotlyjs="plotly.min.js", config=plot_config)
+        pio.to_html(
+            savings_fig,
+            full_html=False,
+            include_plotlyjs="plotly.min.js",
+            config=plot_config,
+        )
         if daily_items
         else "<p>No daily intervals available.</p>"
     )
     power_plot = (
-        pio.to_html(power_fig, full_html=False, include_plotlyjs="plotly.min.js", config=plot_config)
+        pio.to_html(
+            power_fig,
+            full_html=False,
+            include_plotlyjs="plotly.min.js",
+            config=plot_config,
+        )
         if chart
         else "<p>No time-series points available.</p>"
     )
-    soc_plot = pio.to_html(soc_fig, full_html=False, include_plotlyjs=False, config=plot_config) if chart else ""
+    soc_plot = (
+        pio.to_html(
+            soc_fig,
+            full_html=False,
+            include_plotlyjs=False,
+            config=plot_config,
+        )
+        if chart
+        else ""
+    )
     total_saved = sum(values["saved_kwh"] for _, values in daily_items)
     total_saved_eur = sum(values["saved_cents"] for _, values in daily_items) / 100
     household_saved = sum(values["household_saved_kwh"] for _, values in daily_items)
@@ -592,7 +633,7 @@ feed-in {tariffs.feed_in_ct_per_kwh:.2f} ct/kWh · {len(chart):,} plotted points
 <p class="subtitle">Click legend entries to show or hide traces. Drag to zoom; use the range slider or mode bar to navigate.</p>
 {power_plot}</section>
 <section class="card"><h2>Battery state of charge and stored energy</h2>
-<p class="subtitle">SOC percent uses the left axis; modelled stored energy uses the right axis.</p>{soc_plot}</section>
+<p class="subtitle">Stored energy is shown on the main axis; SOC percent is available on hover.</p>{soc_plot}</section>
 <section class="card"><h2>Daily summary</h2>
 <table><thead><tr><th>Date</th><th>Grid before (kWh)</th><th>Grid with battery (kWh)</th>
 <th>Grid import saved (kWh)</th><th>Household saved (kWh)</th>
