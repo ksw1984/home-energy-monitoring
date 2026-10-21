@@ -367,12 +367,12 @@ bems:
     anker_solarbank_max_ac:
       name: Anker SOLIX Solarbank Max AC
       capacity_wh: 7000
-      min_soc_percent: 10
+      min_soc_percent: 8
       max_soc_percent: 100
       max_charge_power_w: 3500
       max_discharge_power_w: 3500
-      charge_efficiency: 0.94
-      discharge_efficiency: 0.94
+      charge_efficiency: 0.8235
+      discharge_efficiency: 0.9705
 
     marstek_venus_e_3_5120:
       name: Marstek Venus E 3.0 5.12 kWh
@@ -381,8 +381,8 @@ bems:
       max_soc_percent: 100
       max_charge_power_w: 2500
       max_discharge_power_w: 2500
-      charge_efficiency: 0.935
-      discharge_efficiency: 0.935
+      charge_efficiency: 0.8235
+      discharge_efficiency: 0.9705
 
   devices:
     # For a live device, set mode: live and add attributes such as:
