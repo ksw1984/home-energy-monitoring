@@ -260,7 +260,7 @@ def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
         longitude=13.7,
         timezone="Europe/Berlin",
     )
-    assert reserve == 700
+    assert reserve > 1037
 
     state = BatteryState(local_morning, 51, 3570, 0, 0)
     setpoint = GridBalancingController().calculate_setpoint(

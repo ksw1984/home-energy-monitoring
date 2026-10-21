@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from src.bems.domain import BatteryProfile
 
-from astral import Depression, Observer
+from astral import Observer
 from astral.sun import dawn, dusk
 
 
@@ -41,9 +41,9 @@ def night_reserve_wh(  # noqa: PLR0913 - geographic, schedule, battery and basel
     local_time = timestamp.astimezone(ZoneInfo(timezone))
     observer = Observer(latitude=latitude, longitude=longitude)
     today = local_time.date()
-    today_dusk = dusk(observer, today, Depression.ASTRONOMICAL, tzinfo=timezone)
-    tomorrow_dawn = dawn(observer, today + timedelta(days=1), Depression.ASTRONOMICAL, tzinfo=timezone)
-    today_dawn = dawn(observer, today, Depression.ASTRONOMICAL, tzinfo=timezone)
+    today_dusk = dusk(observer, today, 0, tzinfo=timezone)
+    tomorrow_dawn = dawn(observer, today + timedelta(days=1), 0, tzinfo=timezone)
+    today_dawn = dawn(observer, today, 0, tzinfo=timezone)
     minimum_energy_wh = profile.capacity_wh * profile.min_soc_percent / 100
     dawn_with_margin = today_dawn + timedelta(minutes=dawn_margin_minutes)
     dusk_with_margin = today_dusk - timedelta(minutes=dusk_margin_minutes)
