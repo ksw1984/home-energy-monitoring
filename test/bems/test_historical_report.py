@@ -5,8 +5,8 @@ import logging
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 
-from src.bems.historical import simulate_historical
-from src.bems.report import _chart_row
+from src.bems.reporting.report import _chart_row
+from src.bems.services.historical import simulate_historical
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
 from src.databases.base_database import BaseDatabase
@@ -71,7 +71,7 @@ def test_report_chart_uses_meter_signs_and_charge_positive_battery_power():
 def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa: PLR0915 - integration assertions cover generated artifacts and logging.
     tmp_path, caplog
 ):
-    caplog.set_level(logging.INFO, logger="src.bems.historical")
+    caplog.set_level(logging.INFO, logger="src.bems.services.historical")
     bems = config_obj.bems
     assert bems is not None
     device = replace(bems.devices[0], enabled=True, initial_soc_percent=50)

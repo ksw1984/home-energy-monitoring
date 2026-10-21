@@ -2,8 +2,8 @@ import asyncio
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 
-from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
-from src.bems.live import LiveControlService
+from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
+from src.bems.services.live import LiveControlService
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
 from src.databases.base_database import BaseDatabase

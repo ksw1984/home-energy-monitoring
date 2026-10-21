@@ -7,7 +7,7 @@ import socket
 from datetime import datetime, UTC
 from typing import Any
 
-from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
+from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 
 MAX_UDP_PORT = 65535
 MAX_DATAGRAM_SIZE = 65535

@@ -13,7 +13,7 @@ from src.bems.battery_adapter.anker import (
     POWER_SETPOINT_REGISTER,
     THIRD_PARTY_CONTROL_MODE,
 )
-from src.bems.domain import BatteryPowerCommand
+from src.bems.core.domain import BatteryPowerCommand
 
 import pytest
 

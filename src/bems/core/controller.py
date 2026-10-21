@@ -1,4 +1,4 @@
-from src.bems.domain import BatteryProfile, BatteryState
+from src.bems.core.domain import BatteryProfile, BatteryState
 
 
 class GridBalancingController:

@@ -1,8 +1,9 @@
 import asyncio
 from datetime import datetime, timedelta, UTC
 
-from src.bems.controller import GridBalancingController
-from src.bems.domain import (
+from src.bems.battery_adapter.vendor_mocks import MockBatteryEndpoint
+from src.bems.core.controller import GridBalancingController
+from src.bems.core.domain import (
     align_power_samples,
     BatteryPowerCommand,
     BatteryProfile,
@@ -10,10 +11,9 @@ from src.bems.domain import (
     estimate_power_without_battery,
     normalize_grid_meter,
 )
-from src.bems.economics import interval_cost_cents
-from src.bems.reserve import night_reserve_wh, ZeroSolarForecastProvider
-from src.bems.simulation import SimulatedBattery
-from src.bems.vendor_mocks import MockBatteryEndpoint
+from src.bems.core.economics import interval_cost_cents
+from src.bems.core.reserve import night_reserve_wh, ZeroSolarForecastProvider
+from src.bems.core.simulation import SimulatedBattery
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import _load_bems_config, BemsTariffConfig, config_obj
 

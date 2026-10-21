@@ -5,7 +5,7 @@ import json
 from datetime import datetime, UTC
 
 from src.bems.battery_adapter.marstek import MarstekApiError, MarstekBatteryAdapter, MarstekUdpClient
-from src.bems.domain import BatteryPowerCommand
+from src.bems.core.domain import BatteryPowerCommand
 
 import pytest
 

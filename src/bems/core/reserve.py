@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Protocol
 from zoneinfo import ZoneInfo
 
-from src.bems.domain import BatteryProfile
+from src.bems.core.domain import BatteryProfile
 
 from astral import Observer
 from astral.sun import dawn, dusk

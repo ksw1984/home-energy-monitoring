@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from itertools import pairwise
 
-from src.bems.domain import BatteryPowerCommand, BatteryProfile, BatteryState
+from src.bems.core.domain import BatteryPowerCommand, BatteryProfile, BatteryState
 
 
 class SimulatedBattery:

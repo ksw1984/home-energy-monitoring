@@ -4,8 +4,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, UTC
 
-from src.bems.controller import GridBalancingController
-from src.bems.domain import (
+from src.bems.core.controller import GridBalancingController
+from src.bems.core.domain import (
     align_power_samples,
     Battery,
     BatteryIdentity,
@@ -15,7 +15,7 @@ from src.bems.domain import (
     BemsPowerSample,
     estimate_power_without_battery,
 )
-from src.bems.reserve import night_reserve_wh
+from src.bems.core.reserve import night_reserve_wh
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase

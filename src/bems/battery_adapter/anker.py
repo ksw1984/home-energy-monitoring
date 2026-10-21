@@ -6,7 +6,7 @@ import struct
 from datetime import datetime, UTC
 from typing import Protocol
 
-from src.bems.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
+from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 
 MODBUS_DEFAULT_PORT = 502
 MODBUS_DEFAULT_UNIT_ID = 1

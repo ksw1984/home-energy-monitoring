@@ -2,7 +2,7 @@
 
 from itertools import pairwise
 
-from src.bems.domain import BemsPowerSample
+from src.bems.core.domain import BemsPowerSample
 from src.config.config import BemsTariffConfig
 
 

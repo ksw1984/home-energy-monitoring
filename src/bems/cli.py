@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, UTC
 from pathlib import Path
 
-from src.bems.historical import simulate_historical
+from src.bems.services.historical import simulate_historical
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
 from src.logger.logging_config import setup_logging
