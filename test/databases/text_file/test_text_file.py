@@ -63,6 +63,7 @@ def test_store_writes_measurement_as_json_line(tmp_path):
         "metric": "temperature",
         "value": 20.5,
         "unit": "°C",
+        "measurement_type": "current",
     }
 
 
@@ -158,6 +159,44 @@ def test_store_preserves_unicode(tmp_path):
     assert "Wohnzimmer - Sensor äöü" in content
     assert "Temperatur °C" in content
     assert "°C" in content
+
+
+def test_query_measurements_filters_range_and_restores_metadata(tmp_path):
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
+    first = make_measurement(timestamp=datetime(2026, 8, 27, 12, 0, tzinfo=UTC), metric="power", value=100, unit="W")
+    second = make_measurement(timestamp=datetime(2026, 8, 27, 12, 1, tzinfo=UTC), metric="power", value=200, unit="W")
+    asyncio.run(database.store([first, second]))
+
+    result = asyncio.run(
+        database.query_measurements(
+            source="test",
+            metrics=["power"],
+            start=first.timestamp,
+            stop=second.timestamp,
+        )
+    )
+
+    assert result == [first]
+
+
+def test_query_measurements_reads_legacy_jsonl_without_metadata(tmp_path):
+    file = tmp_path / "2026-08-27.jsonl"
+    file.write_text(
+        '{"timestamp":"2026-08-27T12:00:00+00:00","source":"test","metric":"power","value":100}\n',
+        encoding="utf-8",
+    )
+    database = TextFileDatabase(directory=str(tmp_path), enabled=True)
+
+    result = asyncio.run(
+        database.query_measurements(
+            source="test",
+            metrics=["power"],
+            start=datetime(2026, 8, 27, tzinfo=UTC),
+        )
+    )
+
+    assert result[0].unit == ""
+    assert result[0].measurement_type == "current"
 
 
 def test_store_empty_measurements_creates_no_file(tmp_path):
