@@ -1,11 +1,10 @@
 """Probe the shortest stable DLMS polling period for a Landis+Gyr meter.
 
 The probe keeps one persistent DLMS connection and repeatedly reads only the
-total active power register (``16.7.0``). It walks a coarse ladder first
-(5 s down to 1 s in 0.5 s steps), then a medium ladder (0.9 s down to 0.1 s in
-0.1 s steps). At the first unstable period it reconnects, restarts 0.2 s above
-that period and descends in 0.01 s steps until the next failure, so the real
-boundary is resolved to 10 ms. It reports two numbers:
+total active power register (``16.7.0``). By default it walks a 0.01 s ladder
+from 0.40 s down to 0.05 s, taking 10 reads per candidate period. It stops at
+the first unstable period. An optional refinement pass can reconnect, restart
+above that period and descend again in 0.01 s steps. It reports two numbers:
 
 * the shortest period whose reads all finish before the next scheduled start
   with at least 10 % headroom, and
@@ -49,11 +48,13 @@ PROBE_METRIC = "grid_active_power"
 PROBE_SOURCE = "dlms_poll_probe"
 
 DEFAULT_PORT = "/dev/ttyUSB0"
-DEFAULT_START_PERIOD_S = 5.0
-DEFAULT_THRESHOLD_PERIOD_S = 1.0
-DEFAULT_COARSE_STEP_S = 0.5
-DEFAULT_MEDIUM_STEP_S = 0.1
-DEFAULT_BASE_END_PERIOD_S = 0.1
+# 0.40 s down to 0.05 s in 0.01 s steps. The threshold only separates the two
+# ladder phases; both use the same step so the result is one continuous ladder.
+DEFAULT_START_PERIOD_S = 0.40
+DEFAULT_THRESHOLD_PERIOD_S = 0.39
+DEFAULT_COARSE_STEP_S = 0.01
+DEFAULT_MEDIUM_STEP_S = 0.01
+DEFAULT_BASE_END_PERIOD_S = 0.05
 DEFAULT_REFINE_OFFSET_S = 0.2
 DEFAULT_REFINE_STEP_S = 0.01
 DEFAULT_FLOOR_PERIOD_S = 0.05
@@ -575,15 +576,16 @@ def run_probe(  # noqa: PLR0913 - the ladder knobs are explicit so the fine sear
     refine_step_s: float,
     floor_s: float,
     recorder: CsvRecorder,
+    refine: bool = True,
 ) -> ProbeResult:
-    """Walk the coarse ladder, then refine the area around the first failure.
+    """Walk the base ladder, optionally refining the area around the first failure.
 
-    The base ladder always stops at the first unstable period. The connection
-    is re-established, the fine ladder restarts ``refine_offset_s`` above that
-    period (capped at the last known stable period) and descends in
-    ``refine_step_s`` increments until it fails again or reaches ``floor_s``.
-    That yields a 10 ms resolution boundary without paying for 10 ms steps over
-    the whole 5 s range.
+    The base ladder always stops at the first unstable period. When ``refine``
+    is true, the connection is re-established, the fine ladder restarts
+    ``refine_offset_s`` above that period (capped at the last known stable
+    period) and descends in ``refine_step_s`` increments until it fails again
+    or reaches ``floor_s``. When ``refine`` is false, the probe returns
+    immediately with the base-ladder result and never reconnects.
 
     Args:
         collector: Connected and warmed-up DLMS collector.
@@ -594,6 +596,7 @@ def run_probe(  # noqa: PLR0913 - the ladder knobs are explicit so the fine sear
         refine_step_s: Decrement inside the fine ladder.
         floor_s: Shortest period the fine ladder may test.
         recorder: CSV sink receiving every sample.
+        refine: Whether to run the optional fine ladder after the first failure.
 
     Returns:
         Probe result with all step summaries, the fine ladder that was tested
@@ -619,7 +622,10 @@ def run_probe(  # noqa: PLR0913 - the ladder knobs are explicit so the fine sear
 
         minimum_stable = period_s
 
-    if first_unstable is not None:
+    if first_unstable is not None and not refine:
+        logger.info("Refine disabled; stopping at first unstable period %.2f s", first_unstable)
+
+    if first_unstable is not None and refine:
         refine_periods = build_refine_ladder(
             failure_s=first_unstable,
             offset_s=refine_offset_s,
@@ -767,9 +773,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Find the shortest stable DLMS polling period by reading only 16.7.0. "
-            "Coarse ladder: 5 s to 1 s in 0.5 s steps. Medium ladder: 0.9 s to 0.1 s "
-            "in 0.1 s steps. At the first failure the probe reconnects, restarts 0.2 s "
-            "above that period and descends in 0.01 s steps."
+            "Default ladder: 0.40 s down to 0.05 s in 0.01 s steps, 10 reads per "
+            "period. The probe stops at the first unstable period. Use --refine to "
+            "reconnect and refine around that boundary."
         )
     )
     parser.add_argument("--port", default=DEFAULT_PORT, help="DLMS serial device")
@@ -787,7 +793,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--floor", type=_positive_float, default=DEFAULT_FLOOR_PERIOD_S, help="shortest period tested after a failure")
     parser.add_argument("--samples", type=int, default=MIN_SAMPLES_PER_STEP, help="reads per period (minimum 10)")
     parser.add_argument("--output", help="CSV output path (default: data/dlms_poll_probe_<port>_<timestamp>.csv)")
-    parser.add_argument("--verbose", action="store_true", help="enable DEBUG logging")
+    parser.add_argument(
+        "--refine",
+        action="store_true",
+        help="reconnect and refine around the first unstable period",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="enable DEBUG logging (noisy; increases console I/O during timing)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -854,13 +869,16 @@ def main(argv: list[str] | None = None) -> int:
 
     logger.info("Probing DLMS poll period on %s, register %s only", args.port, PROBE_OBIS)
     logger.info("Base ladder: %d steps from %.2f s down to %.2f s", len(periods), periods[0], periods[-1])
-    logger.info(
-        "Reads per step: %d; on failure reconnect and refine from +%.2f s in %.2f s steps down to %.2f s",
-        args.samples,
-        args.refine_offset,
-        args.refine_step,
-        args.floor,
-    )
+    if args.refine:
+        logger.info(
+            "Reads per step: %d; on failure reconnect and refine from +%.2f s in %.2f s steps down to %.2f s",
+            args.samples,
+            args.refine_offset,
+            args.refine_step,
+            args.floor,
+        )
+    else:
+        logger.info("Reads per step: %d; refine disabled; stop at first unstable period", args.samples)
     logger.info("CSV output: %s", output_path)
 
     try:
@@ -879,6 +897,7 @@ def main(argv: list[str] | None = None) -> int:
             refine_step_s=args.refine_step,
             floor_s=args.floor,
             recorder=recorder,
+            refine=args.refine,
         )
 
     except ProbeConnectionError as exc:

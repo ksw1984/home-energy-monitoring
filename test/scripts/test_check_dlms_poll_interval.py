@@ -5,6 +5,7 @@ from src.scripts.check_dlms_poll_interval import (
     _run_step,
     build_period_ladder,
     build_refine_ladder,
+    parse_args,
     PROBE_METRIC,
     ProbeSample,
     run_probe,
@@ -53,12 +54,28 @@ def make_step(sample_count: int = 10, **kwargs) -> list[ProbeSample]:
 def test_build_period_ladder_default_matches_documented_steps():
     ladder = build_period_ladder()
 
-    assert ladder[0] == pytest.approx(5.0)
-    assert ladder[-1] == pytest.approx(0.1)
-    assert 1.0 in ladder
-    assert 0.9 in ladder
-    assert len(ladder) == 18
-    assert all(left > right for left, right in pairwise(ladder))
+    assert ladder[0] == pytest.approx(0.40)
+    assert ladder[-1] == pytest.approx(0.05)
+    assert 0.39 in ladder
+    assert 0.30 in ladder
+    assert len(ladder) == 36
+    assert all(left - right == pytest.approx(0.01) for left, right in pairwise(ladder))
+
+
+def test_parse_args_defaults_to_simple_ladder_and_info_logging():
+    args = parse_args([])
+
+    assert args.start == pytest.approx(0.40)
+    assert args.threshold == pytest.approx(0.39)
+    assert args.step_coarse == pytest.approx(0.01)
+    assert args.step_medium == pytest.approx(0.01)
+    assert args.samples == 10
+    assert args.refine is False
+    assert args.verbose is False
+
+
+def test_parse_args_accepts_opt_in_refine():
+    assert parse_args(["--refine"]).refine is True
 
 
 def test_build_period_ladder_uses_coarse_then_medium_step():
@@ -271,6 +288,34 @@ def test_run_probe_refines_failure_area(monkeypatch):
     assert result.minimum_stable_s == pytest.approx(0.49)
     assert len(result.summaries) == 6
     reconnect.assert_called_once()
+
+
+def test_run_probe_no_refine_stops_without_reconnect(monkeypatch):
+    module = "src.scripts.check_dlms_poll_interval"
+
+    def fake_run_step(_collector, period_s, _samples, _recorder):
+        return make_step(read_duration_s=0.1) if period_s >= 0.3 else make_step(read_duration_s=0.95)
+
+    monkeypatch.setattr(f"{module}._run_step", fake_run_step)
+    reconnect = Mock()
+    monkeypatch.setattr(f"{module}._reconnect_and_settle", reconnect)
+
+    result = run_probe(
+        collector=Mock(),
+        periods=[0.4, 0.39, 0.3, 0.29],
+        samples_per_step=10,
+        refine_offset_s=0.2,
+        refine_step_s=0.01,
+        floor_s=0.05,
+        recorder=Mock(),
+        refine=False,
+    )
+
+    assert result.minimum_stable_s == pytest.approx(0.3)
+    assert result.first_unstable_s == pytest.approx(0.29)
+    assert result.refine_periods == []
+    assert len(result.summaries) == 4
+    reconnect.assert_not_called()
 
 
 def test_run_probe_without_failure_does_not_refine(monkeypatch):
