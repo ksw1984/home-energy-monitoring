@@ -34,9 +34,14 @@ class DlmsCollector(BaseCollector):
         interval: Collection interval in seconds.
         source: Source identifier stored with generated measurements.
         port: Serial device used for the DLMS connection.
+        obis_codes: OBIS codes read on every collection. Defaults to
+            ``CURRENT_OBIS``. Use a single register such as ``{"16.7.0"}``
+            for latency probes or fast power-only polling.
+        read_timeout: Maximum seconds to wait for each register reply.
+            ``None`` keeps the protocol default of 30 seconds.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - one keyword per collector attribute keeps config mapping explicit.
         self,
         *,
         enabled: bool = True,
@@ -44,6 +49,8 @@ class DlmsCollector(BaseCollector):
         interval: int = 1,
         source: str = "landys_gyr_zmd310_meter_dlms",
         port: str = "/dev/ttyUSB0",
+        obis_codes: set[str] | None = None,
+        read_timeout: float | None = None,
     ) -> None:
         """Initialize the DLMS collector.
 
@@ -53,6 +60,9 @@ class DlmsCollector(BaseCollector):
             interval: Collection interval in seconds.
             source: Measurement source identifier.
             port: Serial device used by the meter.
+            obis_codes: OBIS codes to read. ``None`` means ``CURRENT_OBIS``.
+            read_timeout: Per-reply timeout in seconds. ``None`` uses the
+                protocol default.
         """
         super().__init__(
             enabled=enabled,
@@ -62,6 +72,10 @@ class DlmsCollector(BaseCollector):
         )
 
         self.port = port
+        # ``None`` keeps the module-level CURRENT_OBIS lookup dynamic so the
+        # default set can still be patched in tests and future callers.
+        self.obis_codes = set(obis_codes) if obis_codes is not None else None
+        self.read_timeout = read_timeout
         self.protocol = DlmsProtocol(port)
         self.connected = False
 
@@ -124,7 +138,13 @@ class DlmsCollector(BaseCollector):
             self.connect()
 
         try:
-            values = self.protocol.read(CURRENT_OBIS)
+            obis_codes = self.obis_codes if self.obis_codes is not None else CURRENT_OBIS
+
+            # Only pass a timeout when one was configured so the protocol keeps
+            # its own default and existing callers see an unchanged signature.
+            read_kwargs = {} if self.read_timeout is None else {"timeout": self.read_timeout}
+
+            values = self.protocol.read(obis_codes, **read_kwargs)
 
         except (
             serial.SerialException,

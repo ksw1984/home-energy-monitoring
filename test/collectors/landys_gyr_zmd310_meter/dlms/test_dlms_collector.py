@@ -294,6 +294,36 @@ def test_collect_passes_current_obis_to_protocol(collector, monkeypatch):
     collector.protocol.read.assert_called_once_with(current_obis)
 
 
+def test_collect_uses_configured_obis_codes():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+        obis_codes={"16.7.0"},
+    )
+    collector.connected = True
+    collector.protocol.read = Mock(return_value={"16.7.0": 250.0})
+
+    result = collector.collect()
+
+    collector.protocol.read.assert_called_once_with({"16.7.0"})
+    assert [measurement.metric for measurement in result] == ["grid_active_power"]
+
+
+def test_collect_passes_configured_read_timeout():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+        obis_codes={"16.7.0"},
+        read_timeout=1.5,
+    )
+    collector.connected = True
+    collector.protocol.read = Mock(return_value={"16.7.0": 250.0})
+
+    collector.collect()
+
+    collector.protocol.read.assert_called_once_with({"16.7.0"}, timeout=1.5)
+
+
 def _find_measurement(
     measurements: list[Measurement],
     metric: str,

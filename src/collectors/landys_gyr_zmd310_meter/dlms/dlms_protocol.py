@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Default time budget for one complete DLMS reply. Fast polling setups can pass
+# a tighter budget so a single unresponsive register cannot stall the caller.
+DEFAULT_REPLY_TIMEOUT_S = 30.0
+
 DlmsRequest = bytes | bytearray | list[bytes | bytearray]
 
 
@@ -161,8 +165,28 @@ class DlmsProtocol:
             finally:
                 self.ser = None
 
-    def read(self, obis_codes: Iterable[str]) -> dict[str, float]:
-        """Read the requested OBIS registers and return normalized float values."""
+    def read(self, obis_codes: Iterable[str], *, timeout: float = DEFAULT_REPLY_TIMEOUT_S) -> dict[str, float]:
+        """Read the requested OBIS registers and return normalized float values.
+
+        Registers are read sequentially on the persistent connection. The
+        timeout applies to each complete reply, so a caller polling at a fixed
+        period can bound the worst-case stall to roughly one period.
+
+        Args:
+            obis_codes: OBIS codes to read.
+            timeout: Maximum time in seconds to wait for each complete reply.
+
+        Returns:
+            Mapping of OBIS code to the normalized value using the configured
+            unit multiplier.
+
+        Raises:
+            serial.SerialException: If the serial connection is not open.
+            TimeoutError: If the meter does not answer within ``timeout``.
+            RuntimeError: If the DLMS protocol reports an error.
+            TypeError: If a register returns a non-numeric value.
+            ValueError: If an OBIS code has no definition.
+        """
         values: dict[str, float] = {}
 
         for obis in sorted(obis_codes):
@@ -201,7 +225,7 @@ class DlmsProtocol:
 
             self._receive_gurux_reply(
                 reply=reply,
-                timeout=30.0,
+                timeout=timeout,
             )
 
             raw_value = reply.value
