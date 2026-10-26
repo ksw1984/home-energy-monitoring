@@ -21,6 +21,7 @@ from src.manager.connection_lifecycle import (
     disconnect_collectors,
     disconnect_databases,
 )
+from src.manager.measurement_bus import MeasurementBus
 from src.manager.runtime_config import (
     configure_collectors,
     configure_databases,
@@ -53,6 +54,11 @@ class MeasurementManager:
     Measurements are collected independently of storage configuration.
     The storage filter determines which measurements are persisted.
 
+    Every successful collection is also published to an in-process
+    :class:`~src.manager.measurement_bus.MeasurementBus`. The bus is the
+    single source of truth for latest values, so live consumers see the
+    measurement cadence while databases may store less often.
+
     Daily meter energy values are stored at most once during hour 00:00,
     after the required values are available.
 
@@ -69,18 +75,26 @@ class MeasurementManager:
         calculators: list[BaseCalculator],
         timezone: str,
         storage_config: StorageConfig,
+        bus: MeasurementBus | None = None,
     ):
         """Initialize the collector manager.
 
         Args:
             collectors: Collectors to execute independently.
             databases: Databases receiving the collected measurements.
+            estimators: Estimators fed with raw collector measurements.
+            calculators: Calculators deriving additional measurements.
             timezone: Timezone used for daily measurement handling.
+            storage_config: Storage selection and daily-snapshot policy.
+            bus: Shared measurement bus. ``None`` creates a private bus for
+                tests and standalone callers; the app injects one so BEMS can
+                consume the same stream.
         """
         self.collectors = collectors
         self.databases = databases
         self.estimators = estimators
         self.calculators = calculators
+        self.bus = bus if bus is not None else MeasurementBus()
 
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
@@ -95,8 +109,6 @@ class MeasurementManager:
         # Protects the daily measurement state when multiple collectors
         # finish at approximately the same time.
         self._filter_lock = asyncio.Lock()
-
-        self._latest_measurements: dict[tuple[str, str], Measurement] = {}
 
     async def _reload_config_if_changed(self) -> None:
         async with self._config_reload_lock:
@@ -236,23 +248,21 @@ class MeasurementManager:
         self,
         measurements: list[Measurement],
     ) -> None:
-        """Process collected measurements through estimators and calculators."""
+        """Publish, store, and derive measurements from one collector batch.
+
+        The bus publish happens before persistence so live consumers never
+        wait for, or depend on, a database write.
+        """
 
         # -------------------------------------------------
-        # 1. Collector values are authoritative.
-        #    Store/update them before estimator/calculator
-        #    processing. They must never be replaced by
-        #    estimated values.
+        # 1. Collector values are authoritative and reach the
+        #    bus before persistence. Live control must not wait
+        #    for, or depend on, a database write.
         # -------------------------------------------------
 
         raw_measurements = list(measurements)
 
-        for measurement in raw_measurements:
-            key = (measurement.source, measurement.metric)
-            current = self._latest_measurements.get(key)
-
-            if current is None or measurement.timestamp > current.timestamp:
-                self._latest_measurements[key] = measurement
+        self.bus.publish(raw_measurements)
 
         # -------------------------------------------------
         # 2. Store raw collector measurements.
@@ -322,7 +332,10 @@ class MeasurementManager:
                 input_config.metric,
             )
 
-            measurement = self._latest_measurements.get(key)
+            measurement = self.bus.latest(
+                input_config.source,
+                input_config.metric,
+            )
 
             if measurement is None:
                 return None

@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from src.config.config import (
+    _load_bems_config,
     CollectionConfig,
     ComponentConfig,
     Config,
@@ -152,3 +153,35 @@ def test_config_dataclass():
     assert config.storage.measurements[0].source == "fronius"
     assert config.storage.measurements[0].metric == "pv_power"
     assert config.storage.measurements[0].measurement_type == "current"
+
+
+# ============================================================================
+# BEMS control feed
+# ============================================================================
+
+
+def test_bems_control_feed_defaults_to_bus():
+    config = _load_bems_config({})
+
+    assert config.control.feed == "bus"
+
+
+def test_bems_control_accepts_database_feed():
+    config = _load_bems_config(
+        {
+            "databases": [{"type": "influxdb"}],
+            "bems": {"control": {"feed": "database"}},
+        }
+    )
+
+    assert config.control.feed == "database"
+
+
+def test_bems_control_rejects_unknown_feed():
+    with pytest.raises(ValueError, match="feed"):
+        _load_bems_config(
+            {
+                "databases": [{"type": "influxdb"}],
+                "bems": {"control": {"feed": "mqtt"}},
+            }
+        )

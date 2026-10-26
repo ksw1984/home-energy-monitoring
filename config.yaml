@@ -348,6 +348,9 @@ bems:
     household_import_ct_per_kwh: 30.0
 
   control:
+    # bus: control from the in-process measurement stream (HEMS app).
+    # database: poll stored history (standalone live_cli / dry runs).
+    feed: bus
     deadband_w: 20
     max_output_power_w: 3500
     max_measurement_age_s: 20

@@ -18,6 +18,7 @@ def mocked_config():
     config.calculators = []
 
     config.storage = Mock()
+    config.bems = None
 
     return config
 
@@ -29,9 +30,15 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
     mock_calculators = [Mock()]
     mock_manager = Mock()
     mock_manager.run = AsyncMock()
+    mock_bus = Mock()
 
     with (
         patch.object(src.app, "config_obj", mocked_config),
+        patch.object(
+            src.app,
+            "MeasurementBus",
+            return_value=mock_bus,
+        ),
         patch.object(
             src.app,
             "create_collectors",
@@ -75,9 +82,63 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
         calculators=mock_calculators,
         timezone="Europe/Berlin",
         storage_config=mocked_config.storage,
+        bus=mock_bus,
     )
 
     mock_manager.run.assert_awaited_once()
+
+    for database in mock_databases:
+        database.close.assert_called_once()
+
+
+def test_run_starts_bus_fed_bems_live_service(mocked_config):
+    mock_databases = [Mock()]
+    mock_manager = Mock()
+    mock_manager.run = AsyncMock()
+    mock_bus = Mock()
+    live_service = Mock()
+    live_service.run_forever_bus = AsyncMock()
+    client = Mock()
+    client.close = AsyncMock()
+
+    mocked_config.bems = Mock()
+    mocked_config.bems.enabled = True
+    mocked_config.bems.control.feed = "bus"
+    device = Mock()
+    device.enabled = True
+    device.mode = "live"
+    mocked_config.bems.devices = [device]
+
+    with (
+        patch.object(src.app, "config_obj", mocked_config),
+        patch.object(src.app, "MeasurementBus", return_value=mock_bus),
+        patch.object(src.app, "create_collectors", return_value=[]),
+        patch.object(src.app, "create_databases", return_value=mock_databases),
+        patch.object(src.app, "create_estimators", return_value=[]),
+        patch.object(src.app, "create_calculators", return_value=[]),
+        patch.object(src.app, "MeasurementManager", return_value=mock_manager),
+        patch.object(
+            src.app,
+            "create_adapters",
+            return_value=({}, [client]),
+        ) as adapters_factory,
+        patch.object(
+            src.app,
+            "LiveControlService",
+            return_value=live_service,
+        ) as service_cls,
+    ):
+        asyncio.run(src.app.run())
+
+    adapters_factory.assert_called_once_with([device], mocked_config.bems)
+    service_cls.assert_called_once_with(
+        config=mocked_config.bems,
+        output_databases=mock_databases,
+        batteries={},
+        bus=mock_bus,
+    )
+    live_service.run_forever_bus.assert_awaited_once()
+    client.close.assert_awaited_once()
 
     for database in mock_databases:
         database.close.assert_called_once()

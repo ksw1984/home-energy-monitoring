@@ -19,28 +19,52 @@ from src.bems.core.reserve import night_reserve_wh
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
+from src.manager.measurement_bus import MeasurementBus
 
 logger = logging.getLogger(__name__)
 QUERY_PAGE_SIZE = 1000
 
+# A zero max measurement age would otherwise spin the bus wait loop. The
+# failsafe still runs every cycle; this only bounds the wake-up frequency.
+MIN_BUS_WAIT_S = 0.1
+
 
 class LiveControlService:
-    """Consume new meter rows and control injected battery adapters independently of HEMS."""
+    """Control injected battery adapters from stored rows or the measurement bus."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - each keyword is one explicit service input.
         self,
         *,
         config: BemsConfig,
-        input_database: BaseDatabase,
         output_databases: list[BaseDatabase],
         batteries: dict[str, Battery],
+        input_database: BaseDatabase | None = None,
+        bus: MeasurementBus | None = None,
         poll_interval_s: float = 5.0,
     ) -> None:
-        """Create a live service; ``batteries`` maps enabled live device IDs to adapters."""
+        """Create a live service fed by a database or the measurement bus.
+
+        Args:
+            config: BEMS inputs, limits, profiles and device settings.
+            output_databases: Databases receiving battery state and outcomes.
+            batteries: Mapping of enabled live device ID to adapter.
+            input_database: Database used by :meth:`run_once` and
+                :meth:`run_forever`.
+            bus: In-process stream used by :meth:`run_forever_bus`.
+            poll_interval_s: Database polling interval for the standalone
+                service.
+
+        Raises:
+            ValueError: If the poll interval is not positive, no input source
+                is configured, or adapters do not match enabled live devices.
+        """
         if poll_interval_s <= 0:
             raise ValueError("poll_interval_s must be positive")
+        if input_database is None and bus is None:
+            raise ValueError("input_database or bus is required")
         self.config = config
         self.input_database = input_database
+        self.bus = bus
         self.output_databases = output_databases
         self.batteries = batteries
         self.poll_interval_s = poll_interval_s
@@ -52,14 +76,21 @@ class LiveControlService:
         unknown = batteries.keys() - self.devices.keys()
         if unknown:
             raise ValueError(f"Adapters provided for non-live or disabled devices: {', '.join(sorted(unknown))}")
+        # Newest grid timestamp already processed. In bus mode it is the
+        # ``after_timestamp`` cursor; in database mode it is the page cursor.
         self._grid_cursor: datetime | None = None
         self._last_fresh_input: datetime | None = None
         self._stale = False
         self._last_requested_power: dict[str, float] = {}
         self._last_command_at: dict[str, datetime] = {}
+        # Bus mode replaces this with the observed grid cadence; the database
+        # path keeps the configured poll interval.
+        self.control_interval_s = config.control.live_poll_interval_s
 
     async def run_once(self, *, now: datetime | None = None) -> int:
         """Process each newly stored grid point once and return the count handled."""
+        if self.input_database is None:
+            raise RuntimeError("run_once() requires input_database; use run_forever_bus() for bus mode")
         current_time = now or datetime.now(UTC)
         self._require_aware(current_time)
         grid_ref = self.config.inputs.grid
@@ -121,7 +152,9 @@ class LiveControlService:
         return handled
 
     async def run_forever(self, stop_event: asyncio.Event | None = None) -> None:
-        """Poll until cancelled or an optional stop event is set."""
+        """Poll the input database until cancelled or an optional stop event is set."""
+        if self.input_database is None:
+            raise RuntimeError("run_forever() requires input_database; use run_forever_bus() for bus mode")
         while stop_event is None or not stop_event.is_set():
             try:
                 await self.run_once()
@@ -137,6 +170,120 @@ class LiveControlService:
                 await asyncio.wait_for(stop_event.wait(), timeout=self.poll_interval_s) if stop_event else await asyncio.sleep(self.poll_interval_s)
             except TimeoutError:
                 continue
+
+    async def run_forever_bus(self, stop_event: asyncio.Event | None = None) -> None:
+        """Control from the in-process measurement bus until cancelled.
+
+        One control cycle runs per new grid timestamp. A wait timeout means the
+        grid stream stalled, so the zero-power failsafe is applied; the
+        failsafe is idempotent and does not resend an already-requested zero.
+        Household and PV values are taken from the bus at the moment the grid
+        sample arrives, and the database is never queried on this path.
+
+        Args:
+            stop_event: Optional event checked between waits. Cancellation is
+                the primary shutdown mechanism because an in-flight bus wait is
+                not interrupted by the event.
+        """
+        if self.bus is None:
+            raise RuntimeError("run_forever_bus() requires a measurement bus")
+
+        grid_ref = self.config.inputs.grid
+        wait_timeout = max(MIN_BUS_WAIT_S, self.config.control.max_measurement_age_s)
+
+        while stop_event is None or not stop_event.is_set():
+            try:
+                newer = await self.bus.wait_for_next(
+                    source=grid_ref.source,
+                    metric=grid_ref.metric,
+                    after_timestamp=self._grid_cursor,
+                    timeout=wait_timeout,
+                )
+
+                if stop_event is not None and stop_event.is_set():
+                    break
+
+                if newer:
+                    await self._control_from_bus(datetime.now(UTC))
+                else:
+                    await self._apply_stale_failsafe(datetime.now(UTC))
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("BEMS live bus cycle failed")
+                try:
+                    await self._apply_stale_failsafe(datetime.now(UTC))
+                except Exception:
+                    logger.exception("BEMS could not apply the bus-error failsafe")
+
+    async def _control_from_bus(self, now: datetime) -> None:
+        """Run one control cycle from the newest bus values.
+
+        The grid sample drives the cycle. Household is required by the cascade
+        split; when it is missing or too old, ``align_power_samples`` returns
+        nothing and the zero-power failsafe is requested, matching the
+        database path. PV is optional and only enriches the sample.
+
+        Args:
+            now: Timezone-aware wall clock used for freshness checks.
+        """
+        if self.bus is None:
+            raise RuntimeError("bus mode is not configured")
+
+        grid_ref = self.config.inputs.grid
+        grid = self.bus.latest(grid_ref.source, grid_ref.metric)
+
+        if grid is None:
+            return
+
+        if self._grid_cursor is not None and grid.timestamp <= self._grid_cursor:
+            return
+
+        previous_cursor = self._grid_cursor
+
+        # Advance before device control so an adapter error cannot replay the
+        # same meter sample on the next wake-up.
+        self._grid_cursor = grid.timestamp
+
+        if previous_cursor is not None:
+            spacing = (grid.timestamp - previous_cursor).total_seconds()
+
+            if spacing > 0:
+                # The heat-pump reserve cap is expressed per control decision,
+                # so the observed grid cadence is the honest interval. The
+                # database path keeps using the configured poll interval.
+                self.control_interval_s = spacing
+
+        household = self.bus.latest(self.config.inputs.household.source, self.config.inputs.household.metric)
+        pv = self.bus.latest(self.config.inputs.pv.source, self.config.inputs.pv.metric)
+
+        try:
+            samples = align_power_samples(
+                [grid],
+                [household] if household is not None else [],
+                [pv] if pv is not None else [],
+                tolerance_seconds=self.config.control.history_alignment_tolerance_s,
+            )
+        except ValueError:
+            logger.exception("BEMS rejected invalid live power measurements from the bus")
+            await self._apply_stale_failsafe(now)
+            return
+
+        if not samples:
+            await self._apply_stale_failsafe(now)
+            return
+
+        sample = samples[0]
+        age = (now - sample.timestamp).total_seconds()
+
+        if not 0 <= age <= self.config.control.max_measurement_age_s:
+            await self._apply_stale_failsafe(now)
+            return
+
+        self._last_fresh_input = sample.timestamp
+        self._stale = False
+        await self._control_sample(sample, now)
 
     async def _control_sample(self, sample: BemsPowerSample, now: datetime) -> None:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
@@ -189,7 +336,7 @@ class LiveControlService:
                         dusk_margin_minutes=self.config.night.dusk_margin_minutes,
                         dawn_margin_minutes=self.config.night.dawn_margin_minutes,
                     ),
-                    control_interval_s=self.config.control.live_poll_interval_s,
+                    control_interval_s=self.control_interval_s,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)
                 last_command_at = self._last_command_at.get(device_id)
@@ -314,7 +461,16 @@ class LiveControlService:
         stop: datetime,
         after: datetime | None = None,
     ) -> list[Measurement]:
-        """Read one input series with bounded pages and a strict timestamp cursor."""
+        """Read one input series with bounded pages and a strict timestamp cursor.
+
+        This helper belongs to database mode; bus mode never queries storage.
+
+        Raises:
+            RuntimeError: If no input database was configured.
+        """
+        if self.input_database is None:
+            raise RuntimeError("database mode is not configured")
+
         rows: list[Measurement] = []
         cursor = after
         while True:
@@ -337,11 +493,28 @@ class LiveControlService:
                 return rows
 
     async def _store(self, measurements: list[Measurement]) -> None:
-        """Write live readings and controller outcomes to each enabled database."""
-        if measurements:
-            for database in self.output_databases:
-                if database.enabled:
-                    await database.store(measurements)
+        """Write live readings and controller outcomes to each enabled database.
+
+        A failing output database must not stop battery control, so each write
+        is isolated and logged instead of aborting the control cycle.
+
+        Args:
+            measurements: Battery state and outcome measurements to persist.
+        """
+        if not measurements:
+            return
+
+        for database in self.output_databases:
+            if not database.enabled:
+                continue
+
+            try:
+                await database.store(measurements)
+            except Exception:
+                logger.exception(
+                    "BEMS live output database %s failed",
+                    database.__class__.__name__,
+                )
 
     @staticmethod
     def _state_measurements(  # noqa: PLR0913 - this maps all state and outcome fields into one measurement batch.

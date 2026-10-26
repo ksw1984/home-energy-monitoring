@@ -134,6 +134,9 @@ class BemsControlConfig:
     history_alignment_tolerance_s: float
     simulation_ramp_seconds: float
     live_poll_interval_s: float
+    # "bus" feeds live control from the in-process measurement stream;
+    # "database" keeps the standalone polling path for dry runs.
+    feed: str = "bus"
 
 
 @dataclass(frozen=True)
@@ -318,7 +321,7 @@ def load_calculator_configs(
     return configs
 
 
-def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901, PLR0912 - field-specific validation errors stay beside their checks.
+def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901, PLR0912, PLR0915 - field-specific validation errors stay beside their checks.
     raw = config_data.get("bems", {})
     raw_inputs = raw.get("inputs", {})
     raw_control = raw.get("control", {})
@@ -382,6 +385,11 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         if device.max_output_power_w < 0:
             raise ValueError(f"BEMS device '{device.id}' max_output_power_w cannot be negative")
 
+    feed = str(raw_control.get("feed", "bus"))
+
+    if feed not in {"bus", "database"}:
+        raise ValueError("BEMS control.feed must be 'bus' or 'database'")
+
     control = BemsControlConfig(
         deadband_w=float(raw_control.get("deadband_w", 20.0)),
         max_output_power_w=float(raw_control.get("max_output_power_w", 800.0)),
@@ -389,6 +397,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
         simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
         live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
+        feed=feed,
     )
     if control.deadband_w < 0 or control.max_output_power_w < 0:
         raise ValueError("BEMS deadband and output power limit cannot be negative")

@@ -13,6 +13,7 @@ from src.config.config import (
     StorageMeasurementConfig,
 )
 from src.estimators.base_estimator import BaseEstimator
+from src.manager.measurement_bus import MeasurementBus
 from src.manager.measurement_manager import MeasurementManager
 
 import pytest
@@ -54,6 +55,7 @@ def make_manager(  # noqa: PLR0913
     storage_measurements=(),
     estimators=None,
     calculators=None,
+    bus=None,
 ):
     return MeasurementManager(
         collectors=[] if collectors is None else collectors,
@@ -62,6 +64,7 @@ def make_manager(  # noqa: PLR0913
         storage_config=make_storage_config(*storage_measurements),
         estimators=[] if estimators is None else estimators,
         calculators=[] if calculators is None else calculators,
+        bus=bus,
     )
 
 
@@ -85,6 +88,27 @@ def test_init():
     assert manager.collectors is collectors
     assert manager.databases is databases
     assert manager.timezone == ZoneInfo("Europe/Berlin")
+
+
+def test_init_uses_injected_bus():
+    bus = MeasurementBus()
+
+    manager = make_manager(bus=bus)
+
+    assert manager.bus is bus
+
+
+def test_process_measurements_publishes_before_storage():
+    measurement = make_measurement("grid_active_power", 500.0)
+    bus = MeasurementBus()
+    manager = make_manager(bus=bus)
+    manager._store_measurements = AsyncMock(side_effect=RuntimeError("database down"))
+
+    # A failed write must not hide the value from live consumers.
+    with pytest.raises(RuntimeError, match="database down"):
+        asyncio.run(manager._process_measurements([measurement]))
+
+    assert bus.latest("test", "grid_active_power") == measurement
 
 
 def test_collect_all_returns_measurements():
