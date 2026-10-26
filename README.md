@@ -69,7 +69,11 @@ The connection performs:
 5. Register reads using configured OBIS definitions.
 6. Scaler handling for meter values.
 
-DLMS supports faster polling intervals, such as one second, when supported by the meter and serial hardware.
+DLMS supports faster polling intervals, such as one second, when supported by the meter and serial hardware. The interval is a float, so `0.5` is valid after confirming the meter's stable read period.
+
+The collector reads the total active power register (`16.7.0`) on every cycle and the cumulative energy totals (`1.8.0`, `2.8.0`) on a separate hourly schedule inside the same connection. Energy totals are still stored only during the midnight hour.
+
+Use `storage_interval` to keep the database write rate below the measurement rate. With `interval: 1` and `storage_interval: 5`, the in-process bus and live BEMS see every one-second sample while the database receives every fifth batch. The effective database period is `n * interval`, where `n = max(1, round(storage_interval / interval))`. A batch containing daily energy totals is always written so the midnight snapshot is not lost.
 
 Example:
 
@@ -77,6 +81,7 @@ Example:
 - type: landys_gyr_zmd310_meter_dlms
   enabled: true
   interval: 1
+  storage_interval: 5
   attributes:
     port: /dev/ttyUSB0
     source: meter_grid_dlms
@@ -194,7 +199,8 @@ Each collector supports:
 
 - `type`: Collector implementation.
 - `enabled`: Enables or disables the collector.
-- `interval`: Collection interval in seconds.
+- `interval`: Collection interval in seconds. Fractional values are supported for the DLMS collector.
+- `storage_interval`: Optional positive integer number of seconds between database writes. `None` (default) stores every successful collection. Measurements still reach the bus and calculators on every cycle.
 - `attributes.source`: Source name attached to generated measurements.
 - Additional device-specific attributes.
 
@@ -397,9 +403,9 @@ The measurement manager:
 
 ## Battery Energy Management System
 
-The optional BEMS evaluates historical battery savings with local CSV/HTML reports and runs a separate live control process. It supports isolated battery simulations, live control with mock batteries, and opt-in Anker and Marstek adapters. Historical simulations read the configured database but do not write simulation results back to it.
+The optional BEMS evaluates historical battery savings with local CSV/HTML reports and runs a live controller. It supports isolated battery simulations, app-hosted or standalone live control with mock batteries, and opt-in Anker and Marstek adapters. An optional `bems.control.command_log_csv` appends every sent setpoint, which is useful before hardware arrives. Historical simulations read the configured database but do not write simulation results back to it.
 
-See the [BEMS README](src/bems/README.md) for configuration and step-by-step instructions for historical simulations, mock live runs, and real battery control.
+See the [BEMS README](src/bems/README.md) for configuration and step-by-step instructions for historical simulations, app-hosted mock control, command logging, and real battery control.
 
 ---
 

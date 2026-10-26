@@ -42,7 +42,7 @@ class FroniusSymoInverterCollector(BaseCollector):
         *,
         enabled: bool = True,
         timezone: str = "UTC",
-        interval: int = 300,
+        interval: float = 300,
         source: str = "fronius",
         inverter_ip: str = "192.168.178.25",
         inverter_url: str = "solar_api/v1/GetPowerFlowRealtimeData.fcgi",

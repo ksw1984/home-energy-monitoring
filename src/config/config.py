@@ -47,8 +47,9 @@ def required_secret(name: str) -> str:
 class ComponentConfig:
     type: str
     enabled: bool
-    interval: int | None
+    interval: float | None
     attributes: dict[str, Any]
+    storage_interval: int | None = None
 
 
 @dataclass(frozen=True)
@@ -130,13 +131,20 @@ class BemsTariffConfig:
 class BemsControlConfig:
     deadband_w: float
     max_output_power_w: float
+    # Simulation/replay only: gaps larger than this skip energy integration.
     max_measurement_age_s: float
+    # Live only: after this long without a fresh grid sample, request 0 W so
+    # the battery neither charges nor feeds in.
+    live_max_measurement_age_s: float
     history_alignment_tolerance_s: float
     simulation_ramp_seconds: float
     live_poll_interval_s: float
     # "bus" feeds live control from the in-process measurement stream;
     # "database" keeps the standalone polling path for dry runs.
     feed: str = "bus"
+    # Optional CSV log of every setpoint actually sent to an adapter. Works
+    # for mock and vendor adapters; ``None`` disables the log.
+    command_log_csv: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +208,43 @@ class Config:
 # ---------------------------------------------------------
 
 
+def _parse_storage_interval(value: Any) -> int | None:
+    """Parse the optional persistence cadence without accepting fractions.
+
+    ``storage_interval`` stays an integer number of seconds. An integral YAML
+    float such as ``5.0`` is accepted for convenience, but ``5.5`` is rejected
+    instead of being silently truncated.
+
+    Args:
+        value: Raw YAML value.
+
+    Returns:
+        A positive integer, or ``None`` when persistence is not throttled.
+
+    Raises:
+        TypeError: If the value is a boolean.
+        ValueError: If the value is not a positive whole number.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        raise TypeError(f"storage_interval must be a positive integer, got {value!r}")
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"storage_interval must be a positive integer, got {value!r}") from exc
+
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"storage_interval must be a whole number, got {value!r}")
+
+    if parsed <= 0:
+        raise ValueError(f"storage_interval must be positive, got {value!r}")
+
+    return parsed
+
+
 def load_component_configs(
     config_data: dict[str, Any],
     key: str,
@@ -208,8 +253,9 @@ def load_component_configs(
         ComponentConfig(
             type=item["type"],
             enabled=item.get("enabled", True),
-            interval=(int(item["interval"]) if item.get("interval") is not None else None),
+            interval=(float(item["interval"]) if item.get("interval") is not None else None),
             attributes=item.get("attributes", {}),
+            storage_interval=_parse_storage_interval(item.get("storage_interval")),
         )
         for item in config_data[key]
     ]
@@ -377,6 +423,10 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
             raise ValueError(f"BEMS device '{device.id}' references unknown profile '{device.profile}'")
         if device.mode not in {"simulation", "live"}:
             raise ValueError(f"BEMS device '{device.id}' mode must be 'simulation' or 'live'")
+        if "mock" in device.attributes and not isinstance(device.attributes["mock"], bool):
+            raise ValueError(f"BEMS device '{device.id}' attributes.mock must be a boolean")
+        if device.attributes.get("mock") is True and device.mode != "live":
+            raise ValueError(f"BEMS device '{device.id}' attributes.mock requires mode: live")
         if not 0 <= device.initial_soc_percent <= SOC_PERCENT_MAX:
             raise ValueError(f"BEMS device '{device.id}' initial_soc_percent must be between 0 and 100")
         profile = profiles[device.profile]
@@ -390,19 +440,28 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
     if feed not in {"bus", "database"}:
         raise ValueError("BEMS control.feed must be 'bus' or 'database'")
 
+    command_log_csv = raw_control.get("command_log_csv")
+
+    if command_log_csv is not None and (not isinstance(command_log_csv, str) or not command_log_csv.strip()):
+        raise ValueError("BEMS control.command_log_csv must be a non-empty path or null")
+
     control = BemsControlConfig(
         deadband_w=float(raw_control.get("deadband_w", 20.0)),
         max_output_power_w=float(raw_control.get("max_output_power_w", 800.0)),
         max_measurement_age_s=float(raw_control.get("max_measurement_age_s", 20.0)),
+        live_max_measurement_age_s=float(raw_control.get("live_max_measurement_age_s", 3.0)),
         history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
         simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
         live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
         feed=feed,
+        command_log_csv=command_log_csv,
     )
     if control.deadband_w < 0 or control.max_output_power_w < 0:
         raise ValueError("BEMS deadband and output power limit cannot be negative")
     if min(control.max_measurement_age_s, control.history_alignment_tolerance_s, control.simulation_ramp_seconds) < 0:
         raise ValueError("BEMS time settings cannot be negative")
+    if control.live_max_measurement_age_s <= 0:
+        raise ValueError("BEMS live_max_measurement_age_s must be positive")
     if control.live_poll_interval_s <= 0:
         raise ValueError("BEMS live_poll_interval_s must be positive")
 

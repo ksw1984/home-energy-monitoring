@@ -2,7 +2,7 @@ import asyncio
 import logging
 import signal
 
-from src.bems.battery_adapter.factory import AdapterClient, create_adapters
+from src.bems.battery_adapter.factory import AdapterClient, create_adapters, with_mock_identities
 from src.bems.services.live import LiveControlService
 from src.calculators.calculator_factory import create_calculators
 from src.collectors.collector_factory import create_collectors
@@ -51,12 +51,22 @@ def _create_bems_live_service(
     if not devices:
         return None, []
 
+    mock_device_ids = {device.id for device in devices if device.attributes.get("mock") is True}
+
+    if mock_device_ids:
+        logger.info(
+            "BEMS live control uses mock adapters for: %s",
+            ", ".join(sorted(mock_device_ids)),
+        )
+
     batteries, clients = create_adapters(devices, bems)
+    service_config = with_mock_identities(bems, device_ids=mock_device_ids)
     service = LiveControlService(
-        config=bems,
+        config=service_config,
         output_databases=[database for database in databases if database.enabled],
         batteries=batteries,
         bus=bus,
+        command_log_csv=bems.control.command_log_csv,
     )
     return service, clients
 

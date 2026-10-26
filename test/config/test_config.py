@@ -5,6 +5,7 @@ from src.config.config import (
     CollectionConfig,
     ComponentConfig,
     Config,
+    load_component_configs,
     load_estimator_configs,
     required_secret,
     StorageConfig,
@@ -184,4 +185,145 @@ def test_bems_control_rejects_unknown_feed():
                 "databases": [{"type": "influxdb"}],
                 "bems": {"control": {"feed": "mqtt"}},
             }
+        )
+
+
+def test_bems_control_command_log_defaults_to_none():
+    config = _load_bems_config({})
+
+    assert config.control.command_log_csv is None
+
+
+def test_bems_control_accepts_command_log_path():
+    config = _load_bems_config(
+        {
+            "databases": [{"type": "influxdb"}],
+            "bems": {"control": {"command_log_csv": "data/commands.csv"}},
+        }
+    )
+
+    assert config.control.command_log_csv == "data/commands.csv"
+
+
+@pytest.mark.parametrize("value", ["", "   ", 5])
+def test_bems_control_rejects_invalid_command_log_path(value):
+    with pytest.raises(ValueError, match="command_log_csv"):
+        _load_bems_config(
+            {
+                "databases": [{"type": "influxdb"}],
+                "bems": {"control": {"command_log_csv": value}},
+            }
+        )
+
+
+def test_bems_control_live_age_defaults_to_three_seconds():
+    config = _load_bems_config({})
+
+    assert config.control.live_max_measurement_age_s == 3.0
+
+
+def test_bems_control_accepts_explicit_live_age():
+    config = _load_bems_config(
+        {
+            "databases": [{"type": "influxdb"}],
+            "bems": {"control": {"live_max_measurement_age_s": 1.5}},
+        }
+    )
+
+    assert config.control.live_max_measurement_age_s == 1.5
+
+
+def test_bems_control_rejects_non_positive_live_age():
+    with pytest.raises(ValueError, match="live_max_measurement_age_s"):
+        _load_bems_config(
+            {
+                "databases": [{"type": "influxdb"}],
+                "bems": {"control": {"live_max_measurement_age_s": 0}},
+            }
+        )
+
+
+def test_component_config_accepts_fractional_interval():
+    configs = load_component_configs(
+        {
+            "collectors": [
+                {
+                    "type": "landys_gyr_zmd310_meter_dlms",
+                    "interval": 0.5,
+                }
+            ]
+        },
+        "collectors",
+    )
+
+    assert configs[0].interval == 0.5
+    assert isinstance(configs[0].interval, float)
+
+
+def test_component_config_defaults_storage_interval_to_none():
+    configs = load_component_configs(
+        {
+            "collectors": [
+                {
+                    "type": "landys_gyr_zmd310_meter_dlms",
+                    "interval": 1,
+                }
+            ]
+        },
+        "collectors",
+    )
+
+    assert configs[0].storage_interval is None
+
+
+def test_component_config_parses_integer_storage_interval():
+    configs = load_component_configs(
+        {
+            "collectors": [
+                {
+                    "type": "landys_gyr_zmd310_meter_dlms",
+                    "interval": 1,
+                    "storage_interval": 5,
+                }
+            ]
+        },
+        "collectors",
+    )
+
+    assert configs[0].storage_interval == 5
+    assert isinstance(configs[0].storage_interval, int)
+
+
+def test_component_config_accepts_integral_float_storage_interval():
+    configs = load_component_configs(
+        {
+            "collectors": [
+                {
+                    "type": "landys_gyr_zmd310_meter_dlms",
+                    "interval": 1,
+                    "storage_interval": 5.0,
+                }
+            ]
+        },
+        "collectors",
+    )
+
+    assert configs[0].storage_interval == 5
+    assert isinstance(configs[0].storage_interval, int)
+
+
+@pytest.mark.parametrize("storage_interval", [0, -1, 5.5, True])
+def test_component_config_rejects_invalid_storage_interval(storage_interval):
+    with pytest.raises((TypeError, ValueError), match="storage_interval"):
+        load_component_configs(
+            {
+                "collectors": [
+                    {
+                        "type": "landys_gyr_zmd310_meter_dlms",
+                        "interval": 1,
+                        "storage_interval": storage_interval,
+                    }
+                ]
+            },
+            "collectors",
         )

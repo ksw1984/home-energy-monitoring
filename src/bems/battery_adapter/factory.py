@@ -8,6 +8,8 @@ The factory is synchronous: adapters open their network clients lazily and are
 ready for concurrent ``asyncio`` calls immediately after construction.
 """
 
+from dataclasses import replace
+
 from src.bems.battery_adapter.anker import AnkerBatteryAdapter, AnkerModbusTcpClient
 from src.bems.battery_adapter.marstek import MarstekBatteryAdapter, MarstekUdpClient
 from src.bems.core.domain import Battery, BatteryProfile
@@ -40,6 +42,46 @@ def create_profile(config: BemsConfig, profile_id: str) -> BatteryProfile:
     )
 
 
+def with_mock_identities(
+    config: BemsConfig,
+    *,
+    device_ids: set[str],
+) -> BemsConfig:
+    """Return a config whose selected devices accept the synthetic mock identity.
+
+    Mock devices are intentionally exempt from the real hardware allowlist.
+    Only the named devices are changed, so a configuration that mixes a mock
+    and a real battery keeps the real device's firmware checks intact.
+
+    Args:
+        config: BEMS configuration to copy.
+        device_ids: Device IDs that use ``MockBatteryAdapter``.
+
+    Returns:
+        The original config when no IDs are selected, otherwise a copy with
+        mock identity attributes merged into the selected devices.
+    """
+    if not device_ids:
+        return config
+
+    return replace(
+        config,
+        devices=[
+            replace(
+                device,
+                attributes={
+                    **device.attributes,
+                    "expected_model": "BEMS-MOCK",
+                    "supported_firmware_versions": ["mock"],
+                },
+            )
+            if device.id in device_ids
+            else device
+            for device in config.devices
+        ],
+    )
+
+
 def create_adapter(
     device: BemsDeviceConfig,
     config: BemsConfig,
@@ -59,10 +101,14 @@ def create_adapter(
     Raises:
         RuntimeError: If a live device lacks a vendor, host, or explicit
             ``allow_control: true``.
+
+    A device with ``attributes.mock: true`` also gets the in-memory adapter.
+    This is what lets the app-hosted BEMS exercise the live controller without
+    real hardware.
     """
     profile = create_profile(config, device.profile)
 
-    if dry_run:
+    if dry_run or device.attributes.get("mock") is True:
         return (
             MockBatteryAdapter(profile=profile, initial_soc_percent=device.initial_soc_percent),
             None,

@@ -1,6 +1,7 @@
 from datetime import datetime
-from unittest.mock import Mock
+from unittest.mock import call, Mock
 
+from src.collectors.definitions.collectors.obis import FAST_OBIS, SLOW_OBIS
 from src.collectors.definitions.common.measurement import Measurement
 from src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
 
@@ -10,9 +11,12 @@ import serial
 
 @pytest.fixture
 def collector():
+    # Most mapping tests focus on a single read cycle, so disable the slow
+    # energy schedule here. The split is covered by dedicated tests below.
     return DlmsCollector(
         port="/dev/ttyUSB0",
         source="grid_dlms",
+        slow_obis_codes=set(),
     )
 
 
@@ -270,28 +274,163 @@ def test_collect_disconnects_after_runtime_error(collector):
     collector.protocol.disconnect.assert_called_once()
 
 
-def test_collect_passes_current_obis_to_protocol(collector, monkeypatch):
+def test_collect_reads_fast_and_slow_registers_on_first_cycle():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+    )
     collector.connected = True
-
-    current_obis = {
-        "1.5.0",
-        "2.5.0",
-        "1.8.0",
-        "2.8.0",
-        "16.7.0",
-        "131.7.0",
-    }
-
-    monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector.CURRENT_OBIS",
-        current_obis,
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            {"1.8.0": 123.45, "2.8.0": 67.89},
+        ],
     )
 
-    collector.protocol.read = Mock(return_value={})
+    result = collector.collect()
+
+    assert collector.protocol.read.call_args_list == [
+        call(FAST_OBIS),
+        call(SLOW_OBIS),
+    ]
+    assert {measurement.metric for measurement in result} == {
+        "grid_active_power",
+        "grid_import_energy_total",
+        "grid_export_energy_total",
+    }
+
+
+def test_collect_skips_slow_registers_between_schedules():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+    )
+    collector.connected = True
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            {"1.8.0": 123.45, "2.8.0": 67.89},
+            {"16.7.0": 260.0},
+        ],
+    )
+
+    collector.collect()
+    result = collector.collect()
+
+    assert [measurement.metric for measurement in result] == ["grid_active_power"]
+    assert collector.protocol.read.call_args_list == [
+        call(FAST_OBIS),
+        call(SLOW_OBIS),
+        call(FAST_OBIS),
+    ]
+
+
+def test_slow_read_failure_keeps_fast_values_and_disconnects():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+    )
+    collector.connected = True
+    collector.protocol.disconnect = Mock()
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            serial.SerialException("slow read failed"),
+        ],
+    )
+
+    result = collector.collect()
+
+    assert [measurement.metric for measurement in result] == ["grid_active_power"]
+    assert collector.connected is False
+    collector.protocol.disconnect.assert_called_once()
+
+
+def test_slow_read_retry_is_not_attempted_on_every_fast_cycle():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+    )
+    collector.connected = True
+    collector.protocol.disconnect = Mock()
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            serial.SerialException("slow read failed"),
+            {"16.7.0": 260.0},
+        ],
+    )
+
+    collector.collect()
+    collector.connected = True
+    collector.collect()
+
+    assert collector.protocol.read.call_args_list == [
+        call(FAST_OBIS),
+        call(SLOW_OBIS),
+        call(FAST_OBIS),
+    ]
+
+
+def test_collect_uses_explicit_fast_and_slow_sets():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+        obis_codes={"16.7.0"},
+        slow_obis_codes={"1.8.0"},
+    )
+    collector.connected = True
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            {"1.8.0": 123.45},
+        ],
+    )
+
+    result = collector.collect()
+
+    assert collector.protocol.read.call_args_list == [
+        call({"16.7.0"}),
+        call({"1.8.0"}),
+    ]
+    assert {measurement.metric for measurement in result} == {
+        "grid_active_power",
+        "grid_import_energy_total",
+    }
+
+
+def test_collect_rejects_overlapping_fast_and_slow_sets():
+    with pytest.raises(ValueError, match="both fast and slow"):
+        DlmsCollector(
+            port="/dev/ttyUSB0",
+            source="grid_dlms",
+            obis_codes={"16.7.0"},
+            slow_obis_codes={"16.7.0"},
+        )
+
+
+def test_collect_passes_configured_read_timeout_to_both_sets():
+    collector = DlmsCollector(
+        port="/dev/ttyUSB0",
+        source="grid_dlms",
+        obis_codes={"16.7.0"},
+        slow_obis_codes={"1.8.0"},
+        read_timeout=1.5,
+    )
+    collector.connected = True
+    collector.protocol.read = Mock(
+        side_effect=[
+            {"16.7.0": 250.0},
+            {"1.8.0": 123.45},
+        ],
+    )
 
     collector.collect()
 
-    collector.protocol.read.assert_called_once_with(current_obis)
+    assert collector.protocol.read.call_args_list == [
+        call({"16.7.0"}, timeout=1.5),
+        call({"1.8.0"}, timeout=1.5),
+    ]
 
 
 def test_collect_uses_configured_obis_codes():

@@ -111,6 +111,37 @@ def test_process_measurements_publishes_before_storage():
     assert bus.latest("test", "grid_active_power") == measurement
 
 
+def test_process_measurements_skips_storage_but_updates_bus_and_derived_state():
+    raw_measurement = make_measurement("power", 100.0)
+    calculated_measurement = make_measurement("calculated_power", 5.0, source="calculated")
+    estimator = Mock(spec=BaseEstimator)
+    calculator = Mock(spec=BaseCalculator)
+    calculator.calculate.return_value = [calculated_measurement]
+    bus = MeasurementBus()
+    manager = make_manager(
+        estimators=[estimator],
+        calculators=[calculator],
+        bus=bus,
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements(
+                [raw_measurement],
+                persist=False,
+            ),
+        )
+
+    assert bus.latest("test", "power") == raw_measurement
+    estimator.add_measurements.assert_called_once_with([raw_measurement])
+    calculator.calculate.assert_called_once_with([raw_measurement])
+    store_measurements.assert_not_awaited()
+
+
 def test_collect_all_returns_measurements():
     measurement1 = make_measurement("temperature", 20.5)
     measurement2 = make_measurement("humidity", 60.0)
@@ -551,13 +582,78 @@ def test_run_collector_uses_collector_interval():
             "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
-        get_loop.return_value.time.side_effect = [0, 0]
+        get_loop.return_value.time.side_effect = [0, 0, 0]
 
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(manager._run_collector(collector))
 
     collector.collect.assert_called_once()
     assert sleep_calls == [10]
+
+
+def make_running_collector(*batches, interval=1, storage_interval=5):
+    """Return a mock collector that yields batches, then cancels the loop."""
+    collector = Mock()
+    collector.interval = interval
+    collector.storage_interval = storage_interval
+    collector.enabled = True
+    collector.source = "test"
+    collector.collect.side_effect = [*batches, asyncio.CancelledError()]
+    return collector
+
+
+def run_collector_until_cancelled(manager, collector):
+    """Drive one collector loop until its final batch cancels the task."""
+    with (
+        patch.object(
+            manager,
+            "_reload_config_if_changed",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "src.manager.measurement_manager.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager._run_collector(collector))
+
+
+def test_run_collector_persists_every_nth_successful_collection():
+    batches = [[make_measurement("power", float(value))] for value in range(6)]
+    collector = make_running_collector(*batches)
+    manager = make_manager(collectors=[collector])
+
+    with patch.object(
+        manager,
+        "_process_measurements",
+        new_callable=AsyncMock,
+    ) as process_measurements:
+        run_collector_until_cancelled(manager, collector)
+
+    persist_flags = [call.kwargs["persist"] for call in process_measurements.await_args_list]
+    assert persist_flags == [True, False, False, False, False, True]
+
+
+def test_run_collector_writes_daily_values_outside_persistence_cadence():
+    regular = [make_measurement("grid_active_power", 500.0)]
+    daily = [
+        make_measurement("grid_active_power", 500.0),
+        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement("grid_export_energy_total", 50.0),
+    ]
+    collector = make_running_collector(regular, daily, regular)
+    manager = make_manager(collectors=[collector])
+
+    with patch.object(
+        manager,
+        "_process_measurements",
+        new_callable=AsyncMock,
+    ) as process_measurements:
+        run_collector_until_cancelled(manager, collector)
+
+    persist_flags = [call.kwargs["persist"] for call in process_measurements.await_args_list]
+    assert persist_flags == [True, True, False]
 
 
 def test_run_collector_skips_disabled_collector():
@@ -911,7 +1007,7 @@ def test_run_collector_checks_for_config_reload():
             "src.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
-        get_loop.return_value.time.side_effect = [0, 0]
+        get_loop.return_value.time.side_effect = [0, 0, 0]
 
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(manager._run_collector(collector))

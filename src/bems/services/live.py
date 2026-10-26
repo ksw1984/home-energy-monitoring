@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, UTC
+from pathlib import Path
 
 from src.bems.core.controller import GridBalancingController
 from src.bems.core.domain import (
@@ -16,6 +18,7 @@ from src.bems.core.domain import (
     estimate_power_without_battery,
 )
 from src.bems.core.reserve import night_reserve_wh
+from src.bems.services.command_log import BatteryCommandLog
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
@@ -41,6 +44,7 @@ class LiveControlService:
         input_database: BaseDatabase | None = None,
         bus: MeasurementBus | None = None,
         poll_interval_s: float = 5.0,
+        command_log_csv: str | Path | None = None,
     ) -> None:
         """Create a live service fed by a database or the measurement bus.
 
@@ -53,6 +57,8 @@ class LiveControlService:
             bus: In-process stream used by :meth:`run_forever_bus`.
             poll_interval_s: Database polling interval for the standalone
                 service.
+            command_log_csv: Optional CSV path receiving one row per setpoint
+                sent to any adapter, including mock adapters.
 
         Raises:
             ValueError: If the poll interval is not positive, no input source
@@ -68,6 +74,7 @@ class LiveControlService:
         self.output_databases = output_databases
         self.batteries = batteries
         self.poll_interval_s = poll_interval_s
+        self.command_log = BatteryCommandLog(command_log_csv) if command_log_csv else None
         self.controller = GridBalancingController(deadband_w=config.control.deadband_w)
         self.devices = {device.id: device for device in config.devices if device.enabled and device.mode == "live"}
         missing = self.devices.keys() - batteries.keys()
@@ -94,7 +101,7 @@ class LiveControlService:
         current_time = now or datetime.now(UTC)
         self._require_aware(current_time)
         grid_ref = self.config.inputs.grid
-        start = None if self._grid_cursor is not None else current_time - timedelta(seconds=self.config.control.max_measurement_age_s)
+        start = None if self._grid_cursor is not None else current_time - timedelta(seconds=self.config.control.live_max_measurement_age_s)
         grid_points = await self._query(
             source=grid_ref.source,
             metric=grid_ref.metric,
@@ -138,7 +145,7 @@ class LiveControlService:
         handled = 0
         for sample in samples:
             age = (current_time - sample.timestamp).total_seconds()
-            fresh = 0 <= age <= self.config.control.max_measurement_age_s
+            fresh = 0 <= age <= self.config.control.live_max_measurement_age_s
             if not fresh:
                 await self._apply_stale_failsafe(current_time)
                 continue
@@ -189,7 +196,7 @@ class LiveControlService:
             raise RuntimeError("run_forever_bus() requires a measurement bus")
 
         grid_ref = self.config.inputs.grid
-        wait_timeout = max(MIN_BUS_WAIT_S, self.config.control.max_measurement_age_s)
+        wait_timeout = max(MIN_BUS_WAIT_S, self.config.control.live_max_measurement_age_s)
 
         while stop_event is None or not stop_event.is_set():
             try:
@@ -221,9 +228,10 @@ class LiveControlService:
         """Run one control cycle from the newest bus values.
 
         The grid sample drives the cycle. Household is required by the cascade
-        split; when it is missing or too old, ``align_power_samples`` returns
-        nothing and the zero-power failsafe is requested, matching the
-        database path. PV is optional and only enriches the sample.
+        split; when it is missing or older than the live input window,
+        ``align_power_samples`` returns nothing and the zero-power failsafe is
+        requested, matching the database path. PV is optional and only enriches
+        the sample.
 
         Args:
             now: Timezone-aware wall clock used for freshness checks.
@@ -263,7 +271,13 @@ class LiveControlService:
                 [grid],
                 [household] if household is not None else [],
                 [pv] if pv is not None else [],
-                tolerance_seconds=self.config.control.history_alignment_tolerance_s,
+                # Live control must not use household data that is older than
+                # the live input window. Historical replay keeps its wider
+                # alignment tolerance for irregular database samples.
+                tolerance_seconds=min(
+                    self.config.control.history_alignment_tolerance_s,
+                    self.config.control.live_max_measurement_age_s,
+                ),
             )
         except ValueError:
             logger.exception("BEMS rejected invalid live power measurements from the bus")
@@ -277,13 +291,38 @@ class LiveControlService:
         sample = samples[0]
         age = (now - sample.timestamp).total_seconds()
 
-        if not 0 <= age <= self.config.control.max_measurement_age_s:
+        if not 0 <= age <= self.config.control.live_max_measurement_age_s:
             await self._apply_stale_failsafe(now)
             return
 
         self._last_fresh_input = sample.timestamp
         self._stale = False
         await self._control_sample(sample, now)
+
+    def _record_command(  # noqa: PLR0913 - mirrors the CSV row fields.
+        self,
+        *,
+        timestamp: datetime,
+        device_id: str,
+        requested_power_w: float,
+        accepted_power_w: float | None,
+        soc_percent: float | None,
+        status: str,
+        error: str = "",
+    ) -> None:
+        """Append one command to the optional CSV log without affecting control."""
+        if self.command_log is None:
+            return
+
+        self.command_log.record(
+            timestamp=timestamp,
+            device_id=device_id,
+            requested_power_w=requested_power_w,
+            accepted_power_w=accepted_power_w,
+            soc_percent=soc_percent,
+            status=status,
+            error=error,
+        )
 
     async def _control_sample(self, sample: BemsPowerSample, now: datetime) -> None:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
@@ -293,6 +332,8 @@ class LiveControlService:
             device = self.devices[device_id]
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
             profile = self._profile_for_device(device)
+            command_attempted = False
+            command_sent = False
             try:
                 identity = await battery.get_identity()
                 before = await battery.get_state()
@@ -344,10 +385,21 @@ class LiveControlService:
                     refresh_after is not None and last_command_at is not None and (timestamp - last_command_at).total_seconds() >= refresh_after
                 )
                 if self._last_requested_power.get(device_id) != requested_power_w or refresh_due:
+                    command_attempted = True
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=requested_power_w))
+                    command_sent = True
                     self._last_requested_power[device_id] = requested_power_w
                     self._last_command_at[device_id] = timestamp
                 state = await battery.get_state()
+                if command_sent:
+                    self._record_command(
+                        timestamp=timestamp,
+                        device_id=device_id,
+                        requested_power_w=requested_power_w,
+                        accepted_power_w=state.charge_power_w - state.discharge_power_w,
+                        soc_percent=state.soc_percent,
+                        status="accepted",
+                    )
                 outputs.extend(
                     self._state_measurements(
                         device,
@@ -360,57 +412,100 @@ class LiveControlService:
                         firmware_compatible=True,
                     )
                 )
-            except Exception:
+            except Exception as exc:
+                if command_attempted:
+                    self._record_command(
+                        timestamp=timestamp,
+                        device_id=device_id,
+                        requested_power_w=requested_power_w,
+                        accepted_power_w=None,
+                        soc_percent=None,
+                        status="sent" if command_sent else "failed",
+                        error=str(exc),
+                    )
                 logger.exception("BEMS adapter operation failed for device %s", device_id)
                 outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0))
         await self._store(outputs)
 
     async def _apply_stale_failsafe(self, timestamp: datetime) -> None:
-        """Request zero power once when inputs become stale, if adapters respond."""
+        """Request zero power when live inputs become stale.
+
+        Zero is the only safe target without fresh grid data: it deactivates
+        both charging and feed-in. The command is attempted before the
+        identity/firmware checks used for normal control, because a safety stop
+        must not depend on reading a version register. The adapter's own
+        ``allow_control`` gate still applies.
+
+        The failsafe is idempotent: once every device has accepted 0 W, later
+        stale cycles only record state; they do not resend the command.
+        """
         if self._stale and all(self._last_requested_power.get(device_id) == 0.0 for device_id in self.batteries):
             return
         self._stale = True
         outputs: list[Measurement] = []
         for device_id, battery in self.batteries.items():
             device = self.devices[device_id]
+            zero_applied = self._last_requested_power.get(device_id) == 0.0
+            zero_sent = False
             try:
+                if not zero_applied:
+                    await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=0.0))
+                    zero_sent = True
+                    self._last_requested_power[device_id] = 0.0
+                    self._last_command_at[device_id] = timestamp
+                    zero_applied = True
+            except Exception as exc:
+                self._record_command(
+                    timestamp=timestamp,
+                    device_id=device_id,
+                    requested_power_w=0.0,
+                    accepted_power_w=None,
+                    soc_percent=None,
+                    status="failed",
+                    error=str(exc),
+                )
+                logger.exception("BEMS stale-input zero command failed for device %s", device_id)
+
+            # Diagnostics must not prevent or undo the zero command above.
+            try:
+                state = await battery.get_state()
                 identity = await battery.get_identity()
                 compatible, reason = self._firmware_compatibility(device, identity)
                 if not compatible:
-                    logger.error("BEMS stale-input failsafe blocked for %s: %s", device_id, reason)
-                    state = await battery.get_state()
-                    outputs.extend(
-                        self._state_measurements(
-                            device,
-                            timestamp,
-                            0.0,
-                            state,
-                            control_ok=0,
-                            stale=1,
-                            identity=identity,
-                            firmware_compatible=False,
-                        )
+                    logger.error("BEMS stale-input firmware unverified for %s: %s", device_id, reason)
+                if zero_sent:
+                    self._record_command(
+                        timestamp=timestamp,
+                        device_id=device_id,
+                        requested_power_w=0.0,
+                        accepted_power_w=state.charge_power_w - state.discharge_power_w,
+                        soc_percent=state.soc_percent,
+                        status="accepted",
                     )
-                    continue
-                if self._last_requested_power.get(device_id) != 0.0:
-                    await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=0.0))
-                    self._last_requested_power[device_id] = 0.0
-                    self._last_command_at[device_id] = timestamp
-                state = await battery.get_state()
                 outputs.extend(
                     self._state_measurements(
                         device,
                         timestamp,
                         0.0,
                         state,
-                        control_ok=1,
+                        control_ok=1 if zero_applied else 0,
                         stale=1,
                         identity=identity,
-                        firmware_compatible=True,
+                        firmware_compatible=compatible,
                     )
                 )
-            except Exception:
-                logger.exception("BEMS stale-input failsafe failed for device %s", device_id)
+            except Exception as exc:
+                if zero_sent:
+                    self._record_command(
+                        timestamp=timestamp,
+                        device_id=device_id,
+                        requested_power_w=0.0,
+                        accepted_power_w=None,
+                        soc_percent=None,
+                        status="sent",
+                        error=str(exc),
+                    )
+                logger.exception("BEMS stale-input state read failed for device %s", device_id)
                 outputs.extend(self._error_measurements(device, timestamp, 0.0, stale=1))
         await self._store(outputs)
 
@@ -419,7 +514,7 @@ class LiveControlService:
         if self._last_fresh_input is None:
             return True
         age = (now - self._last_fresh_input).total_seconds()
-        return age < 0 or age > self.config.control.max_measurement_age_s
+        return age < 0 or age > self.config.control.live_max_measurement_age_s
 
     def _profile_for_device(self, device: BemsDeviceConfig) -> BatteryProfile:
         """Build the domain profile selected by one configured live device."""
@@ -570,8 +665,22 @@ class LiveControlService:
             raise ValueError("BEMS live timestamps must be timezone-aware")
 
 
+@dataclass(frozen=True)
+class MockBatteryCommand:
+    """One accepted mock setpoint plus the state that resulted from it."""
+
+    timestamp: datetime
+    requested_power_w: float
+    accepted_power_w: float
+    soc_percent: float
+
+
 class MockBatteryAdapter:
-    """In-memory Battery adapter for a standalone control-service dry run."""
+    """In-memory Battery adapter for a standalone control-service dry run.
+
+    Every accepted setpoint is stored in :attr:`commands` so a caller can
+    export what the controller would have requested without touching hardware.
+    """
 
     def __init__(self, *, profile: BatteryProfile, initial_soc_percent: float) -> None:
         """Create a zero-power mock battery at the selected initial SOC."""
@@ -583,6 +692,7 @@ class MockBatteryAdapter:
         self.timestamp = datetime.now(UTC)
         self.available = True
         self.fail_operations = False
+        self.commands: list[MockBatteryCommand] = []
 
     async def get_state(self) -> BatteryState:
         """Return the mock's current SOC, energy, and signed power."""
@@ -609,3 +719,17 @@ class MockBatteryAdapter:
         discharge_limit = self.profile.max_discharge_power_w
         self.power_w = min(charge_limit, max(-discharge_limit, command.power_w))
         self.timestamp = command.timestamp
+        self.commands.append(
+            MockBatteryCommand(
+                timestamp=command.timestamp,
+                requested_power_w=command.power_w,
+                accepted_power_w=self.power_w,
+                soc_percent=100.0 * self.energy_wh / self.profile.capacity_wh,
+            )
+        )
+        logger.info(
+            "BEMS mock battery accepted %.1f W (requested %.1f W) at %s",
+            self.power_w,
+            command.power_w,
+            command.timestamp.isoformat(),
+        )

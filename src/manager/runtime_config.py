@@ -35,14 +35,18 @@ async def configure_collectors(
         collector.configure_runtime(
             interval=collector_config.interval,
             enabled=collector_config.enabled,
+            storage_interval=collector_config.storage_interval,
         )
 
+        storage_label = f"{collector.storage_interval}s" if collector.storage_interval is not None else "every collection"
+
         logger.info(
-            "Configured collector %s (source=%s): enabled=%s interval=%ss",
+            "Configured collector %s (source=%s): enabled=%s interval=%ss storage=%s",
             collector.__class__.__name__,
             collector.source,
             collector.enabled,
             collector.interval,
+            storage_label,
         )
 
 

@@ -9,9 +9,12 @@ collectors:
 
   # electricity meter for grid import/export
   # DLMS - faster - 1s intervals no problem
+  # interval is a float: 16.7.0 is read every cycle, 1.8.0/2.8.0 hourly.
+  # storage_interval: persist every 5th 1s sample; the bus still sees all 5.
   - type: landys_gyr_zmd310_meter_dlms
     enabled: true
     interval: 1
+    storage_interval: 5
     attributes:
       port: /dev/ttyUSB0
       source: meter_grid_dlms
@@ -26,9 +29,12 @@ collectors:
 
   # electricity meter for household consumption
   # DLMS - faster - 1s intervals no problem
+  # interval is a float: 16.7.0 is read every cycle, 1.8.0/2.8.0 hourly.
+  # storage_interval: persist every 5th 1s sample; the bus still sees all 5.
   - type: landys_gyr_zmd310_meter_dlms
     enabled: true
     interval: 1
+    storage_interval: 5
     attributes:
       port: /dev/ttyUSB1
       source: meter_household_dlms
@@ -351,9 +357,16 @@ bems:
     # bus: control from the in-process measurement stream (HEMS app).
     # database: poll stored history (standalone live_cli / dry runs).
     feed: bus
+    # Optional CSV log of every setpoint sent to an adapter, including mocks.
+    # Set to null to disable. The live service appends and flushes each command.
+    command_log_csv: data/bems_commands.csv
     deadband_w: 20
     max_output_power_w: 3500
+    # Simulation/replay only: gaps larger than this skip energy integration.
     max_measurement_age_s: 20
+    # Live only: request 0 W after this long without a fresh grid sample.
+    # 0 W deactivates both charging and feed-in.
+    live_max_measurement_age_s: 3
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
     live_poll_interval_s: 5
@@ -397,7 +410,7 @@ bems:
       profile: anker_solarbank_max_ac
       mode: simulation
       enabled: true
-      initial_soc_percent: 95
+      initial_soc_percent: 42.71 #95
       max_output_power_w: 800
 
     - id: marstek_sim
@@ -406,6 +419,19 @@ bems:
       enabled: true
       initial_soc_percent: 95
       max_output_power_w: 800
+
+    # App-hosted dry run: enable this and keep the matching real live device
+    # disabled. The live controller runs normally, but the battery is
+    # in-memory and every accepted setpoint is appended to
+    # control.command_log_csv.
+    - id: anker_mock
+      profile: anker_solarbank_max_ac
+      mode: live
+      enabled: true
+      initial_soc_percent: 50
+      max_output_power_w: 800
+      attributes:
+        mock: true
 
     # Separate live instances are present but inactive until the hardware is installed.
     - id: anker_live

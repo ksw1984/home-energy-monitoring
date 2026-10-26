@@ -1,42 +1,55 @@
 from __future__ import annotations
 
 import logging
+import time
+from typing import TYPE_CHECKING
 
 from src.collectors.base_collector import BaseCollector
 from src.collectors.definitions.collectors.obis import (
-    CURRENT_OBIS,
+    FAST_OBIS,
     get_obis_definition,
+    SLOW_OBIS,
 )
 from src.collectors.definitions.common.measurement import Measurement
 
 import serial
 from .dlms_protocol import DlmsProtocol
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 logger = logging.getLogger(__name__)
 
 
 class DlmsCollector(BaseCollector):
-    """Collect current measurements from a DLMS/COSEM meter.
+    """Collect measurements from a DLMS/COSEM meter.
 
-    The collector maintains a persistent DLMS connection and polls the
-    configured current OBIS values on each collection cycle.
+    The collector keeps one persistent DLMS connection and splits the register
+    set into two schedules:
 
-    The actual collection interval is controlled by the collector
-    manager through the ``interval`` value passed to ``BaseCollector``.
+    * **fast** registers (``FAST_OBIS``, currently only ``16.7.0``) are read on
+      every collection cycle, so the interval can be sub-second;
+    * **slow** registers (``SLOW_OBIS``, the energy totals) are read on the
+      first cycle and then once per ``slow_interval_s`` inside the same
+      connection.
 
-    Only OBIS codes listed in ``CURRENT_OBIS`` are requested. Their
-    metric names and units are resolved through the shared
-    :mod:`obis` definitions.
+    A slow-read failure never discards the fast sample and never stops the
+    fast loop. A fast-read failure keeps the reconnect-and-raise behavior so
+    the manager can log the unavailable collector.
 
     Args:
         enabled: Whether the collector is enabled.
         timezone: Timezone used for measurement timestamps.
-        interval: Collection interval in seconds.
+        interval: Fast collection interval in seconds. May be fractional.
         source: Source identifier stored with generated measurements.
         port: Serial device used for the DLMS connection.
-        obis_codes: OBIS codes read on every collection. Defaults to
-            ``CURRENT_OBIS``. Use a single register such as ``{"16.7.0"}``
-            for latency probes or fast power-only polling.
+        obis_codes: Fast OBIS codes. Defaults to ``FAST_OBIS``. An explicit set
+            without ``slow_obis_codes`` means "read exactly this set" and
+            disables automatic slow reads (used by the poll-interval probe).
+        slow_obis_codes: Slow OBIS codes. Defaults to ``SLOW_OBIS`` when
+            ``obis_codes`` is not supplied; otherwise empty.
+        slow_interval_s: Seconds between successful slow-register reads.
+        slow_retry_interval_s: Seconds before retrying a failed slow read.
         read_timeout: Maximum seconds to wait for each register reply.
             ``None`` keeps the protocol default of 30 seconds.
     """
@@ -46,10 +59,13 @@ class DlmsCollector(BaseCollector):
         *,
         enabled: bool = True,
         timezone: str = "UTC",
-        interval: int = 1,
+        interval: float = 1.0,
         source: str = "landys_gyr_zmd310_meter_dlms",
         port: str = "/dev/ttyUSB0",
         obis_codes: set[str] | None = None,
+        slow_obis_codes: set[str] | None = None,
+        slow_interval_s: float = 3600.0,
+        slow_retry_interval_s: float = 60.0,
         read_timeout: float | None = None,
     ) -> None:
         """Initialize the DLMS collector.
@@ -57,12 +73,21 @@ class DlmsCollector(BaseCollector):
         Args:
             enabled: Whether the collector is enabled.
             timezone: Timezone used for measurement timestamps.
-            interval: Collection interval in seconds.
+            interval: Fast collection interval in seconds.
             source: Measurement source identifier.
             port: Serial device used by the meter.
-            obis_codes: OBIS codes to read. ``None`` means ``CURRENT_OBIS``.
+            obis_codes: Fast OBIS codes. ``None`` uses ``FAST_OBIS``.
+            slow_obis_codes: Slow OBIS codes. ``None`` uses ``SLOW_OBIS`` for
+                production defaults, or no slow reads when ``obis_codes`` was
+                explicitly supplied.
+            slow_interval_s: Seconds between successful slow reads.
+            slow_retry_interval_s: Seconds before retrying a failed slow read.
             read_timeout: Per-reply timeout in seconds. ``None`` uses the
                 protocol default.
+
+        Raises:
+            ValueError: If a scheduling interval is not positive or a register
+                appears in both the fast and slow sets.
         """
         super().__init__(
             enabled=enabled,
@@ -72,9 +97,28 @@ class DlmsCollector(BaseCollector):
         )
 
         self.port = port
-        # ``None`` keeps the module-level CURRENT_OBIS lookup dynamic so the
-        # default set can still be patched in tests and future callers.
-        self.obis_codes = set(obis_codes) if obis_codes is not None else None
+        self.fast_obis_codes = set(obis_codes) if obis_codes is not None else set(FAST_OBIS)
+        if slow_obis_codes is not None:
+            self.slow_obis_codes = set(slow_obis_codes)
+        elif obis_codes is not None:
+            # Custom/probe mode: the caller asked for an exact register set.
+            self.slow_obis_codes = set()
+        else:
+            self.slow_obis_codes = set(SLOW_OBIS)
+
+        if slow_interval_s <= 0:
+            raise ValueError("slow_interval_s must be positive")
+        if slow_retry_interval_s <= 0:
+            raise ValueError("slow_retry_interval_s must be positive")
+
+        overlap = self.fast_obis_codes & self.slow_obis_codes
+        if overlap:
+            raise ValueError(f"OBIS codes cannot be both fast and slow: {', '.join(sorted(overlap))}")
+
+        self.slow_interval_s = slow_interval_s
+        self.slow_retry_interval_s = slow_retry_interval_s
+        # Monotonic deadline. Zero means "read on the next cycle".
+        self._next_slow_read_at = 0.0
         self.read_timeout = read_timeout
         self.protocol = DlmsProtocol(port)
         self.connected = False
@@ -82,7 +126,9 @@ class DlmsCollector(BaseCollector):
     def connect(self) -> None:
         """Establish the persistent DLMS connection.
 
-        Disabled collectors do not open their serial port.
+        Disabled collectors do not open their serial port. The slow-read
+        deadline survives reconnects so a failed slow read is not retried on
+        every fast cycle.
 
         Raises:
             Exception: If the DLMS connection cannot be established.
@@ -118,18 +164,16 @@ class DlmsCollector(BaseCollector):
         self.connected = False
 
     def collect(self) -> list[Measurement]:
-        """Read the configured current OBIS values.
+        """Read the fast registers and, when due, the slow energy totals.
 
         Returns:
-            Measurements created from the values returned by the DLMS
-            protocol. An empty list is returned when the collector is
-            disabled.
+            Measurements for every value read in this cycle. Slow values are
+            included only on cycles where the slow schedule is due.
 
         Raises:
-            serial.SerialException: If communication with the meter
-                fails.
-            TimeoutError: If the meter does not respond in time.
-            RuntimeError: If the DLMS protocol reports an error.
+            serial.SerialException: If the fast read fails.
+            TimeoutError: If the meter does not answer a fast read in time.
+            RuntimeError: If the DLMS protocol reports an error on a fast read.
         """
         if not self.enabled:
             return []
@@ -138,21 +182,14 @@ class DlmsCollector(BaseCollector):
             self.connect()
 
         try:
-            obis_codes = self.obis_codes if self.obis_codes is not None else CURRENT_OBIS
-
-            # Only pass a timeout when one was configured so the protocol keeps
-            # its own default and existing callers see an unchanged signature.
-            read_kwargs = {} if self.read_timeout is None else {"timeout": self.read_timeout}
-
-            values = self.protocol.read(obis_codes, **read_kwargs)
-
+            values = self._read(self.fast_obis_codes)
         except (
             serial.SerialException,
             TimeoutError,
             RuntimeError,
         ):
             logger.exception(
-                "DLMS communication failed",
+                "DLMS fast read failed",
             )
 
             self.connected = False
@@ -160,7 +197,53 @@ class DlmsCollector(BaseCollector):
 
             raise
 
+        if self.slow_obis_codes and time.monotonic() >= self._next_slow_read_at:
+            try:
+                values.update(self._read(self.slow_obis_codes))
+            except (
+                serial.SerialException,
+                TimeoutError,
+                RuntimeError,
+            ):
+                # A broken slow read can leave the HDLC stream out of sync.
+                # Keep the fast values from this cycle, close the connection,
+                # and retry the slow set after a bounded backoff.
+                logger.exception(
+                    "DLMS slow read failed; fast polling continues",
+                )
+                self._next_slow_read_at = time.monotonic() + self.slow_retry_interval_s
+                self.connected = False
+                self.protocol.disconnect()
+            except (TypeError, ValueError):
+                # A malformed value is a data/config problem, not a broken
+                # connection; keep the connection and retry later.
+                logger.exception(
+                    "DLMS slow read returned invalid data; fast polling continues",
+                )
+                self._next_slow_read_at = time.monotonic() + self.slow_retry_interval_s
+            else:
+                self._next_slow_read_at = time.monotonic() + self.slow_interval_s
+
         timestamp = self.now()
+        return self._to_measurements(values, timestamp)
+
+    def _read(self, obis_codes: set[str]) -> dict[str, float]:
+        """Read one register group with the optional per-reply timeout."""
+        if not obis_codes:
+            return {}
+
+        # Only pass a timeout when one was configured so the protocol keeps its
+        # own default and existing callers see an unchanged signature.
+        read_kwargs = {} if self.read_timeout is None else {"timeout": self.read_timeout}
+
+        return self.protocol.read(obis_codes, **read_kwargs)
+
+    def _to_measurements(
+        self,
+        values: dict[str, float],
+        timestamp: datetime,
+    ) -> list[Measurement]:
+        """Convert raw OBIS values into measurements using shared definitions."""
         measurements: list[Measurement] = []
 
         for obis, value in values.items():

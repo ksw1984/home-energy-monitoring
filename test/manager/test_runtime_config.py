@@ -40,6 +40,7 @@ def make_collector_config(
     source="test",
     enabled=True,
     interval=60,
+    storage_interval=None,
 ):
     return ComponentConfig(
         type="test",
@@ -48,6 +49,7 @@ def make_collector_config(
         attributes={
             "source": source,
         },
+        storage_interval=storage_interval,
     )
 
 
@@ -115,6 +117,39 @@ def test_configure_collectors_updates_runtime_settings():
     collector.configure_runtime.assert_called_once_with(
         interval=30,
         enabled=False,
+        storage_interval=None,
+    )
+
+
+def test_configure_collectors_passes_storage_interval():
+    collector = make_collector(
+        source="fronius",
+        enabled=True,
+        interval=300,
+    )
+
+    config = make_config(
+        collectors=[
+            make_collector_config(
+                source="fronius",
+                enabled=True,
+                interval=1,
+                storage_interval=5,
+            ),
+        ],
+    )
+
+    asyncio.run(
+        configure_collectors(
+            [collector],
+            config,
+        ),
+    )
+
+    collector.configure_runtime.assert_called_once_with(
+        interval=1,
+        enabled=True,
+        storage_interval=5,
     )
 
 
