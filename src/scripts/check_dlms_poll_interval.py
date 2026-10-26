@@ -866,7 +866,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         try:
             collector.connect()
-        except (serial.SerialException, OSError, TimeoutError, RuntimeError) as exc:
+        # TimeoutError is an OSError subclass and is already covered by OSError.
+        except (serial.SerialException, OSError, RuntimeError) as exc:
             raise ProbeConnectionError(f"Could not connect to {args.port}: {exc}") from exc
 
         _warm_up(collector, periods[0], recorder)
