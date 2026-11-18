@@ -23,6 +23,7 @@
  *   - Device location and timezone must be configured in Shelly.
  */
 
+// Vars
 const CHECK_MS = 30000;
 
 const EVENTS = [

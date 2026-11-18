@@ -1,3 +1,8 @@
+/*
+ * Shelly Plug M Gen3 — Notification on Device Finish
+ */
+
+// Vars
 let running = false;
 let finishTimer = null;
 let checkTimer = null;
@@ -84,11 +89,11 @@ function cancelFinishTimer() {
 
 function checkPower() {
     Shelly.call(
-        "PM1.GetStatus",
+        "Switch.GetStatus",
         { id: 0 },
         function (result, error_code, error_message) {
             if (error_code !== 0) {
-                print("PM1 error:", error_message);
+                print("Switch error:", error_message);
                 return;
             }
 
