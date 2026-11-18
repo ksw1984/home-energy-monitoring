@@ -89,12 +89,12 @@ collectors:
     enabled: true
     interval: 10
     attributes:
-      source: shelly_plug_pm_dryer
+      source: shelly_plug_pm_zendure
       ip: 192.168.178.200
 
   # Shelly Outdoor Plug S Gen3: SPO03 - SPO04
   - type: shelly_switch
-    enabled: true
+    enabled: false
     interval: 10
     attributes:
       source: shelly_outdoor_plug_lawnmower
@@ -172,10 +172,10 @@ collectors:
       ip: 192.168.178.213
 
   - type: shelly_switch
-    enabled: false
+    enabled: true
     interval: 10
     attributes:
-      source: shelly_plug_m_sp14
+      source: shelly_plug_m_dryer
       ip: 192.168.178.214
 
   - type: shelly_switch
@@ -248,8 +248,13 @@ storage:
     shelly_plug_pm_washer:
       - power
 
-    shelly_plug_pm_dryer:
+    shelly_plug_m_dryer:
       - power
+
+    shelly_plug_pm_zendure:
+      - power
+      - energy_total
+      - returned_energy_total
 
     shelly_outdoor_plug_lawnmower:
       - power
