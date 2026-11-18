@@ -355,8 +355,8 @@ bems:
 
   tariffs:
     feed_in_ct_per_kwh: 7.8
-    heat_pump_import_ct_per_kwh: 22.0
-    household_import_ct_per_kwh: 30.0
+    heat_pump_import_ct_per_kwh: 25.00  #24,06
+    household_import_ct_per_kwh: 31.67  #30.47
 
   control:
     # bus: control from the in-process measurement stream (HEMS app).
