@@ -12,8 +12,8 @@ from dataclasses import replace
 
 from src.bems.battery_adapter.anker import AnkerBatteryAdapter, AnkerModbusTcpClient
 from src.bems.battery_adapter.marstek import MarstekBatteryAdapter, MarstekUdpClient
+from src.bems.battery_adapter.mock import MockBatteryAdapter
 from src.bems.core.domain import Battery, BatteryProfile
-from src.bems.services.live import MockBatteryAdapter
 from src.config.config import BemsConfig, BemsDeviceConfig
 
 AdapterClient = MarstekUdpClient | AnkerModbusTcpClient

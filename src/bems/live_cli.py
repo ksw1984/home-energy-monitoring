@@ -13,8 +13,9 @@ from datetime import datetime, UTC
 from pathlib import Path
 
 from src.bems.battery_adapter.factory import AdapterClient, create_adapters, with_mock_identities
+from src.bems.battery_adapter.mock import MockBatteryAdapter
 from src.bems.core.domain import Battery
-from src.bems.services.live import LiveControlService, MockBatteryAdapter
+from src.bems.services.live import LiveControlService
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
 from src.logger.logging_config import setup_logging
