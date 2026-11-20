@@ -384,7 +384,7 @@ bems:
     dusk_margin_minutes: 30
     dawn_margin_minutes: 50          # Reserve ends 50 minutes after sunrise
     baseline_estimation:
-      enabled: true                  # true: use measured night baseline instead of the fixed value
+      enabled: false                  # true: use measured night baseline instead of the fixed value
       measurement: bems_night_household  # Measurement source for night records in the history database
       safety_factor: 1.15            # Buffer multiplier applied to the measured baseline
       max_age_days: 28               # Maximum age of comparison nights in days
@@ -395,13 +395,13 @@ bems:
       max_power_w: 2000              # Upper plausibility limit for the baseline in watts
       household_meter_includes_battery: true  # Meter includes battery injection: add battery power back
       selection:
-        Mon: [Mon, Tue, Wed, Thu, Fri]
-        Tue: [Tue, Wed, Thu, Fri, Mon]
-        Wed: [Wed, Thu, Fri, Mon, Tue]
-        Thu: [Thu, Fri, Mon, Tue, Wed]
-        Fri: [Fri, Sat, Sun]
-        Sat: [Sat, Sun, Fri]
-        Sun: [Sun, Fri, Sat]
+        Mon: [ Mon, Tue, Wed, Thu, Fri ]
+        Tue: [ Tue, Wed, Thu, Fri, Mon ]
+        Wed: [ Wed, Thu, Fri, Mon, Tue ]
+        Thu: [ Thu, Fri, Mon, Tue, Wed ]
+        Fri: [ Fri, Sat, Sun ]
+        Sat: [ Sat, Sun, Fri ]
+        Sun: [ Sun, Fri, Sat ]
 
   profiles:
     zendure_solarflow_4000_mix_ac:
