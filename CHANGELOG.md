@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- BEMS live control can consume measurements directly from the in-process bus (`bems.control.feed: bus`), so control does not wait for database storage.
+- The app-hosted BEMS can run a mock battery when a `mode: live` device sets `attributes.mock: true`, without vendor, host, or `allow_control` settings.
+- `bems.control.command_log_csv` appends every setpoint sent to a mock or vendor adapter, including accepted power, SOC, status, and failure details.
+- `bems-live --mock --mock-csv <path>` writes accepted setpoints and SOC to a CSV for offline plotting.
+- DLMS collector intervals accept fractional seconds.
+- Per-collector `storage_interval` decouples database persistence from the collection cadence. The default configuration stores grid and household DLMS power every 5 s while the measurement bus still receives every 1 s sample.
+
+### Changed
+
+- DLMS fast polling now reads only `16.7.0`; cumulative energy totals `1.8.0`/`2.8.0` are read on a separate hourly schedule inside the same connection.
+- Live stale-input handling uses `live_max_measurement_age_s` (default 3 s) and requests 0 W, which deactivates both charging and feed-in.
+- `max_measurement_age_s` is now simulation/replay only.
+
 ## 0.10.1 - 2026-10-03
 
 ### Fixed

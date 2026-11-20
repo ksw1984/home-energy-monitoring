@@ -1,3 +1,8 @@
+/*
+ * Shelly Plug PM Gen3 — Notification on Device Finish
+ */
+
+// Vars
 let running = false;
 let finishTimer = null;
 let checkTimer = null;

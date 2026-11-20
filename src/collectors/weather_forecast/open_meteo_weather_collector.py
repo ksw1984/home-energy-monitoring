@@ -52,7 +52,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
         *,
         enabled: bool = True,
         timezone: str = "UTC",
-        interval: int = 300,
+        interval: float = 300,
         source: str = "open_meteo",
         latitude: float,
         longitude: float,

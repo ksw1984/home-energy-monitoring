@@ -26,30 +26,25 @@ def get_obis_definition(obis: str) -> ObisDefinition | None:
     return OBIS_DEFINITIONS.get(base_obis)
 
 
-# Current values we want to store.
-CURRENT_OBIS = {
-    # "1.5.0",  # Aktuelle Wirkleistung Bezug
-    # "2.5.0",  # Aktuelle Wirkleistung Einspeisung
-    # "1.6.0",  # Max Wirkleistung Bezug
-    # "2.6.0",  # Max Wirkleistung Einspeisung
+# Fast values are read on every collector cycle. 16.7.0 is the only register
+# BEMS needs for live control, so it can run at a sub-second interval without
+# paying for the energy-total reads.
+FAST_OBIS = {
+    "16.7.0",  # Gesamt-Wirkleistung
+}
+
+# Slow values are read on a separate schedule inside the same DLMS connection.
+# The manager stores them once per day during the midnight hour, so reading
+# them hourly keeps the daily snapshot available without slowing the fast loop.
+SLOW_OBIS = {
     "1.8.0",  # Zählerstand Gesamtbezug
     "2.8.0",  # Zählerstand Gesamteinspeisung
-    # "5.8.0",  # Blindenergie
-    # "32.7.0",  # Voltages Phasen
-    # "52.7.0",
-    # "72.7.0",
-    # "31.7.0",  # Currents Phasen
-    # "51.7.0",
-    # "71.7.0",
-    "16.7.0",  # Gesamt-Wirkleistung
-    # "36.7.0",  # Wirkleistung Phasen
-    # "56.7.0",
-    # "76.7.0",
-    # "131.7.0",  # "Gesamt-Blindleistung"
-    # "151.7.0",  # Blindleistungen Phasen
-    # "171.7.0",
-    # "191.7.0",
 }
+
+# Full current set for callers that still need every current value (for example
+# the IEC collector). The DLMS collector consumes FAST_OBIS and SLOW_OBIS
+# separately.
+CURRENT_OBIS = FAST_OBIS | SLOW_OBIS
 
 OBIS_DEFINITIONS = {
     #

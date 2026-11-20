@@ -43,7 +43,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         *,
         enabled: bool = True,
         timezone: str = "UTC",
-        interval: int = 300,
+        interval: float = 300,
         source: str = "sensor_rademacher",
         smart_home_box_ip="192.168.178.19",
         device_id=50,

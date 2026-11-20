@@ -4,7 +4,8 @@ The BEMS controls and evaluates AC-coupled batteries independently of the HEMS p
 
 ## What it does
 
-- Reads grid, household, and PV power from the configured database.
+- Reads grid, household, and PV power from the configured database for simulations and the standalone CLI.
+- Reads live power directly from the in-process measurement bus when hosted inside HEMS (`feed: bus`).
 - Uses import-positive power internally; HEMS meter values already use this sign convention and are converted to watts at the BEMS boundary.
 - Charges only from measured grid export (PV surplus).
 - Serves household demand first. Heat-pump demand is served only from energy above the calculated overnight reserve.
@@ -12,6 +13,7 @@ The BEMS controls and evaluates AC-coupled batteries independently of the HEMS p
 - Models charge/discharge efficiency, power ramping, SOC limits, and energy losses in historical simulations.
 - Stores requested power separately from actual power and state measurements.
 - Requires an available device and an explicitly approved model/firmware before live hardware writes.
+- Requests 0 W when live inputs become stale, which deactivates both battery charging and feed-in. This safety stop does not depend on reading the device identity or firmware first.
 
 The night reserve uses a configured baseline household load, astronomical dusk/dawn, and configurable margins. The default baseline is 250 W, with 30 minutes of margin on each side. Forecast support is an interface only; its current provider returns 0 kWh.
 
@@ -81,7 +83,50 @@ This runs the live controller loop against current meter measurements while repl
    poetry run bems-live --mock
    ```
 
-The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
+The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. Every accepted setpoint is appended to `data/bems_mock_commands.csv` by default. Use `--mock-csv <path>` to choose another file. The CSV contains `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, and `soc_percent`, and is written on exit (including Ctrl-C), so it can be plotted without querying InfluxDB. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
+
+## App-hosted mock and command log
+
+The HEMS app can host the live controller against a mock battery. Set `attributes.mock: true` on an enabled `mode: live` device; no vendor, host, or `allow_control` setting is required.
+
+```yaml
+- id: anker_mock
+  profile: anker_solarbank_max_ac
+  mode: live
+  enabled: true
+  initial_soc_percent: 50
+  max_output_power_w: 800
+  attributes:
+    mock: true
+```
+
+Keep the matching real device disabled while the mock is enabled. The app substitutes the synthetic `BEMS-MOCK` / `mock` identity for mock devices, so the real firmware allowlist is not needed. Mixed configurations are supported: real devices still go through their normal identity and firmware checks.
+
+Set `bems.control.command_log_csv` to append every setpoint actually sent to an adapter:
+
+```yaml
+bems:
+  control:
+    command_log_csv: data/bems_commands.csv
+```
+
+The CSV columns are `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, `soc_percent`, `status`, and `error`. `status` is `accepted` when the adapter state was read after the write, `sent` when the write succeeded but state could not be read, and `failed` when the write itself failed. The live service appends and flushes each row, so commands survive a crash. This log works for both mock and real adapters. Without hardware, an Anker adapter fails at identity/state preflight before `set_power`, so no command row is produced; use `attributes.mock: true` with the Anker profile to exercise the control path before the battery arrives.
+
+The standalone `bems-live` path also honors `bems.control.command_log_csv`. Its `--mock-csv` export remains available as a separate one-file plotting snapshot.
+
+## Live feed and stale-input safety
+
+`bems.control.feed` selects where live control gets its measurements:
+
+- `bus` (default): HEMS publishes each collector batch to an in-process bus before writing to the database. The app-hosted BEMS uses that stream, so control does not wait for database storage. With `storage_interval: 5` the database sees every fifth sample while live control still sees every sample. Start HEMS normally.
+- `database`: the standalone `bems-live` CLI polls the configured history database. This path is intended for dry runs and diagnostics.
+
+Two different timeouts exist:
+
+- `max_measurement_age_s` is simulation/replay only. Historical runs use it to detect input gaps before integrating energy.
+- `live_max_measurement_age_s` (default 3 s) is live only. If no fresh grid sample arrives within that window, the controller requests 0 W from every live battery. A 0 W target deactivates both charging and feed-in; the command is attempted even when identity/firmware preflight is unavailable.
+
+When `feed: bus`, `bems-live` refuses real hardware control to avoid running two controllers for the same battery. Use the HEMS app for live hardware control, or temporarily set `feed: database` for a standalone live run.
 
 ## Live controller with a real battery
 
@@ -91,7 +136,10 @@ Live hardware adapters exist for the Marstek Venus E 3.0 and Anker SOLIX Solarba
 2. Read the device's exact reported model and firmware using the vendor adapter's read-only checks or a mock/dry setup. Set `expected_model` and `supported_firmware_versions` to explicit verified values; the firmware list must contain the exact version token.
 3. Verify the correct network protocol and enable the device's local control feature where required. Anker uses Modbus TCP; Marstek uses its local UDP API.
 4. Set `attributes.allow_control: true`, then `enabled: true` only when you intend to permit hardware writes. Missing identity allowlists, mismatched model/firmware, communication failure, or stale meter readings block or stop power requests.
-5. Start the independent controller process:
+5. Start the controller:
+
+   - With the HEMS app (default `feed: bus`), start HEMS; it hosts the live controller as a sibling task.
+   - Standalone, set `feed: database` first, then run:
 
    ```bash
    poetry run bems-live
@@ -99,7 +147,7 @@ Live hardware adapters exist for the Marstek Venus E 3.0 and Anker SOLIX Solarba
 
 6. Monitor `bems_live_<device-id>` for `requested_power`, `actual_power`, `soc`, `device_alive`, `firmware_compatible`, `control_ok`, and `stale_input`.
 
-The live service is a separate process from HEMS monitoring. Start it as a separate service/container if it should run continuously. Do not enable more than one live controller for the same physical battery.
+The live service is a separate process from HEMS monitoring only in `feed: database` mode. Do not enable more than one live controller for the same physical battery.
 
 ## Measurement names
 

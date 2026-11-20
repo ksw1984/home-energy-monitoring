@@ -1,4 +1,6 @@
 import asyncio
+import contextlib
+import csv
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
 
@@ -7,6 +9,7 @@ from src.bems.services.live import LiveControlService
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
 from src.databases.base_database import BaseDatabase
+from src.manager.measurement_bus import MeasurementBus
 
 import pytest
 
@@ -118,6 +121,82 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert battery.targets[0].power_w == -480
     metrics = {point.metric for point in output_database.writes}
     assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
+
+
+def test_live_service_logs_accepted_commands_to_csv(tmp_path):
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    battery = RecordingBattery()
+    path = tmp_path / "commands.csv"
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[],
+        batteries={"test_live": battery},
+        command_log_csv=path,
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
+
+    with path.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 1
+    assert rows[0]["device_id"] == "test_live"
+    assert float(rows[0]["requested_power_w"]) == -480.0
+    assert float(rows[0]["accepted_power_w"]) == -480.0
+    assert float(rows[0]["soc_percent"]) == 50.0
+    assert rows[0]["status"] == "accepted"
+    assert rows[0]["error"] == ""
+
+
+def test_live_service_logs_failed_commands_without_accepted_power(tmp_path):
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    battery = RecordingBattery()
+    battery.fail_sets = True
+    path = tmp_path / "commands.csv"
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[],
+        batteries={"test_live": battery},
+        command_log_csv=path,
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
+
+    with path.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 1
+    assert float(rows[0]["requested_power_w"]) == -480.0
+    assert rows[0]["accepted_power_w"] == ""
+    assert rows[0]["soc_percent"] == ""
+    assert rows[0]["status"] == "failed"
+    assert "mock write failed" in rows[0]["error"]
+
+
+def test_stale_failsafe_logs_zero_command(tmp_path):
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    battery = RecordingBattery()
+    path = tmp_path / "commands.csv"
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(),
+        output_databases=[],
+        batteries={"test_live": battery},
+        command_log_csv=path,
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp)) == 0
+
+    with path.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    assert len(rows) == 1
+    assert float(rows[0]["requested_power_w"]) == 0.0
+    assert float(rows[0]["accepted_power_w"]) == 0.0
+    assert float(rows[0]["soc_percent"]) == 50.0
+    assert rows[0]["status"] == "accepted"
 
 
 def test_live_controller_reconstructs_load_before_existing_battery_output():
@@ -276,6 +355,29 @@ def test_stale_failsafe_retries_if_first_zero_command_fails():
     assert [command.power_w for command in battery.targets] == [0]
 
 
+def test_stale_failsafe_sends_zero_even_when_firmware_is_unverified():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    config = live_config()
+    device = replace(
+        config.devices[0],
+        attributes={"expected_model": "OTHER", "supported_firmware_versions": ["9.9.9"]},
+    )
+    battery = RecordingBattery()
+    output_database = MemoryDatabase()
+    service = LiveControlService(
+        config=replace(config, devices=[device]),
+        input_database=MemoryDatabase(),
+        output_databases=[output_database],
+        batteries={"test_live": battery},
+    )
+
+    asyncio.run(service.run_once(now=timestamp))
+
+    assert [command.power_w for command in battery.targets] == [0.0]
+    assert any(point.metric == "firmware_compatible" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "control_ok" and point.value == 1 for point in output_database.writes)
+
+
 def test_live_service_requires_adapters_only_for_enabled_live_devices():
     with pytest.raises(ValueError, match="Missing battery adapters"):
         LiveControlService(
@@ -312,3 +414,200 @@ def test_live_service_refreshes_time_limited_vendor_setpoints():
     assert asyncio.run(service.run_once(now=next_timestamp + timedelta(seconds=1))) == 1
     assert len(battery.targets) == 2
     assert battery.targets[0].power_w == battery.targets[1].power_w
+
+
+# ---------------------------------------------------------
+# Bus-fed live control (HEMS-hosted)
+# ---------------------------------------------------------
+
+
+async def wait_until(predicate, *, timeout: float = 1.0) -> None:
+    """Poll a cheap predicate until it is true or the timeout expires."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError("condition not met before timeout")
+
+        await asyncio.sleep(0.005)
+
+
+async def cancel_and_wait(task: asyncio.Task[None]) -> None:
+    """Cancel a background service and wait for its cleanup to finish."""
+    task.cancel()
+
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+def test_bus_mode_controls_once_per_grid_timestamp():
+    timestamp = datetime.now(UTC)
+
+    async def scenario() -> None:
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+
+        bus.publish(input_measurements(timestamp))
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+            assert battery.targets[0].power_w == -300
+
+            # Republishing the same timestamp must not trigger another cycle.
+            bus.publish(input_measurements(timestamp))
+            await asyncio.sleep(0.02)
+            assert len(battery.targets) == 1
+        finally:
+            await cancel_and_wait(task)
+
+    asyncio.run(scenario())
+
+
+def test_bus_mode_controls_on_each_new_grid_sample():
+    first = datetime.now(UTC)
+
+    async def scenario() -> None:
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+
+        bus.publish(input_measurements(first))
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+
+            second = datetime.now(UTC)
+            bus.publish(input_measurements(second))
+
+            await wait_until(lambda: len(battery.targets) == 2)
+            assert battery.targets[1].timestamp == second
+        finally:
+            await cancel_and_wait(task)
+
+    asyncio.run(scenario())
+
+
+def test_bus_mode_requests_zero_once_when_grid_stalls():
+    async def scenario() -> None:
+        config = live_config()
+        config = replace(config, control=replace(config.control, live_max_measurement_age_s=0.05))
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=config,
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+            assert battery.targets[0].power_w == 0.0
+
+            # Several further timeouts must not resend the zero command.
+            await asyncio.sleep(0.12)
+            assert [command.power_w for command in battery.targets] == [0.0]
+        finally:
+            await cancel_and_wait(task)
+
+    asyncio.run(scenario())
+
+
+def test_bus_mode_requests_zero_when_household_is_missing():
+    bems = config_obj.bems
+    assert bems is not None
+    timestamp = datetime.now(UTC)
+
+    async def scenario() -> None:
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+
+        bus.publish(
+            [
+                Measurement(
+                    timestamp,
+                    bems.inputs.grid.source,
+                    bems.inputs.grid.metric,
+                    500.0,
+                    "W",
+                )
+            ]
+        )
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+            assert battery.targets[0].power_w == 0.0
+        finally:
+            await cancel_and_wait(task)
+
+    asyncio.run(scenario())
+
+
+def test_bus_mode_requests_zero_when_household_is_stale():
+    timestamp = datetime.now(UTC)
+
+    async def scenario() -> None:
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+        points = input_measurements(timestamp)
+        points[1] = replace(points[1], timestamp=timestamp - timedelta(seconds=5))
+        bus.publish(points)
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+            assert [command.power_w for command in battery.targets] == [0.0]
+        finally:
+            await cancel_and_wait(task)
+
+    asyncio.run(scenario())
+
+
+def test_live_service_requires_an_input_source():
+    with pytest.raises(ValueError, match="input_database or bus"):
+        LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": RecordingBattery()},
+        )
+
+
+def test_bus_mode_requires_a_bus():
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(),
+        output_databases=[],
+        batteries={"test_live": RecordingBattery()},
+    )
+
+    with pytest.raises(RuntimeError, match="measurement bus"):
+        asyncio.run(service.run_forever_bus())

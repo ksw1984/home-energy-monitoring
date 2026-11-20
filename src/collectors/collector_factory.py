@@ -35,27 +35,36 @@ def create_collectors(config):
         }
 
         if collector_config.type == "fronius":
-            collectors.append(FroniusSymoInverterCollector(**common_kwargs))
+            collector = FroniusSymoInverterCollector(**common_kwargs)
 
         elif collector_config.type == "landys_gyr_zmd310_meter_iec":
-            collectors.append(IecCollector(**common_kwargs))
+            collector = IecCollector(**common_kwargs)
 
         elif collector_config.type == "landys_gyr_zmd310_meter_dlms":
-            collectors.append(DlmsCollector(**common_kwargs))
+            collector = DlmsCollector(**common_kwargs)
 
         elif collector_config.type == "environment":
-            collectors.append(RademacherEnvironmentSensorCollector(**common_kwargs))
+            collector = RademacherEnvironmentSensorCollector(**common_kwargs)
 
         elif collector_config.type == "weather":
-            collectors.append(OpenMeteoWeatherCollector(**common_kwargs))
+            collector = OpenMeteoWeatherCollector(**common_kwargs)
 
         elif collector_config.type == "shelly_pm":
-            collectors.append(ShellyPmCollector(**common_kwargs))
+            collector = ShellyPmCollector(**common_kwargs)
 
         elif collector_config.type == "shelly_switch":
-            collectors.append(ShellySwitchCollector(**common_kwargs))
+            collector = ShellySwitchCollector(**common_kwargs)
 
         else:
             raise ValueError(f"Unknown collector type: {collector_config.type}")
+
+        # Storage cadence is a manager concern, so it is attached after
+        # construction instead of being threaded through every collector's
+        # keyword-only signature.
+        storage_interval = getattr(collector_config, "storage_interval", None)
+        if isinstance(storage_interval, int) and not isinstance(storage_interval, bool) and storage_interval > 0:
+            collector.storage_interval = storage_interval
+
+        collectors.append(collector)
 
     return collectors

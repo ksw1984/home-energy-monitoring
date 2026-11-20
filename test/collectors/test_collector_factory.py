@@ -10,12 +10,14 @@ def make_collector_config(
     attributes=None,
     enabled=True,
     interval=300,
+    storage_interval=None,
 ):
     config = Mock()
     config.type = collector_type
     config.attributes = attributes or {}
     config.enabled = enabled
     config.interval = interval
+    config.storage_interval = storage_interval
     return config
 
 
@@ -55,6 +57,23 @@ def test_create_collectors_creates_disabled_collector():
         enabled=False,
         inverter_ip="192.168.178.25",
     )
+
+
+def test_create_collectors_attaches_storage_interval():
+    config = make_config(
+        make_collector_config(
+            "fronius",
+            {"inverter_ip": "192.168.178.25"},
+            interval=1,
+            storage_interval=5,
+        )
+    )
+
+    with patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
+        result = create_collectors(config)
+
+    assert result == [fronius_cls.return_value]
+    assert result[0].storage_interval == 5
 
 
 def test_create_fronius_collector():

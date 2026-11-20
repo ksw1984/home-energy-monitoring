@@ -38,7 +38,7 @@ class ShellyGen3Collector(BaseCollector, ABC):
         *,
         enabled: bool = True,
         timezone: str = "UTC",
-        interval: int = 10,
+        interval: float = 10,
         source: str = "shelly_gen3",
         ip: str = "192.168.178.50",
         timeout: float = 3.0,
