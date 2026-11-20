@@ -16,6 +16,7 @@ from src.bems.battery_adapter.factory import AdapterClient, create_adapters, wit
 from src.bems.battery_adapter.mock import MockBatteryAdapter
 from src.bems.core.domain import Battery
 from src.bems.services.live import LiveControlService
+from src.bems.services.night_baseline_service import NightBaselineProvider
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
 from src.logger.logging_config import setup_logging
@@ -93,6 +94,7 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
         batteries, clients = create_adapters(devices, config, dry_run=dry_run)
         mock_device_ids = set(batteries) if dry_run else {device.id for device in devices if device.attributes.get("mock") is True}
         service_config = with_mock_identities(config, device_ids=mock_device_ids)
+        night_baseline = NightBaselineProvider(config, input_database) if config.night.baseline_estimation.enabled else None
         service = LiveControlService(
             config=service_config,
             input_database=input_database,
@@ -100,6 +102,7 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
             batteries=batteries,
             poll_interval_s=config.control.live_poll_interval_s,
             command_log_csv=config.control.command_log_csv,
+            night_baseline=night_baseline,
         )
         if once:
             await service.run_once(now=datetime.now(UTC))

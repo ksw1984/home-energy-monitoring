@@ -15,6 +15,7 @@ from src.bems.core.economics import interval_cost_cents
 from src.bems.core.reserve import night_reserve_wh
 from src.bems.core.simulation import SimulatedBattery
 from src.bems.reporting.report import append_measurements, build_device_report
+from src.bems.services.night_baseline_service import NightBaselineProvider
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
@@ -138,6 +139,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
         report_dir,
     )
     controller = GridBalancingController(deadband_w=config.control.deadband_w)
+    night_baseline = NightBaselineProvider(config, history_database) if config.night.baseline_estimation.enabled else None
     batteries: dict[str, SimulatedBattery] = {}
     previous_samples = {}
     previous_actual_powers: dict[str, float] = {}
@@ -252,6 +254,25 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
 
                 grid_with_battery_w = sample.grid_w + actual_power
                 household_with_battery_w = sample.household_w + actual_power
+                baseline_power_w = config.night.baseline_household_w
+                if night_baseline is not None:
+                    measured_baseline_w = await night_baseline.power_for(
+                        sample.timestamp,
+                        recompute=True,
+                        meter_includes_battery=False,
+                    )
+                    if measured_baseline_w is not None:
+                        baseline_power_w = measured_baseline_w
+                heat_pump_reserve_wh = night_reserve_wh(
+                    timestamp=sample.timestamp,
+                    profile=battery.profile,
+                    baseline_household_w=baseline_power_w,
+                    latitude=config.night.latitude,
+                    longitude=config.night.longitude,
+                    timezone=config.night.timezone,
+                    dusk_margin_minutes=config.night.dusk_margin_minutes,
+                    dawn_margin_minutes=config.night.dawn_margin_minutes,
+                )
                 setpoint = controller.calculate_setpoint(
                     # Replay a meter that includes the simulated battery, then
                     # recover its baseline from delivered (not requested) power.
@@ -262,16 +283,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     global_max_output_power_w=config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(household_with_battery_w, state),
                     heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=night_reserve_wh(
-                        timestamp=sample.timestamp,
-                        profile=battery.profile,
-                        baseline_household_w=config.night.baseline_household_w,
-                        latitude=config.night.latitude,
-                        longitude=config.night.longitude,
-                        timezone=config.night.timezone,
-                        dusk_margin_minutes=config.night.dusk_margin_minutes,
-                        dawn_margin_minutes=config.night.dawn_margin_minutes,
-                    ),
+                    heat_pump_reserve_wh=heat_pump_reserve_wh,
                     control_interval_s=config.control.history_alignment_tolerance_s or 10.0,
                 )
                 await battery.set_power(BatteryPowerCommand(timestamp=sample.timestamp, power_w=setpoint))
@@ -300,6 +312,8 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                         Measurement(sample.timestamp, source, "household_power_reference", sample.household_w, "W"),
                         Measurement(sample.timestamp, source, "heat_pump_power_reference", sample.heat_pump_w, "W"),
                         Measurement(sample.timestamp, source, "pv_power_reference", sample.pv_w or 0.0, "W"),
+                        Measurement(sample.timestamp, source, "night_baseline_power", baseline_power_w, "W"),
+                        Measurement(sample.timestamp, source, "night_reserve", heat_pump_reserve_wh, "Wh"),
                     ]
                 )
                 previous_samples[device.id] = sample

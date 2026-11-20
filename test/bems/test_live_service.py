@@ -3,6 +3,7 @@ import contextlib
 import csv
 from dataclasses import replace
 from datetime import datetime, timedelta, UTC
+from unittest.mock import patch
 
 from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 from src.bems.services.live import LiveControlService
@@ -79,6 +80,23 @@ class RecordingBattery:
         self.power_w = command.power_w
 
 
+class FakeNightBaseline:
+    """Return a known measured baseline and record provider interactions."""
+
+    def __init__(self, power_w: float | None) -> None:
+        self.power_w = power_w
+        self.refresh_calls = 0
+        self.power_calls: list[datetime] = []
+
+    async def refresh_completed_night(self, now: datetime) -> None:
+        del now
+        self.refresh_calls += 1
+
+    async def power_for(self, timestamp: datetime) -> float | None:
+        self.power_calls.append(timestamp)
+        return self.power_w
+
+
 def live_config():
     """Use the repository's default BEMS settings with one enabled live device."""
     assert config_obj.bems is not None
@@ -121,6 +139,46 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert battery.targets[0].power_w == -480
     metrics = {point.metric for point in output_database.writes}
     assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
+
+
+def test_live_service_uses_measured_baseline_and_persists_it():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    output_database = MemoryDatabase()
+    battery = RecordingBattery()
+    provider = FakeNightBaseline(420.0)
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[output_database],
+        batteries={"test_live": battery},
+        night_baseline=provider,
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
+    assert provider.refresh_calls == 1
+    assert provider.power_calls == [timestamp]
+    baseline_writes = [point for point in output_database.writes if point.metric == "night_baseline_power"]
+    assert len(baseline_writes) == 1
+    assert baseline_writes[0].value == 420.0
+    assert any(point.metric == "night_reserve" for point in output_database.writes)
+
+
+def test_live_service_uses_fixed_baseline_when_provider_has_no_value():
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    output_database = MemoryDatabase()
+    battery = RecordingBattery()
+    provider = FakeNightBaseline(None)
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(input_measurements(timestamp)),
+        output_databases=[output_database],
+        batteries={"test_live": battery},
+        night_baseline=provider,
+    )
+
+    assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
+    baseline_writes = [point for point in output_database.writes if point.metric == "night_baseline_power"]
+    assert baseline_writes[0].value == config_obj.bems.night.baseline_household_w
 
 
 def test_live_service_logs_accepted_commands_to_csv(tmp_path):
@@ -468,7 +526,9 @@ def test_bus_mode_controls_once_per_grid_timestamp():
         finally:
             await cancel_and_wait(task)
 
-    asyncio.run(scenario())
+    # Keep the heat pump blocked so this test only checks bus deduplication.
+    with patch("src.bems.services.live.night_reserve_wh", return_value=5000.0):
+        asyncio.run(scenario())
 
 
 def test_bus_mode_controls_on_each_new_grid_sample():

@@ -18,6 +18,7 @@ from src.bems.core.domain import (
 )
 from src.bems.core.reserve import night_reserve_wh
 from src.bems.services.command_log import BatteryCommandLog
+from src.bems.services.night_baseline_service import NightBaselineProvider
 from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
@@ -44,6 +45,7 @@ class LiveControlService:
         bus: MeasurementBus | None = None,
         poll_interval_s: float = 5.0,
         command_log_csv: str | Path | None = None,
+        night_baseline: NightBaselineProvider | None = None,
     ) -> None:
         """Create a live service fed by a database or the measurement bus.
 
@@ -58,6 +60,9 @@ class LiveControlService:
                 service.
             command_log_csv: Optional CSV path receiving one row per setpoint
                 sent to any adapter, including mock adapters.
+            night_baseline: Optional measured night-baseline provider. When
+                configured, its value replaces the fixed household baseline
+                for the heat-pump reserve.
 
         Raises:
             ValueError: If the poll interval is not positive, no input source
@@ -74,6 +79,7 @@ class LiveControlService:
         self.batteries = batteries
         self.poll_interval_s = poll_interval_s
         self.command_log = BatteryCommandLog(command_log_csv) if command_log_csv else None
+        self.night_baseline = night_baseline
         self.controller = GridBalancingController(deadband_w=config.control.deadband_w)
         self.devices = {device.id: device for device in config.devices if device.enabled and device.mode == "live"}
         missing = self.devices.keys() - batteries.keys()
@@ -327,10 +333,34 @@ class LiveControlService:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
         timestamp = sample.timestamp
         outputs: list[Measurement] = []
+        if self.night_baseline is not None:
+            await self.night_baseline.refresh_completed_night(now)
+        baseline_power_w = self.config.night.baseline_household_w
+        if self.night_baseline is not None:
+            measured_baseline_w = await self.night_baseline.power_for(timestamp)
+            if measured_baseline_w is not None:
+                baseline_power_w = measured_baseline_w
         for device_id, battery in self.batteries.items():
             device = self.devices[device_id]
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
             profile = self._profile_for_device(device)
+            source = f"bems_live_{device_id}"
+            heat_pump_reserve_wh = night_reserve_wh(
+                timestamp=timestamp,
+                profile=profile,
+                baseline_household_w=baseline_power_w,
+                latitude=self.config.night.latitude,
+                longitude=self.config.night.longitude,
+                timezone=self.config.night.timezone,
+                dusk_margin_minutes=self.config.night.dusk_margin_minutes,
+                dawn_margin_minutes=self.config.night.dawn_margin_minutes,
+            )
+            outputs.extend(
+                [
+                    Measurement(timestamp, source, "night_baseline_power", baseline_power_w, "W"),
+                    Measurement(timestamp, source, "night_reserve", heat_pump_reserve_wh, "Wh"),
+                ]
+            )
             command_attempted = False
             command_sent = False
             try:
@@ -366,16 +396,7 @@ class LiveControlService:
                     global_max_output_power_w=self.config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(sample.household_w, before),
                     heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=night_reserve_wh(
-                        timestamp=timestamp,
-                        profile=profile,
-                        baseline_household_w=self.config.night.baseline_household_w,
-                        latitude=self.config.night.latitude,
-                        longitude=self.config.night.longitude,
-                        timezone=self.config.night.timezone,
-                        dusk_margin_minutes=self.config.night.dusk_margin_minutes,
-                        dawn_margin_minutes=self.config.night.dawn_margin_minutes,
-                    ),
+                    heat_pump_reserve_wh=heat_pump_reserve_wh,
                     control_interval_s=self.control_interval_s,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)

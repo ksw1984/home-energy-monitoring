@@ -4,6 +4,7 @@ import signal
 
 from src.bems.battery_adapter.factory import AdapterClient, create_adapters, with_mock_identities
 from src.bems.services.live import LiveControlService
+from src.bems.services.night_baseline_service import NightBaselineProvider
 from src.calculators.calculator_factory import create_calculators
 from src.collectors.collector_factory import create_collectors
 from src.config.config import Config, config_obj
@@ -61,12 +62,20 @@ def _create_bems_live_service(
 
     batteries, clients = create_adapters(devices, bems)
     service_config = with_mock_identities(bems, device_ids=mock_device_ids)
+    night_baseline = None
+    if getattr(bems.night.baseline_estimation, "enabled", False) is True:
+        baseline_database = next((database for database in databases if database.enabled and database.type == bems.history_database), None)
+        if baseline_database is None:
+            logger.warning("BEMS night baseline enabled but history database '%s' is unavailable; using fixed baseline", bems.history_database)
+        else:
+            night_baseline = NightBaselineProvider(bems, baseline_database)
     service = LiveControlService(
         config=service_config,
         output_databases=[database for database in databases if database.enabled],
         batteries=batteries,
         bus=bus,
         command_log_csv=bems.control.command_log_csv,
+        night_baseline=night_baseline,
     )
     return service, clients
 

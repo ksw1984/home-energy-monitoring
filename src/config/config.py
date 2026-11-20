@@ -12,6 +12,16 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SOC_PERCENT_MAX = 100.0
+NIGHT_WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+DEFAULT_NIGHT_SELECTION = {
+    "Mon": ("Mon", "Tue", "Wed", "Thu", "Fri"),
+    "Tue": ("Tue", "Wed", "Thu", "Fri", "Mon"),
+    "Wed": ("Wed", "Thu", "Fri", "Mon", "Tue"),
+    "Thu": ("Thu", "Fri", "Mon", "Tue", "Wed"),
+    "Fri": ("Fri", "Sat", "Sun"),
+    "Sat": ("Sat", "Sun", "Fri"),
+    "Sun": ("Sun", "Fri", "Sat"),
+}
 
 # Load local secrets and environment variables.
 load_dotenv(PROJECT_ROOT / ".env")
@@ -148,6 +158,23 @@ class BemsControlConfig:
 
 
 @dataclass(frozen=True)
+class BemsNightBaselineEstimationConfig:
+    """Configuration for the measured household night baseline."""
+
+    enabled: bool
+    measurement: str
+    safety_factor: float
+    max_age_days: int
+    min_nights: int
+    min_valid_ratio: float
+    max_gap_s: float
+    min_power_w: float
+    max_power_w: float
+    household_meter_includes_battery: bool
+    selection: dict[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
 class BemsNightConfig:
     baseline_household_w: float
     latitude: float
@@ -155,6 +182,7 @@ class BemsNightConfig:
     timezone: str
     dusk_margin_minutes: int
     dawn_margin_minutes: int
+    baseline_estimation: BemsNightBaselineEstimationConfig
 
 
 @dataclass(frozen=True)
@@ -367,12 +395,69 @@ def load_calculator_configs(
     return configs
 
 
+def _load_night_baseline_estimation(raw: dict[str, Any]) -> BemsNightBaselineEstimationConfig:  # noqa: C901, PLR0912 - field-specific validation errors stay beside their checks.
+    """Parse and validate the measured night-baseline configuration."""
+    enabled = raw.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise TypeError("BEMS night.baseline_estimation.enabled must be a boolean")
+
+    includes_battery = raw.get("household_meter_includes_battery", True)
+    if not isinstance(includes_battery, bool):
+        raise TypeError("BEMS night.baseline_estimation.household_meter_includes_battery must be a boolean")
+
+    raw_selection = raw.get("selection", DEFAULT_NIGHT_SELECTION)
+    if not isinstance(raw_selection, dict):
+        raise TypeError("BEMS night.baseline_estimation.selection must be a mapping")
+    unknown_weekdays = set(raw_selection) - set(NIGHT_WEEKDAYS)
+    missing_weekdays = set(NIGHT_WEEKDAYS) - set(raw_selection)
+    if unknown_weekdays or missing_weekdays:
+        raise ValueError("BEMS night.baseline_estimation.selection must contain exactly Mon..Sun")
+    selection: dict[str, tuple[str, ...]] = {}
+    for key, values in raw_selection.items():
+        if not isinstance(values, (list, tuple)) or not values:
+            raise TypeError(f"BEMS night.baseline_estimation.selection.{key} must be a non-empty list")
+        invalid = [value for value in values if value not in NIGHT_WEEKDAYS]
+        if invalid:
+            raise ValueError(f"BEMS night.baseline_estimation.selection.{key} contains unknown weekdays: {invalid}")
+        selection[key] = tuple(values)
+
+    config = BemsNightBaselineEstimationConfig(
+        enabled=enabled,
+        measurement=str(raw.get("measurement", "bems_night_household")),
+        safety_factor=float(raw.get("safety_factor", 1.15)),
+        max_age_days=int(raw.get("max_age_days", 28)),
+        min_nights=int(raw.get("min_nights", 2)),
+        min_valid_ratio=float(raw.get("min_valid_ratio", 0.9)),
+        max_gap_s=float(raw.get("max_gap_s", 120.0)),
+        min_power_w=float(raw.get("min_power_w", 100.0)),
+        max_power_w=float(raw.get("max_power_w", 2000.0)),
+        household_meter_includes_battery=includes_battery,
+        selection=selection,
+    )
+    if not config.measurement:
+        raise ValueError("BEMS night.baseline_estimation.measurement must not be empty")
+    if config.safety_factor <= 0:
+        raise ValueError("BEMS night.baseline_estimation.safety_factor must be positive")
+    if config.max_age_days <= 0:
+        raise ValueError("BEMS night.baseline_estimation.max_age_days must be positive")
+    if config.min_nights <= 0:
+        raise ValueError("BEMS night.baseline_estimation.min_nights must be positive")
+    if not 0 < config.min_valid_ratio <= 1:
+        raise ValueError("BEMS night.baseline_estimation.min_valid_ratio must be in (0, 1]")
+    if config.max_gap_s <= 0:
+        raise ValueError("BEMS night.baseline_estimation.max_gap_s must be positive")
+    if not 0 <= config.min_power_w < config.max_power_w:
+        raise ValueError("BEMS night.baseline_estimation power limits must satisfy 0 <= min < max")
+    return config
+
+
 def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901, PLR0912, PLR0915 - field-specific validation errors stay beside their checks.
     raw = config_data.get("bems", {})
     raw_inputs = raw.get("inputs", {})
     raw_control = raw.get("control", {})
     raw_tariffs = raw.get("tariffs", {})
     raw_night = raw.get("night", {})
+    raw_baseline_estimation = raw_night.get("baseline_estimation", {})
 
     def measurement_ref(name: str, default_source: str, default_metric: str) -> BemsMeasurementRef:
         item = raw_inputs.get(name, {})
@@ -472,6 +557,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         timezone=str(raw_night.get("timezone", config_data.get("collection", {}).get("timezone", "Europe/Berlin"))),
         dusk_margin_minutes=int(raw_night.get("dusk_margin_minutes", 30)),
         dawn_margin_minutes=int(raw_night.get("dawn_margin_minutes", 30)),
+        baseline_estimation=_load_night_baseline_estimation(raw_baseline_estimation),
     )
     if night.baseline_household_w < 0 or min(night.dusk_margin_minutes, night.dawn_margin_minutes) < 0:
         raise ValueError("BEMS night baseline and margins cannot be negative")
