@@ -377,7 +377,7 @@ bems:
     live_poll_interval_s: 5
 
   night:
-    baseline_household_w: 250
+    baseline_household_w: 300
     latitude: 52.4
     longitude: 13.7
     timezone: Europe/Berlin
@@ -385,13 +385,23 @@ bems:
     dawn_margin_minutes: 30
 
   profiles:
+    zendure_solarflow_4000_mix_ac:
+      name: Zendure Solarflow 4000 Mix AC+
+      capacity_wh: 8000
+      min_soc_percent: 5
+      max_soc_percent: 100
+      max_charge_power_w: 3000
+      max_discharge_power_w: 3000
+      charge_efficiency: 0.85057
+      discharge_efficiency: 0.9761
+
     anker_solarbank_max_ac:
       name: Anker SOLIX Solarbank Max AC
       capacity_wh: 7000
       min_soc_percent: 8
       max_soc_percent: 100
-      max_charge_power_w: 3500
-      max_discharge_power_w: 3500
+      max_charge_power_w: 3000
+      max_discharge_power_w: 3000
       charge_efficiency: 0.8235
       discharge_efficiency: 0.9705
 
@@ -411,12 +421,19 @@ bems:
     # expected_model: A17E2, supported_firmware_versions: ["<exact verified version>"]
     # A missing or unapproved identity keeps all power writes blocked.
     # Enable Modbus TCP for the battery in the Anker app before using it.
+    - id: zendure_sim
+      profile: zendure_solarflow_4000_mix_ac
+      mode: simulation
+      enabled: true
+      initial_soc_percent: 42.71 #95
+      max_output_power_w: 3000
+
     - id: anker_sim
       profile: anker_solarbank_max_ac
       mode: simulation
       enabled: true
       initial_soc_percent: 42.71 #95
-      max_output_power_w: 800
+      max_output_power_w: 3000
 
     - id: marstek_sim
       profile: marstek_venus_e_3_5120
