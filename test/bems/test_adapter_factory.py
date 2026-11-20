@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 from src.bems.battery_adapter.factory import create_adapter, with_mock_identities
-from src.bems.battery_adapter.mock import MockBatteryAdapter
+from src.bems.services.live import MockBatteryAdapter
 from src.config.config import config_obj
 
 

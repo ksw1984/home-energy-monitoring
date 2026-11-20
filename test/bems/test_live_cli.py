@@ -2,9 +2,9 @@ import asyncio
 import csv
 from datetime import datetime, UTC
 
-from src.bems.battery_adapter.mock import MockBatteryAdapter
 from src.bems.core.domain import BatteryPowerCommand, BatteryProfile
 from src.bems.live_cli import _write_mock_commands
+from src.bems.services.live import MockBatteryAdapter
 
 
 def _profile() -> BatteryProfile:
