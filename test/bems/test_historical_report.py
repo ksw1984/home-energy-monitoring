@@ -75,7 +75,16 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
     bems = config_obj.bems
     assert bems is not None
     device = replace(bems.devices[0], enabled=True, initial_soc_percent=50)
-    settings = replace(bems, devices=[device])
+    settings = replace(
+        bems,
+        devices=[device],
+        tariffs=replace(
+            bems.tariffs,
+            household_import_ct_per_kwh=30.0,
+            heat_pump_import_ct_per_kwh=25.0,
+            feed_in_ct_per_kwh=7.8,
+        ),
+    )
     start = datetime(2026, 1, 15, 0, tzinfo=UTC)
     grid = settings.inputs.grid
     household = settings.inputs.household
