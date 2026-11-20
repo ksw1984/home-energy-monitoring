@@ -30,6 +30,7 @@ dependencies = [
 home-energy-monitoring = "src.app:main"
 bems-simulate = "src.bems.cli:main"
 bems-live = "src.bems.live_cli:main"
+bems-night-baseline = "src.bems.night_baseline_cli:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0"]

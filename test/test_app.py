@@ -137,6 +137,7 @@ def test_run_starts_bus_fed_bems_live_service(mocked_config):
         batteries={},
         bus=mock_bus,
         command_log_csv=mocked_config.bems.control.command_log_csv,
+        night_baseline=None,
     )
     live_service.run_forever_bus.assert_awaited_once()
     client.close.assert_awaited_once()

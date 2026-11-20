@@ -123,6 +123,11 @@ def _utc(timestamp: datetime) -> datetime:
     return timestamp.astimezone(UTC)
 
 
+def normalize_power(measurement: Measurement) -> float:
+    """Convert a supported W/kW power measurement to watts."""
+    return _power_in_w(measurement)
+
+
 def normalize_grid_meter(measurement: Measurement) -> float:
     """Convert the HEMS meter to watts; its sign already matches BEMS convention."""
     # HEMS DLMS measurements use import-positive and export-negative values,

@@ -15,7 +15,7 @@ The BEMS controls and evaluates AC-coupled batteries independently of the HEMS p
 - Requires an available device and an explicitly approved model/firmware before live hardware writes.
 - Requests 0 W when live inputs become stale, which deactivates both battery charging and feed-in. This safety stop does not depend on reading the device identity or firmware first.
 
-The night reserve uses a configured baseline household load, astronomical dusk/dawn, and configurable margins. The default baseline is 250 W, with 30 minutes of margin on each side. Forecast support is an interface only; its current provider returns 0 kWh.
+The night reserve uses a configurable household baseline (300 W fallback), astronomical dusk and sunrise with configurable margins (dusk −30 min and sunrise +50 min in the sample config), and an optional measured baseline derived from completed nights. Forecast support is an interface only; its current provider returns 0 kWh.
 
 ## Configure devices
 
@@ -27,6 +27,21 @@ Edit the `bems` section in the repository-root `config.yaml`:
 4. Keep simulated and live devices as separate entries. Their `profile`, `initial_soc_percent`, and `max_output_power_w` are configured independently.
 
 The sample configuration includes `anker_sim` and `marstek_sim` (enabled) and corresponding live entries (disabled). The sample starts each simulated battery at 50% SOC and limits output to 800 W. Device output is always capped by profile and global limits (3.5 kW Anker, 2.5 kW Marstek in the sample profiles).
+
+## Measured night baseline
+
+Set `bems.night.baseline_estimation.enabled: true` to replace the fixed `baseline_household_w` with a measured night baseline. Each completed night is stored as one logical `bems_night_household` measurement with `energy_wh`, `duration_h`, `avg_power_w`, `samples`, `valid`, and `battery_adjusted`. `avg_power_w` is `energy_wh / duration_h`, not a time-of-day profile.
+
+The reserve uses the latest valid night for each weekday in `selection`, weighted by `sum(energy_wh) / sum(duration_h)`, multiplied by `safety_factor`. Only nights strictly before the simulated/current evening are eligible. Historical household references are already gross, so `--backfill-days` always aggregates raw history as gross, independent of `household_meter_includes_battery`. That flag describes the live bus meter, whose values are corrected with measured battery power. The selected baseline is cached in memory, so the control loop does not query the database. Missing or invalid nights fall back to `baseline_household_w` without stopping control. With `enabled: false`, the fixed value is used and no baseline query or backfill is needed.
+
+Backfill stored nights and inspect a selection from the repository root:
+
+```bash
+poetry run bems-night-baseline --backfill-days 14
+poetry run bems-night-baseline --show --night-date 2026-11-18
+```
+
+Both simulation and live control emit `night_baseline_power` and `night_reserve` on the `bems_<mode>_<device-id>` source, so the applied value is visible in `measurements_<device-id>.jsonl` and in stored live measurements.
 
 ## Historical simulation
 
