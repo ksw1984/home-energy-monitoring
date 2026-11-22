@@ -7,7 +7,7 @@ from src.config.config import (
     Config,
     StorageConfig,
 )
-from src.manager.runtime_config import (
+from src.hems.manager.runtime_config import (
     configure_collectors,
     configure_databases,
 )

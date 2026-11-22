@@ -16,9 +16,9 @@ from src.bems.core.reserve import night_reserve_wh
 from src.bems.core.simulation import SimulatedBattery
 from src.bems.reporting.report import append_measurements, build_device_report
 from src.bems.services.night_baseline_service import NightBaselineProvider
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 QUERY_PAGE_SIZE = 1000
 SIMULATION_CHUNK = timedelta(hours=1)

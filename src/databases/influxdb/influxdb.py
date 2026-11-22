@@ -3,8 +3,8 @@ import json
 import logging
 from datetime import datetime
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS

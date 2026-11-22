@@ -19,7 +19,7 @@ from src.bems.core.night_baseline import (
     select_nights,
     weekday_key,
 )
-from src.collectors.definitions.common.measurement import Measurement
+from src.shared.measurement import Measurement
 
 if TYPE_CHECKING:
     from src.config.config import BemsConfig

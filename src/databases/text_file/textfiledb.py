@@ -5,8 +5,8 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import TextIO, TYPE_CHECKING
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 if TYPE_CHECKING:
     from datetime import date

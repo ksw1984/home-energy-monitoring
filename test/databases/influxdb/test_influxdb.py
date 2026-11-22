@@ -2,8 +2,8 @@ import asyncio
 from datetime import datetime, UTC
 from unittest.mock import MagicMock, patch
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.databases.influxdb.influxdb import InfluxDatabase
+from src.shared.measurement import Measurement
 
 
 def make_measurement(

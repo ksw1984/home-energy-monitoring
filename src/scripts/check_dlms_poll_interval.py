@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from pathlib import Path
 
-from src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
+from src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
 
 import serial
 

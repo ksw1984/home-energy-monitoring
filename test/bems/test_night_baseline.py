@@ -14,9 +14,9 @@ from src.bems.core.night_baseline import (
     weekday_key,
 )
 from src.bems.services.night_baseline_service import MeasurementNightBaselineRepository, NightBaselineProvider
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import _load_night_baseline_estimation, config_obj
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 import pytest
 

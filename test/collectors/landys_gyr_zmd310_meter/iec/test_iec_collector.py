@@ -1,8 +1,8 @@
 from datetime import datetime
 from unittest.mock import Mock
 
-from src.collectors.definitions.common.measurement import Measurement
-from src.collectors.landys_gyr_zmd310_meter.iec.iec_collector import IecCollector
+from src.hems.collectors.landys_gyr_zmd310_meter.iec.iec_collector import IecCollector
+from src.shared.measurement import Measurement
 
 import pytest
 
@@ -78,12 +78,12 @@ def collector(monkeypatch):
     }
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.CURRENT_OBIS",
+        "src.hems.collectors.landys_gyr_zmd310_meter.iec.iec_collector.CURRENT_OBIS",
         current_obis,
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
         definitions.get,
     )
 
@@ -420,7 +420,7 @@ def test_parse_ignores_current_obis_without_definition(collector, monkeypatch):
     """
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.iec.iec_collector.get_obis_definition",
         lambda obis: None,
     )
 

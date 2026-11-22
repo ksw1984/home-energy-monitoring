@@ -1,9 +1,9 @@
 from datetime import datetime
 from unittest.mock import call, Mock
 
-from src.collectors.definitions.collectors.obis import FAST_OBIS, SLOW_OBIS
-from src.collectors.definitions.common.measurement import Measurement
-from src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
+from src.hems.collectors.definitions.collectors.obis import FAST_OBIS, SLOW_OBIS
+from src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector import DlmsCollector
+from src.shared.measurement import Measurement
 
 import pytest
 import serial
@@ -207,7 +207,7 @@ def test_collect_handles_missing_obis_definition(collector, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_collector.get_obis_definition",
         lambda obis: None,
     )
 

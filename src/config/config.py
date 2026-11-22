@@ -26,7 +26,7 @@ DEFAULT_NIGHT_SELECTION = {
 # Load local secrets and environment variables.
 load_dotenv(PROJECT_ROOT / ".env")
 
-CONFIG_FILE = PROJECT_ROOT / "config.yaml"
+CONFIG_FILE = Path(os.getenv("APP_CONFIG_FILE", PROJECT_ROOT / "config.yaml"))
 
 
 # ---------------------------------------------------------
@@ -149,9 +149,9 @@ class BemsControlConfig:
     history_alignment_tolerance_s: float
     simulation_ramp_seconds: float
     live_poll_interval_s: float
-    # "bus" feeds live control from the in-process measurement stream;
-    # "database" keeps the standalone polling path for dry runs.
-    feed: str = "bus"
+    mqtt_publish_interval_s: float = 1.0
+    # MQTT is the cross-process live feed; database remains for one-shot checks.
+    feed: str = "mqtt"
     # Optional CSV log of every setpoint actually sent to an adapter. Works
     # for mock and vendor adapters; ``None`` disables the log.
     command_log_csv: str | None = None
@@ -294,7 +294,7 @@ def load_storage_measurements(
 ) -> list[StorageMeasurementConfig]:
     measurements = []
 
-    for source, measurement_types in config_data["storage"]["measurements"].items():
+    for source, measurement_types in config_data.get("storage", {}).get("measurements", {}).items():
         # Allow the simple form:
         #
         # meter_grid:
@@ -520,10 +520,10 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         if device.max_output_power_w < 0:
             raise ValueError(f"BEMS device '{device.id}' max_output_power_w cannot be negative")
 
-    feed = str(raw_control.get("feed", "bus"))
+    feed = str(raw_control.get("feed", "mqtt"))
 
-    if feed not in {"bus", "database"}:
-        raise ValueError("BEMS control.feed must be 'bus' or 'database'")
+    if feed not in {"mqtt", "bus", "database"}:
+        raise ValueError("BEMS control.feed must be 'mqtt', 'bus' or 'database'")
 
     command_log_csv = raw_control.get("command_log_csv")
 
@@ -538,6 +538,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
         simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
         live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
+        mqtt_publish_interval_s=float(raw_control.get("mqtt_publish_interval_s", 1.0)),
         feed=feed,
         command_log_csv=command_log_csv,
     )
@@ -549,6 +550,8 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         raise ValueError("BEMS live_max_measurement_age_s must be positive")
     if control.live_poll_interval_s <= 0:
         raise ValueError("BEMS live_poll_interval_s must be positive")
+    if control.mqtt_publish_interval_s <= 0:
+        raise ValueError("BEMS mqtt_publish_interval_s must be positive")
 
     night = BemsNightConfig(
         baseline_household_w=float(raw_night.get("baseline_household_w", 250.0)),
@@ -593,18 +596,16 @@ def load_config() -> Config:
         config_data = yaml.safe_load(file)
 
     return Config(
-        collection=CollectionConfig(
-            timezone=config_data["collection"]["timezone"],
-        ),
+        collection=CollectionConfig(timezone=config_data.get("collection", {}).get("timezone", "Europe/Berlin")),
         # collectors and databases
-        collectors=load_component_configs(config_data, "collectors"),
-        databases=load_component_configs(config_data, "databases"),
+        collectors=load_component_configs({**config_data, "collectors": config_data.get("collectors", [])}, "collectors"),
+        databases=load_component_configs({**config_data, "databases": config_data.get("databases", [])}, "databases"),
         # estimator and calculator
         estimators=load_estimator_configs(config_data),
         calculators=load_calculator_configs(config_data),
         # storage
         storage=StorageConfig(
-            enabled=config_data.get("storage", {}).get("enabled", True),
+            enabled=config_data.get("storage", {}).get("enabled", False),
             measurements=load_storage_measurements(config_data),
         ),
         bems=_load_bems_config(config_data),

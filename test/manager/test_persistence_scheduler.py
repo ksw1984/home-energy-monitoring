@@ -1,4 +1,4 @@
-from src.manager.persistence_scheduler import PersistenceScheduler
+from src.hems.manager.persistence_scheduler import PersistenceScheduler
 
 import pytest
 

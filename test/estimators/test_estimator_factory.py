@@ -3,8 +3,8 @@ from src.config.config import (
     CalculatorInputConfig,
     EstimatorConfig,
 )
-from src.estimators.estimator_factory import create_estimators
-from src.estimators.kalman_estimator import KalmanEstimator
+from src.hems.estimators.estimator_factory import create_estimators
+from src.hems.estimators.kalman_estimator import KalmanEstimator
 
 
 def test_create_kalman_estimator():

@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from src.collectors.definitions.common.measurement import Measurement
+from src.shared.measurement import Measurement
 
 logger = logging.getLogger(__name__)
 

@@ -2,8 +2,8 @@ import asyncio
 import json
 from datetime import datetime, UTC
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.databases.text_file.textfiledb import TextFileDatabase
+from src.shared.measurement import Measurement
 
 
 def make_measurement(

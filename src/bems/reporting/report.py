@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsTariffConfig
+from src.shared.measurement import Measurement
 
 import plotly.graph_objects as go
 import plotly.io as pio

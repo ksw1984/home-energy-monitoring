@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.collectors.weather_forecast.open_meteo_weather_collector import (
+from src.hems.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
 

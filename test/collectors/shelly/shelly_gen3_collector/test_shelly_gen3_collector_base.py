@@ -4,10 +4,10 @@ import asyncio
 from datetime import datetime, UTC
 from unittest.mock import AsyncMock, Mock, patch
 
-from src.collectors.definitions.common.measurement import Measurement
-from src.collectors.shelly.shelly_gen3_collector.shelly_gen3_collector_base import (
+from src.hems.collectors.shelly.shelly_gen3_collector.shelly_gen3_collector_base import (
     ShellyGen3Collector,
 )
+from src.shared.measurement import Measurement
 
 import httpx
 import pytest
