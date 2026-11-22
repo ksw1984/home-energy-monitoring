@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.1 - 2026-11-22
+
+### Changed
+
+- Update runtime and development dependencies, including security fixes for HTTP, certificate, file-locking, and virtual-environment dependencies.
+- Update the HEMS and BEMS deployment examples to use image version `0.11.1`.
+
+### Fixed
+
+- Restore CI compatibility with the updated Ruff and Pyrefly versions.
+
 ## 0.11.0 - 2026-11-22
 
 ### Added
