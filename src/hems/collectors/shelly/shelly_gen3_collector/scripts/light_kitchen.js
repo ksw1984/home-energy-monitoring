@@ -2,8 +2,10 @@
  * Shelly Plug M Gen3 — Automatic Light Control
  *
  * Schedule:
- *   - Each event sets the output state when it occurs.
- *   - The most recent event determines the state until the next event.
+ *   - Turn ON at sunset minus 20 minutes.
+ *   - Turn OFF at sunrise plus 20 minutes.
+ *   - The fixed 06:00 and 21:30 events remain active; the most recent
+ *     event determines the output state.
  *
  * Manual override:
  *   - Manual switching is respected until the next schedule boundary.
@@ -27,8 +29,8 @@ let CHECK_MS = 30000;
 let EVENTS = [
     { name: "06:00", spec: "0 0 6 * * *", on: true },
     { name: "21:30", spec: "0 30 21 * * *", on: false },
-    { name: "sunrise", spec: "@sunrise", on: false },
-    { name: "sunset", spec: "@sunset", on: true },
+    { name: "sunrise+20m", spec: "@sunrise+20m", on: false },
+    { name: "sunset-20m", spec: "@sunset-20m", on: true },
 ];
 
 let manualOverride = false;
