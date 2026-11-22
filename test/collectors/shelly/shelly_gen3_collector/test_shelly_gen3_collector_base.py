@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, UTC
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from src.collectors.definitions.common.measurement import Measurement
 from src.collectors.shelly.shelly_gen3_collector.shelly_gen3_collector_base import (
     ShellyGen3Collector,
 )
 
+import httpx
 import pytest
-import requests
 
 
 class TestShellyCollector(ShellyGen3Collector):
@@ -48,7 +49,7 @@ def test_collect_returns_measurements():
     }
 
     with (
-        patch.object(collector, "_get_status", return_value=status),
+        patch.object(collector, "_get_status", new_callable=AsyncMock, return_value=status),
         patch.object(collector, "now", return_value=timestamp),
     ):
         result = collector.collect()
@@ -105,7 +106,7 @@ def test_collect_works_without_returned_energy():
     }
 
     with (
-        patch.object(collector, "_get_status", return_value=status),
+        patch.object(collector, "_get_status", new_callable=AsyncMock, return_value=status),
         patch.object(
             collector,
             "now",
@@ -129,11 +130,11 @@ def test_collect_works_without_returned_energy():
 def test_collect_returns_empty_list_when_disabled():
     collector = make_collector(enabled=False)
 
-    with patch.object(collector, "_get_status") as get_status:
+    with patch.object(collector, "_get_status", new_callable=AsyncMock) as get_status:
         result = collector.collect()
 
     assert result == []
-    get_status.assert_not_called()
+    get_status.assert_not_awaited()
 
 
 def test_get_status_calls_rpc_endpoint():
@@ -145,13 +146,12 @@ def test_get_status_calls_rpc_endpoint():
         "apower": 123,
     }
 
-    with patch.object(collector.session, "get", return_value=response) as get:
-        result = collector._get_status()
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=response) as get:
+        result = asyncio.run(collector._get_status())
 
-    get.assert_called_once_with(
+    get.assert_awaited_once_with(
         "http://192.168.178.200/rpc/Test.GetStatus",
         params={"id": 0},
-        timeout=2.0,
     )
     response.raise_for_status.assert_called_once_with()
     assert result == {
@@ -163,17 +163,17 @@ def test_get_status_calls_rpc_endpoint():
 def test_get_status_raises_request_exception():
     collector = make_collector()
 
-    error = requests.ConnectionError("connection refused")
+    error = httpx.ConnectError("connection refused")
 
     with (
-        patch.object(
-            collector.session,
-            "get",
+        patch(
+            "httpx.AsyncClient.get",
+            new_callable=AsyncMock,
             side_effect=error,
         ),
-        pytest.raises(requests.ConnectionError, match="connection refused"),
+        pytest.raises(httpx.ConnectError, match="connection refused"),
     ):
-        collector._get_status()
+        asyncio.run(collector._get_status())
 
 
 def test_get_status_raises_for_invalid_json():
@@ -184,13 +184,13 @@ def test_get_status_raises_for_invalid_json():
     response.text = "not-json"
 
     with (
-        patch.object(collector.session, "get", return_value=response),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=response),
         pytest.raises(
             RuntimeError,
             match="Shelly returned invalid JSON",
         ),
     ):
-        collector._get_status()
+        asyncio.run(collector._get_status())
 
 
 def test_get_status_raises_for_non_dict_response():
@@ -200,13 +200,13 @@ def test_get_status_raises_for_non_dict_response():
     response.json.return_value = ["unexpected"]
 
     with (
-        patch.object(collector.session, "get", return_value=response),
+        patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=response),
         pytest.raises(
             TypeError,
             match="Unexpected Shelly response type: list",
         ),
     ):
-        collector._get_status()
+        asyncio.run(collector._get_status())
 
 
 def test_get_status_raises_for_rpc_error():
@@ -220,8 +220,8 @@ def test_get_status_raises_for_rpc_error():
         },
     }
 
-    with patch.object(collector.session, "get", return_value=response), pytest.raises(RuntimeError, match="Shelly RPC error"):
-        collector._get_status()
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock, return_value=response), pytest.raises(RuntimeError, match="Shelly RPC error"):
+        asyncio.run(collector._get_status())
 
 
 def test_get_power_kw_converts_watts_to_kw():
@@ -283,25 +283,27 @@ def test_require_dict_rejects_non_dict_values(value):
 def test_connect_does_not_make_network_request():
     collector = make_collector()
 
-    with patch.object(collector.session, "get") as get:
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as get:
         collector.connect()
 
-    get.assert_not_called()
+    get.assert_not_awaited()
 
 
 def test_connect_does_nothing_when_disabled():
     collector = make_collector(enabled=False)
 
-    with patch.object(collector.session, "get") as get:
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as get:
         collector.connect()
 
-    get.assert_not_called()
+    get.assert_not_awaited()
 
 
-def test_disconnect_closes_session():
+def test_disconnect_closes_http_client():
     collector = make_collector()
+    client = collector._client()
 
-    with patch.object(collector.session, "close") as close:
-        collector.disconnect()
+    with patch.object(client, "aclose", new_callable=AsyncMock) as close:
+        asyncio.run(collector.disconnect_async())
 
-    close.assert_called_once_with()
+    close.assert_awaited_once_with()
+    assert collector._http_client is None

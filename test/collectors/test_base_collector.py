@@ -1,3 +1,6 @@
+import asyncio
+import threading
+
 from src.collectors.base_collector import BaseCollector
 
 import pytest
@@ -16,6 +19,18 @@ def test_base_collector_collect_raises_not_implemented():
 
     with pytest.raises(NotImplementedError):
         collector.collect()
+
+
+def test_base_collector_async_collection_offloads_sync_work():
+    caller_thread = threading.get_ident()
+
+    class ThreadRecordingCollector(MockCollector):
+        def collect(self):
+            return threading.get_ident()
+
+    collector = ThreadRecordingCollector()
+
+    assert asyncio.run(collector.collect_async()) != caller_thread
 
 
 def test_base_collector_connect_does_nothing():

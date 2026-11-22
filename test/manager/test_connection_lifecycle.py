@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from src.manager.connection_lifecycle import (
     connect_collectors,
@@ -19,6 +19,7 @@ def make_collector(
     collector = Mock()
     collector.source = source
     collector.enabled = enabled
+    collector.disconnect_async = AsyncMock()
     return collector
 
 
@@ -89,14 +90,14 @@ def test_disconnect_collectors_disconnects_all_collectors():
         ),
     )
 
-    collector1.disconnect.assert_called_once()
-    collector2.disconnect.assert_called_once()
+    collector1.disconnect_async.assert_awaited_once()
+    collector2.disconnect_async.assert_awaited_once()
 
 
 def test_disconnect_collectors_logs_error(caplog):
     collector = make_collector()
 
-    collector.disconnect.side_effect = RuntimeError(
+    collector.disconnect_async.side_effect = RuntimeError(
         "disconnect failed",
     )
 

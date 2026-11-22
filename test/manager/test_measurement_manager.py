@@ -147,10 +147,10 @@ def test_collect_all_returns_measurements():
     measurement2 = make_measurement("humidity", 60.0)
 
     collector1 = Mock()
-    collector1.collect.return_value = [measurement1]
+    collector1.collect_async = AsyncMock(return_value=[measurement1])
 
     collector2 = Mock()
-    collector2.collect.return_value = [measurement2]
+    collector2.collect_async = AsyncMock(return_value=[measurement2])
 
     manager = make_manager(
         collectors=[collector1, collector2],
@@ -160,18 +160,18 @@ def test_collect_all_returns_measurements():
 
     assert result == [measurement1, measurement2]
 
-    collector1.collect.assert_called_once()
-    collector2.collect.assert_called_once()
+    collector1.collect_async.assert_awaited_once()
+    collector2.collect_async.assert_awaited_once()
 
 
 def test_collect_all_skips_failed_collector():
     measurement = make_measurement()
 
     failing_collector = Mock()
-    failing_collector.collect.side_effect = RuntimeError("collector failed")
+    failing_collector.collect_async = AsyncMock(side_effect=RuntimeError("collector failed"))
 
     working_collector = Mock()
-    working_collector.collect.return_value = [measurement]
+    working_collector.collect_async = AsyncMock(return_value=[measurement])
 
     manager = make_manager(
         collectors=[failing_collector, working_collector],
@@ -193,10 +193,10 @@ def test_collect_all_skips_unavailable_collector():
     measurement = make_measurement()
 
     unavailable_collector = Mock()
-    unavailable_collector.collect.return_value = []
+    unavailable_collector.collect_async = AsyncMock(return_value=[])
 
     working_collector = Mock()
-    working_collector.collect.return_value = [measurement]
+    working_collector.collect_async = AsyncMock(return_value=[measurement])
 
     manager = make_manager(
         collectors=[unavailable_collector, working_collector],
@@ -216,7 +216,7 @@ def test_collect_all_skips_unavailable_collector():
 
 def test_collect_all_returns_empty_list_when_no_measurements():
     collector = Mock()
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -561,7 +561,7 @@ def test_run_collector_uses_collector_interval():
     collector = Mock()
     collector.interval = 10
     collector.enabled = True
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -587,7 +587,7 @@ def test_run_collector_uses_collector_interval():
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(manager._run_collector(collector))
 
-    collector.collect.assert_called_once()
+    collector.collect_async.assert_awaited_once()
     assert sleep_calls == [10]
 
 
@@ -598,7 +598,7 @@ def make_running_collector(*batches, interval=1, storage_interval=5):
     collector.storage_interval = storage_interval
     collector.enabled = True
     collector.source = "test"
-    collector.collect.side_effect = [*batches, asyncio.CancelledError()]
+    collector.collect_async = AsyncMock(side_effect=[*batches, asyncio.CancelledError()])
     return collector
 
 
@@ -660,6 +660,7 @@ def test_run_collector_skips_disabled_collector():
     collector = Mock()
     collector.interval = 10
     collector.enabled = False
+    collector.collect_async = AsyncMock()
 
     manager = make_manager(
         collectors=[collector],
@@ -677,7 +678,7 @@ def test_run_collector_skips_disabled_collector():
     ):
         asyncio.run(manager._run_collector(collector))
 
-    collector.collect.assert_not_called()
+    collector.collect_async.assert_not_awaited()
 
 
 def test_store_measurements_writes_to_database_immediately():
@@ -743,10 +744,7 @@ def test_run_collector_continues_after_collection_failure():
 
     collector.interval = 10
     collector.enabled = True
-    collector.collect.side_effect = [
-        RuntimeError("collector failed"),
-        asyncio.CancelledError(),
-    ]
+    collector.collect_async = AsyncMock(side_effect=[RuntimeError("collector failed"), asyncio.CancelledError()])
 
     sleep = AsyncMock()
 
@@ -763,7 +761,7 @@ def test_run_collector_continues_after_collection_failure():
     ):
         asyncio.run(manager._run_collector(collector))
 
-    assert collector.collect.call_count == 2
+    assert collector.collect_async.await_count == 2
     sleep.assert_awaited_once()
     assert sleep.await_args is not None
     sleep_time = sleep.await_args.args[0]
@@ -982,7 +980,7 @@ def test_run_collector_checks_for_config_reload():
 
     collector.interval = 10
     collector.enabled = True
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -1013,7 +1011,7 @@ def test_run_collector_checks_for_config_reload():
             asyncio.run(manager._run_collector(collector))
 
     reload_config.assert_awaited_once()
-    collector.collect.assert_called_once()
+    collector.collect_async.assert_awaited_once()
 
 
 def test_reload_config_if_changed_updates_measurement_type():

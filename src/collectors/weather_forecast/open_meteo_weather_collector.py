@@ -2,11 +2,11 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from src.collectors.base_collector import BaseCollector
+from src.collectors.async_http_collector import AsyncHttpCollector
 from src.collectors.definitions.collectors.open_meteo import OPEN_METEO_METRICS
 from src.collectors.definitions.common.measurement import Measurement
 
-import requests
+import httpx
 
 logger = logging.getLogger(__name__)
 CURRENT_FIELDS = {
@@ -36,7 +36,7 @@ HOURLY_FIELDS = {
 }
 
 
-class OpenMeteoWeatherCollector(BaseCollector):
+class OpenMeteoWeatherCollector(AsyncHttpCollector):
     """
     Collect current weather data from Open-Meteo.
 
@@ -72,15 +72,16 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
         self.latitude = latitude
         self.longitude = longitude
+        self.http_timeout_s = 10.0
 
-    def collect(self) -> list[Measurement]:
+    async def collect_async(self) -> list[Measurement]:
         """Collect current weather and hourly forecast measurements."""
         if not self.enabled:
             return []
 
         try:
-            data = self._get_data()
-        except requests.exceptions.RequestException as exc:
+            data = await self._get_data()
+        except httpx.HTTPError as exc:
             logger.error(f"Open-Meteo unavailable: {exc}. Returning no measurements.")
             return []
 
@@ -160,7 +161,7 @@ class OpenMeteoWeatherCollector(BaseCollector):
 
         return measurements
 
-    def _get_data(self) -> dict[str, Any]:
+    async def _get_data(self) -> dict[str, Any]:
         """Fetch current weather and hourly forecast from Open-Meteo."""
 
         params: dict[str, str | float] = {
@@ -171,14 +172,10 @@ class OpenMeteoWeatherCollector(BaseCollector):
             "timezone": str(self.timezone),
         }
 
-        response = requests.get(
-            self.API_URL,
-            params=params,
-            timeout=10,
-        )
+        response = await self._client().get(self.API_URL, params=params)
         try:
             response.raise_for_status()
-        except requests.exceptions.RequestException as exc:
+        except httpx.HTTPError as exc:
             logger.error(f"HTTPError {exc}")
             raise
 

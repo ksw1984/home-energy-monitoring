@@ -2,10 +2,8 @@
  * Shelly Plug M Gen3 — Automatic Light Control
  *
  * Schedule:
- *   - Turn ON at sunset, but only if sunset is before 21:30.
- *   - Turn OFF at 21:30, regardless of sunset.
- *   - Turn ON at 06:00 only if sunrise is still in the future.
- *   - Turn OFF at sunrise.
+ *   - Each event sets the output state when it occurs.
+ *   - The most recent event determines the state until the next event.
  *
  * Manual override:
  *   - Manual switching is respected until the next schedule boundary.
@@ -24,9 +22,9 @@
  */
 
 // Vars
-const CHECK_MS = 30000;
+let CHECK_MS = 30000;
 
-const EVENTS = [
+let EVENTS = [
     { name: "06:00", spec: "0 0 6 * * *", on: true },
     { name: "21:30", spec: "0 30 21 * * *", on: false },
     { name: "sunrise", spec: "@sunrise", on: false },
@@ -49,7 +47,7 @@ function log(msg) {
  * issued by this script from manual switch changes.
  */
 function setOutput(on, reason) {
-    const status = Shelly.getComponentStatus("switch", 0);
+    let status = Shelly.getComponentStatus("switch", 0);
 
     if (!status) {
         log("Cannot read switch status: " + reason);
@@ -85,7 +83,7 @@ function setOutput(on, reason) {
  * callback receives (results, null) on success or (null, error).
  */
 function getEvents(nowTs, callback) {
-    const results = [];
+    let results = [];
     let index = 0;
 
     function next() {
@@ -94,7 +92,7 @@ function getEvents(nowTs, callback) {
             return;
         }
 
-        const event = EVENTS[index];
+        let event = EVENTS[index];
 
         Shelly.call(
             "Schedule.Eval",
@@ -129,14 +127,13 @@ function getEvents(nowTs, callback) {
 
 /*
  * Find the next schedule boundary after the supplied timestamp.
- * All times are returned by Shelly as Unix timestamps, so no
- * local date calculations or timezone-offset calculations are needed.
+ * All times are returned by Shelly as Unix timestamps.
  */
 function findNextBoundary(events, afterTs) {
     let nextBoundary = 0;
 
     for (let i = 0; i < events.length; i++) {
-        const t = events[i].next;
+        let t = events[i].next;
 
         if (t > afterTs && (!nextBoundary || t < nextBoundary)) {
             nextBoundary = t;
@@ -147,86 +144,27 @@ function findNextBoundary(events, afterTs) {
 }
 
 /*
- * Find the most recent occurrence of a named event.
- * The result is a timestamp, or 0 if no previous occurrence exists.
- */
-function findPreviousEvent(events, name) {
-    for (let i = 0; i < events.length; i++) {
-        if (events[i].name === name) {
-            return events[i].prev;
-        }
-    }
-
-    return 0;
-}
-
-/*
- * Determine the desired output from the actual event timestamps.
+ * Evaluate the schedule using the most recent event. The same state
+ * rule as the working plug script: whichever scheduled event occurred
+ * most recently determines whether the output is ON or OFF.
  *
- * Morning ON window:
- *   06:00 <= now < sunrise
- *
- * Evening ON window:
- *   sunset <= now < 21:30
- *
- * Comparing timestamps directly also handles the cases where
- * sunrise is before 06:00 or sunset is after 21:30.
- */
-function calculateDesiredState(events, nowTs) {
-    const morningStart = findPreviousEvent(events, "06:00");
-    const eveningEnd = findPreviousEvent(events, "21:30");
-    const sunrise = findPreviousEvent(events, "sunrise");
-    const sunset = findPreviousEvent(events, "sunset");
-
-    if (!morningStart || !eveningEnd || !sunrise || !sunset) {
-        return null;
-    }
-
-    const morningOn = nowTs >= morningStart && nowTs < sunrise;
-
-    const eveningOn = nowTs >= sunset && nowTs < eveningEnd;
-
-    return morningOn || eveningOn;
-}
-
-/*
- * Fail-safe behavior:
- * if time or schedule information cannot be retrieved, log the
- * problem and turn OFF unless a manual override is active.
- */
-function failSafe(reason) {
-    log("Fail-safe: " + reason);
-
-    if (!manualOverride) {
-        setOutput(false, reason);
-    }
-}
-
-/*
- * Evaluate the schedule.
- *
- * A restart starts with manualOverride=false, so the current
- * schedule is applied immediately.
+ * Manual switching is respected until the next upcoming boundary.
  */
 function evaluate() {
     Shelly.call("Sys.GetStatus", {}, function (sys, errCode, errMsg) {
         if (errCode !== 0 || !sys || !sys.unixtime) {
-            failSafe("Cannot get system time: " + errMsg);
+            log("Cannot read device time: " + errMsg);
             return;
         }
 
-        const nowTs = sys.unixtime;
+        let nowTs = sys.unixtime;
 
         getEvents(nowTs, function (events, error) {
             if (error) {
-                failSafe(error);
+                log(error);
                 return;
             }
 
-            /*
-             * While manually overridden, leave the output alone
-             * until the next schedule boundary.
-             */
             if (manualOverride) {
                 if (overrideUntil && nowTs < overrideUntil) {
                     return;
@@ -234,17 +172,26 @@ function evaluate() {
 
                 manualOverride = false;
                 overrideUntil = 0;
-                log("Manual override expired");
+                log("Manual override ended");
             }
 
-            const desiredState = calculateDesiredState(events, nowTs);
+            let latest = null;
 
-            if (desiredState === null) {
-                failSafe("Required schedule event unavailable");
+            for (let i = 0; i < events.length; i++) {
+                if (
+                    events[i].prev > 0 &&
+                    (!latest || events[i].prev > latest.prev)
+                ) {
+                    latest = events[i];
+                }
+            }
+
+            if (!latest) {
+                log("Cannot determine current phase");
                 return;
             }
 
-            setOutput(desiredState, "Automatic schedule");
+            setOutput(latest.on, "Latest event: " + latest.name);
         });
     });
 }
@@ -267,7 +214,7 @@ Shelly.addEventHandler(function (event) {
         return;
     }
 
-    const state = event.info.state;
+    let state = event.info.state;
 
     // Ignore a recent event caused by our own command.
     if (expectedState === state && Date.now() <= ignoreEventsUntil) {
@@ -286,7 +233,7 @@ Shelly.addEventHandler(function (event) {
             return;
         }
 
-        const nowTs = sys.unixtime;
+        let nowTs = sys.unixtime;
 
         getEvents(nowTs, function (events, error) {
             if (error) {
