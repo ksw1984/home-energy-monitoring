@@ -25,12 +25,14 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
-    name: Build And Push Container
+    name: Build And Push ${{ matrix.service }} Container
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [hems, bems]
 
     steps:
       #
@@ -141,14 +143,14 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: docker/app/Dockerfile
+          file: docker/${{ matrix.service }}/Dockerfile
           push: true
 
           platforms: linux/amd64,linux/arm64
 
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.service }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.service }}:latest
 
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
@@ -163,5 +165,5 @@ jobs:
         shell: bash
         run: |
           echo "Published container:"
-          echo "${REGISTRY}/${IMAGE_NAME}:${{ steps.version.outputs.version }}"
-          echo "${REGISTRY}/${IMAGE_NAME}:latest"
+          echo "${REGISTRY}/${{ github.repository }}-${{ matrix.service }}:${{ steps.version.outputs.version }}"
+          echo "${REGISTRY}/${{ github.repository }}-${{ matrix.service }}:latest"
