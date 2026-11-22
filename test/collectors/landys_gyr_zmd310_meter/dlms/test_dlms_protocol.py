@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol import (
+from src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol import (
     DlmsProtocol,
 )
 
@@ -65,7 +65,7 @@ def test_open_serial(monkeypatch, protocol):
     serial_class = Mock(return_value=serial_instance)
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.serial.Serial",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.serial.Serial",
         serial_class,
     )
 
@@ -156,7 +156,7 @@ def test_find_object(protocol, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=definition),
     )
 
@@ -172,7 +172,7 @@ def test_find_object_returns_none_without_definition(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=None),
     )
 
@@ -189,7 +189,7 @@ def test_find_object_returns_none_without_short_name(
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=definition),
     )
 
@@ -206,7 +206,7 @@ def test_find_object_without_logical_name(
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=definition),
     )
 
@@ -391,7 +391,7 @@ def test_read_returns_values(protocol, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=definition),
     )
 
@@ -418,7 +418,7 @@ def test_read_returns_values(protocol, monkeypatch):
 
 def test_read_skips_unknown_obis(protocol, monkeypatch):
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=None),
     )
 
@@ -433,7 +433,7 @@ def test_read_sends_value_request(protocol, monkeypatch):
     )
 
     monkeypatch.setattr(
-        "src.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
+        "src.hems.collectors.landys_gyr_zmd310_meter.dlms.dlms_protocol.get_obis_definition",
         Mock(return_value=definition),
     )
 

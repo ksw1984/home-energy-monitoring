@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
 from src.bems.services.live import LiveControlService
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
 from src.databases.base_database import BaseDatabase
-from src.manager.measurement_bus import MeasurementBus
+from src.shared.measurement import Measurement
+from src.shared.measurement_bus import MeasurementBus
 
 import pytest
 

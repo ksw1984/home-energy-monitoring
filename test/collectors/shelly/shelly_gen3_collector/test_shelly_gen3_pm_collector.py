@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.collectors.shelly.shelly_gen3_collector.shelly_gen3_pm_collector import (
+from src.hems.collectors.shelly.shelly_gen3_collector.shelly_gen3_pm_collector import (
     ShellyPmCollector,
 )
 

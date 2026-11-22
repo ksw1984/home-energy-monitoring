@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, UTC
 from typing import Protocol
 
-from src.collectors.definitions.common.measurement import Measurement
+from src.shared.measurement import Measurement
 
 
 @dataclass(frozen=True)

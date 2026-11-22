@@ -1,0 +1,707 @@
+import asyncio
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from src.config.config import (
+    CalculationConfig,
+    CONFIG_FILE,
+    load_config,
+    StorageConfig,
+)
+from src.config.storage_filter import StorageFilter
+from src.databases.base_database import BaseDatabase
+from src.hems.calculators.base_calculator import BaseCalculator
+from src.hems.collectors.base_collector import BaseCollector
+from src.hems.estimators.base_estimator import BaseEstimator
+from src.hems.manager.connection_lifecycle import (
+    connect_collectors,
+    connect_databases,
+    disconnect_collectors,
+    disconnect_databases,
+)
+from src.hems.manager.persistence_scheduler import PersistenceScheduler
+from src.hems.manager.runtime_config import (
+    configure_collectors,
+    configure_databases,
+)
+from src.shared.measurement import Measurement
+from src.shared.measurement_bus import MeasurementBus
+
+import serial
+
+logger = logging.getLogger(__name__)
+
+METER_DAILY_METRICS = {
+    "grid_import_energy_total",
+    "grid_export_energy_total",
+}
+
+CALCULATION_ALIGNMENT_TOLERANCE_SECONDS = 0.1
+
+
+class MeasurementManager:
+    """Run all collectors independently and store their measurements.
+
+    Each collector is executed at its own configured interval.
+
+    Collectors are independent of each other. A failure to connect to
+    or collect from one collector does not prevent the remaining
+    collectors from operating.
+
+    Collectors that are temporarily unavailable may retry their
+    connection during subsequent collection cycles.
+
+    Measurements are collected independently of storage configuration.
+    The storage filter determines which measurements are persisted.
+
+    Every successful collection is also published to an in-process
+    :class:`~src.shared.measurement_bus.MeasurementBus`. The bus is the
+    single source of truth for latest values, so live consumers see the
+    measurement cadence while databases may store less often.
+
+    Daily meter energy values are stored at most once during hour 00:00,
+    after the required values are available.
+
+    Other configured measurements follow each collector's optional
+    ``storage_interval``. The effective database period is
+    ``n * collector.interval``, where ``n`` is rounded from the requested
+    interval. Batches containing daily meter energy values are always
+    persisted so an hourly slow read cannot fall between write cycles.
+    """
+
+    def __init__(  # noqa: PLR0913
+        self,
+        *,
+        collectors: list[BaseCollector],
+        databases: list[BaseDatabase],
+        estimators: list[BaseEstimator],
+        calculators: list[BaseCalculator],
+        timezone: str,
+        storage_config: StorageConfig,
+        bus: MeasurementBus | None = None,
+    ):
+        """Initialize the collector manager.
+
+        Args:
+            collectors: Collectors to execute independently.
+            databases: Databases receiving the collected measurements.
+            estimators: Estimators fed with raw collector measurements.
+            calculators: Calculators deriving additional measurements.
+            timezone: Timezone used for daily measurement handling.
+            storage_config: Storage selection and daily-snapshot policy.
+            bus: Shared measurement bus. ``None`` creates a private bus for
+                tests and standalone callers; the app injects one so BEMS can
+                consume the same stream.
+        """
+        self.collectors = collectors
+        self.databases = databases
+        self.estimators = estimators
+        self.calculators = calculators
+        self.bus = bus if bus is not None else MeasurementBus()
+
+        self.timezone = ZoneInfo(timezone)
+        self.storage_filter = StorageFilter(storage_config)
+
+        self._config_mod_time = CONFIG_FILE.stat().st_mtime
+        self._config_reload_lock = asyncio.Lock()
+
+        # True after the daily meter snapshot has been stored during
+        # the current midnight hour.
+        self._daily_values_stored: set[str] = set()
+
+        # Protects the daily measurement state when multiple collectors
+        # finish at approximately the same time.
+        self._filter_lock = asyncio.Lock()
+
+    async def _reload_config_if_changed(self) -> None:
+        async with self._config_reload_lock:
+            try:
+                mtime = CONFIG_FILE.stat().st_mtime
+            except OSError:
+                logger.exception("Failed to stat configuration file")
+                return
+
+            if mtime == self._config_mod_time:
+                return
+
+            logger.info("Configuration file changed, reloading")
+
+            try:
+                config = load_config()
+            except Exception:
+                logger.exception("Failed to reload configuration")
+                return
+
+            async with self._filter_lock:
+                self.storage_filter.update(config.storage)
+
+            await configure_collectors(
+                self.collectors,
+                config,
+            )
+
+            await configure_databases(
+                self.databases,
+                config,
+            )
+
+            self._config_mod_time = mtime
+
+            logger.info("Configuration reloaded")
+
+    async def run(self) -> None:
+        """Run all collectors until the task is canceled.
+
+        All configured collectors and enabled databases are initially connected before the
+        collection loops start. A connection failure of an individual
+        collector does not stop the other collectors from starting.
+
+        Each collector is then executed independently at its configured
+        interval. Measurements always reach the in-process bus, while database
+        writes follow each collector's optional ``storage_interval``.
+
+        Cleanup is performed for all collectors when the collection
+        manager exits.
+        """
+        logger.info("MeasurementManager.run()")
+
+        try:
+            await self.connect()
+
+            tasks = [
+                asyncio.create_task(
+                    self._run_collector(collector),
+                    name=f"collector-{collector.source}",
+                )
+                for collector in self.collectors
+            ]
+
+            await asyncio.gather(*tasks)
+
+        finally:
+            await self.disconnect()
+
+    @staticmethod
+    def _configured_storage_interval(collector: BaseCollector) -> int | None:
+        """Return a valid configured storage interval for one collector.
+
+        Test doubles and older collector instances may not define the
+        attribute at all. Treat anything that is not a positive integer as
+        "persist every collection" so the scheduler stays total.
+        """
+        storage_interval = getattr(collector, "storage_interval", None)
+
+        if isinstance(storage_interval, int) and not isinstance(storage_interval, bool) and storage_interval > 0:
+            return storage_interval
+
+        return None
+
+    async def _run_collector(
+        self,
+        collector: BaseCollector,
+    ) -> None:
+        """Run one collector continuously at its configured interval.
+
+        The collector's async hook is awaited. Synchronous collectors use the
+        base implementation, which offloads their blocking work to a thread.
+
+        Every successful collection is published to the measurement bus and
+        fed to estimators/calculators. Database writes follow the collector's
+        optional ``storage_interval``; a batch carrying daily meter energy
+        values is always written so an hourly slow read cannot be skipped.
+        A failure of this collector does not affect any other collector.
+
+        Args:
+            collector: Collector to execute.
+        """
+
+        scheduler = PersistenceScheduler(
+            interval=float(collector.interval),
+            storage_interval=self._configured_storage_interval(collector),
+        )
+
+        logger.info(
+            "Starting collector %s with interval=%ss storage=%s enabled=%s",
+            collector.__class__.__name__,
+            collector.interval,
+            scheduler.cadence_label,
+            collector.enabled,
+        )
+
+        while True:
+            started = asyncio.get_running_loop().time()
+
+            try:
+                await self._reload_config_if_changed()
+
+                if scheduler.update(
+                    interval=float(collector.interval),
+                    storage_interval=self._configured_storage_interval(collector),
+                ):
+                    logger.info(
+                        "Updated persistence cadence for %s: interval=%ss storage=%s",
+                        collector.__class__.__name__,
+                        collector.interval,
+                        scheduler.cadence_label,
+                    )
+
+                if not collector.enabled:
+                    await asyncio.sleep(1)
+                    continue
+
+                measurements = await collector.collect_async()
+
+                # The read duration drives the overrun warning. Database time
+                # is excluded here and included in the loop delay below.
+                collect_elapsed = asyncio.get_running_loop().time() - started
+
+                if measurements:
+                    persist = scheduler.record_success(elapsed_s=collect_elapsed)
+
+                    # Daily meter values are read only once per hour. If that
+                    # read lands between regular persistence cycles, write it
+                    # anyway; otherwise the midnight snapshot could be lost
+                    # until the next hourly read (outside hour 00).
+                    if not persist and any(measurement.metric in METER_DAILY_METRICS for measurement in measurements):
+                        persist = True
+                        logger.info(
+                            "Persisting off-cadence batch from %s because it contains daily meter energy values",
+                            collector.__class__.__name__,
+                        )
+
+                    await self._process_measurements(measurements, persist=persist)
+
+                else:
+                    logger.warning(
+                        "Collector %s unavailable: %s",
+                        collector.__class__.__name__,
+                        measurements,
+                    )
+
+            except serial.SerialException as exc:
+                logger.warning(
+                    "Collector %s unavailable: %s",
+                    collector.__class__.__name__,
+                    exc,
+                )
+
+            except Exception:
+                logger.exception(
+                    "Collector %s failed",
+                    collector.__class__.__name__,
+                )
+
+            # Compensate for all work in this cycle, including bus publish and
+            # database writes. A read or write that overruns the interval makes
+            # the delay zero, so the next cycle starts immediately.
+            elapsed = asyncio.get_running_loop().time() - started
+            delay = max(0.0, float(collector.interval) - elapsed)
+
+            await asyncio.sleep(delay)
+
+    async def _process_measurements(
+        self,
+        measurements: list[Measurement],
+        *,
+        persist: bool = True,
+    ) -> None:
+        """Publish, store, and derive measurements from one collector batch.
+
+        The bus publish, estimator feed, and calculators always run, even when
+        the database cadence skips this batch. The bus publish happens before
+        persistence so live consumers never wait for, or depend on, a database
+        write.
+
+        Args:
+            measurements: Raw measurements returned by the collector.
+            persist: When ``False``, skip both raw and calculated database
+                writes. The measurement bus and derived state still update.
+        """
+
+        # -------------------------------------------------
+        # 1. Collector values are authoritative and reach the
+        #    bus before persistence. Live control must not wait
+        #    for, or depend on, a database write.
+        # -------------------------------------------------
+
+        raw_measurements = list(measurements)
+
+        self.bus.publish(raw_measurements)
+
+        if not persist:
+            logger.debug(
+                "Skipping database write for %d measurements from %s",
+                len(raw_measurements),
+                raw_measurements[0].source if raw_measurements else "unknown",
+            )
+
+        # -------------------------------------------------
+        # 2. Store raw collector measurements on persistence
+        #    cycles only. The bus already has this batch.
+        # -------------------------------------------------
+
+        if persist:
+            await self._store_measurements(raw_measurements)
+
+        # -------------------------------------------------
+        # 3. Feed raw measurements into estimators.
+        # -------------------------------------------------
+
+        for estimator in self.estimators:
+            estimator.add_measurements(raw_measurements)
+
+        # -------------------------------------------------
+        # 4. Calculate derived measurements.
+        # -------------------------------------------------
+
+        calculated: list[Measurement] = []
+
+        for calculator in self.calculators:
+            if hasattr(calculator, "calculations"):
+                for calculation in calculator.calculations:
+                    first_input = next(iter(calculation.inputs.values()))
+
+                    if not any(
+                        measurement.source == first_input.source  # fmt
+                        and measurement.metric == first_input.metric
+                        for measurement in raw_measurements
+                    ):
+                        continue
+
+                    aligned = self._align_calculation_inputs(
+                        calculation,
+                    )
+
+                    if aligned is None:
+                        continue
+
+                    calculated.extend(calculator.calculate(aligned))
+
+            else:
+                calculated.extend(calculator.calculate(raw_measurements))
+
+        # -------------------------------------------------
+        # 5. Store calculated values separately on persistence
+        #    cycles only. They still participate in this cycle's
+        #    derived state.
+        # -------------------------------------------------
+
+        if calculated and persist:
+            await self._store_measurements(calculated)
+
+    def _align_calculation_inputs(
+        self,
+        calculation: CalculationConfig,
+    ) -> list[Measurement] | None:
+        """Align calculator inputs to a common timestamp."""
+        inputs = calculation.inputs
+
+        latest_measurements: dict[
+            tuple[str, str],
+            Measurement,
+        ] = {}
+
+        for input_config in inputs.values():
+            key = (
+                input_config.source,
+                input_config.metric,
+            )
+
+            measurement = self.bus.latest(
+                input_config.source,
+                input_config.metric,
+            )
+
+            if measurement is None:
+                return None
+
+            latest_measurements[key] = measurement
+
+        timestamps = [measurement.timestamp for measurement in latest_measurements.values()]
+
+        min_timestamp = min(timestamps)
+        max_timestamp = max(timestamps)
+
+        skew_seconds = (max_timestamp - min_timestamp).total_seconds()
+
+        # Measurements are effectively simultaneous.
+        # Use the original collector values.
+        if skew_seconds <= CALCULATION_ALIGNMENT_TOLERANCE_SECONDS:
+            return list(latest_measurements.values())
+
+        return self._align_calculation_inputs_with_estimators(
+            calculation,
+            latest_measurements,
+        )
+
+    def _align_calculation_inputs_with_estimators(
+        self,
+        calculation: CalculationConfig,
+        latest_measurements: dict[
+            tuple[str, str],
+            Measurement,
+        ],
+    ) -> list[Measurement] | None:
+        estimators = {(estimator.source, estimator.metric): estimator for estimator in self.estimators}
+
+        reference_key, _ = min(
+            latest_measurements.items(),
+            key=lambda item: item[1].timestamp,
+        )
+
+        reference_estimator = estimators.get(reference_key)
+
+        if reference_estimator is None:
+            return None
+
+        target_timestamp = reference_estimator.target_timestamp()
+
+        if target_timestamp is None:
+            return None
+
+        aligned: list[Measurement] = []
+
+        for input_config in calculation.inputs.values():
+            key = (
+                input_config.source,
+                input_config.metric,
+            )
+
+            estimator = estimators.get(key)
+
+            if estimator is None:
+                return None
+
+            estimated = estimator.estimate_at(target_timestamp)
+
+            if estimated is None:
+                return None
+
+            aligned.append(estimated)
+
+        return aligned
+
+    async def _store_measurements(
+        self,
+        measurements: list[Measurement],
+    ) -> None:
+        """Filter and store measurements in all configured databases.
+
+        The caller decides whether this batch belongs to a persistence cycle.
+        Daily meter values are handled by the filter, not by this method.
+
+        Args:
+            measurements: Measurements returned by a collector.
+        """
+        self.output(measurements)
+
+        async with self._filter_lock:
+            measurements_to_store = self._filter_measurements(
+                measurements,
+            )
+
+        if not measurements_to_store:
+            return
+
+        if not self.databases:
+            return
+
+        logger.debug("Write to dbs")
+
+        for database in self.databases:
+            if not database.enabled:
+                continue
+
+            try:
+                await database.store(measurements_to_store)
+
+            except Exception:
+                logger.exception(
+                    "Failed to store measurements in %s",
+                    database.__class__.__name__,
+                )
+
+    async def connect(self) -> None:
+        """Attempt to connect all configured collectors and databases."""
+        logger.info("MeasurementManager.connect()")
+
+        await connect_collectors(self.collectors)
+        await connect_databases(self.databases)
+
+    async def disconnect(self) -> None:
+        """Disconnect all configured collectors and databases."""
+        logger.info("MeasurementManager.disconnect()")
+
+        await disconnect_collectors(self.collectors)
+        await disconnect_databases(self.databases)
+
+    async def collect_all(self) -> list[Measurement]:
+        """Collect measurements from all configured collectors.
+
+        Collectors are executed concurrently. A failure in one collector
+        does not prevent measurements from the remaining collectors from
+        being returned.
+
+        Expected serial connection failures are ignored here because the
+        collector is responsible for retrying the connection during a
+        subsequent collection cycle.
+
+        This method is retained as a convenience method for collecting
+        all collectors once. The main :meth:`run` loop uses independent
+        collection loops for each collector.
+
+        Returns:
+            All measurements successfully returned by the collectors.
+        """
+        logger.info("MeasurementManager.collect_all()")
+
+        tasks = [collector.collect_async() for collector in self.collectors]
+
+        results = await asyncio.gather(
+            *tasks,
+            return_exceptions=True,
+        )
+
+        measurements: list[Measurement] = []
+
+        for collector, result in zip(
+            self.collectors,
+            results,
+            strict=True,
+        ):
+            if isinstance(result, BaseException):
+                if isinstance(result, serial.SerialException):
+                    continue
+
+                logger.error(
+                    "Collector %s failed: %s",
+                    collector.__class__.__name__,
+                    result,
+                    exc_info=(
+                        type(result),
+                        result,
+                        result.__traceback__,
+                    ),
+                )
+                continue
+
+            if not result:
+                logger.warning(
+                    "Collector %s unavailable: %s",
+                    collector.__class__.__name__,
+                    result,
+                )
+                continue
+
+            measurements.extend(result)
+
+        return measurements
+
+    def _filter_measurements(
+        self,
+        measurements: list[Measurement],
+    ) -> list[Measurement]:
+        """Return measurements that should be written to the databases.
+
+        Storage configuration determines which measurements are eligible for
+        persistence. Daily meter measurements are stored once per source
+        during the midnight hour. All other configured measurements are stored
+        on every collection cycle.
+
+            Args:
+                measurements: Measurements collected during the current cycle.
+
+            Returns:
+                Measurements that should be written to the databases.
+        """
+        # 1. What is configured to be stored?
+        measurements = self.storage_filter.filter(measurements)
+
+        if not measurements:
+            return []
+
+        now = datetime.now(self.timezone)
+
+        # Reset the daily state once we leave midnight.
+        if now.hour != 0:
+            self._daily_values_stored.clear()
+
+        measurements_to_store = []
+        #
+        # Daily measurements are stored once per source during midnight.
+        #
+        if now.hour == 0:
+            daily_measurements_by_source: dict[str, list[Measurement]] = {}
+
+            for measurement in measurements:
+                if measurement.metric in METER_DAILY_METRICS:
+                    daily_measurements_by_source.setdefault(
+                        measurement.source,
+                        [],
+                    ).append(measurement)
+
+            for source, daily_measurements in daily_measurements_by_source.items():
+                if source in self._daily_values_stored:
+                    continue
+
+                daily_metrics_received = {measurement.metric for measurement in daily_measurements}
+
+                if METER_DAILY_METRICS.issubset(daily_metrics_received):
+                    measurements_to_store.extend(daily_measurements)
+                    self._daily_values_stored.add(source)
+
+        #
+        # All other measurements are stored on every collection cycle.
+        #
+        measurements_to_store.extend(measurement for measurement in measurements if (measurement.metric not in METER_DAILY_METRICS))
+
+        return measurements_to_store
+
+    def output(
+        self,
+        measurements: list[Measurement],
+    ) -> None:
+        """Log all collected measurements.
+
+        Args:
+            measurements: Measurements collected during the current cycle.
+        """
+        for measurement in measurements:
+            selected = "X" if self.storage_filter.is_selected(measurement) else ""
+
+            calculated = "C" if measurement.source == "calculated" else ""
+
+            estimated = "E" if measurement.source == "estimated" else ""
+
+            status = f"{calculated}{estimated}{selected}"
+
+            logger.info(
+                "%-25s %-25s %-25s %s %-5s %-4s",
+                measurement.timestamp.isoformat(),
+                measurement.source,
+                measurement.metric,
+                self.format_measurement_value(measurement.value),
+                measurement.unit or "",
+                status,
+            )
+
+    @staticmethod
+    def format_measurement_value(
+        value: float,
+        integer_width: int = 9,
+        decimal_width: int = 4,
+    ) -> str:
+        """Format a value with an aligned decimal point and up to 4 decimals."""
+        formatted = f"{value:.{decimal_width}f}"
+        integer_part, decimal_part = formatted.split(".")
+
+        decimal_part = decimal_part.rstrip("0")
+
+        if not decimal_part:
+            decimal_part = "0"
+
+        integer_text = f"{integer_part:>{integer_width}}"
+        decimal_text = f".{decimal_part}"
+
+        return f"{integer_text}{decimal_text}{' ' * (decimal_width - len(decimal_part))}"

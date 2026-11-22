@@ -1,7 +1,7 @@
 import asyncio
 
-from src.collectors.definitions.common.measurement import Measurement
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 import pytest
 

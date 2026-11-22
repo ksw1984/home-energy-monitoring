@@ -1,6 +1,6 @@
 from unittest.mock import Mock
 
-from src.collectors.landys_gyr_zmd310_meter.dlms.hdlc_reader import HDLCReader
+from src.hems.collectors.landys_gyr_zmd310_meter.dlms.hdlc_reader import HDLCReader
 
 
 def test_read_frame_reads_complete_frame():

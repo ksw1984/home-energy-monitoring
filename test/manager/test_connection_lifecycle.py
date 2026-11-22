@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
-from src.manager.connection_lifecycle import (
+from src.hems.manager.connection_lifecycle import (
     connect_collectors,
     connect_databases,
     disconnect_collectors,

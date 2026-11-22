@@ -7,9 +7,9 @@ from datetime import datetime, timedelta, UTC
 
 from src.bems.reporting.report import _chart_row
 from src.bems.services.historical import simulate_historical
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import config_obj
 from src.databases.base_database import BaseDatabase
+from src.shared.measurement import Measurement
 
 
 class HistoryMemoryDatabase(BaseDatabase):

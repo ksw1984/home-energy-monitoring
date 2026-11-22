@@ -19,10 +19,10 @@ from src.bems.core.domain import (
 from src.bems.core.reserve import night_reserve_wh
 from src.bems.services.command_log import BatteryCommandLog
 from src.bems.services.night_baseline_service import NightBaselineProvider
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import BemsConfig, BemsDeviceConfig
 from src.databases.base_database import BaseDatabase
-from src.manager.measurement_bus import MeasurementBus
+from src.shared.measurement import Measurement
+from src.shared.measurement_bus import MeasurementBus
 
 logger = logging.getLogger(__name__)
 QUERY_PAGE_SIZE = 1000

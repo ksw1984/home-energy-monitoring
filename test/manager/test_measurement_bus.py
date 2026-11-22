@@ -1,8 +1,8 @@
 import asyncio
 from datetime import datetime, timedelta, UTC
 
-from src.collectors.definitions.common.measurement import Measurement
-from src.manager.measurement_bus import MeasurementBus
+from src.shared.measurement import Measurement
+from src.shared.measurement_bus import MeasurementBus
 
 import pytest
 

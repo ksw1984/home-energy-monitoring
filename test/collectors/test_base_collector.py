@@ -1,7 +1,7 @@
 import asyncio
 import threading
 
-from src.collectors.base_collector import BaseCollector
+from src.hems.collectors.base_collector import BaseCollector
 
 import pytest
 

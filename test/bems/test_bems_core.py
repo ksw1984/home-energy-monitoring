@@ -14,8 +14,8 @@ from src.bems.core.domain import (
 from src.bems.core.economics import interval_cost_cents
 from src.bems.core.reserve import night_reserve_wh, ZeroSolarForecastProvider
 from src.bems.core.simulation import SimulatedBattery
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import _load_bems_config, BemsTariffConfig, config_obj
+from src.shared.measurement import Measurement
 
 import pytest
 
