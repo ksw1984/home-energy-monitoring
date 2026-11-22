@@ -27,12 +27,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
       - name: Setup Python 3.13
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.13"
 
@@ -275,8 +275,8 @@ jobs:
           6. Prepare release notes
           7. Create the GitHub Release
           8. Attach the wheel to the release
-          9. Build the release container image
-          10. Publish the container image to GitHub Container Registry (GHCR)
+          9. Build separate HEMS and BEMS container images for `linux/amd64` and `linux/arm64`
+          10. Publish both versioned images and their `latest` tags to GitHub Container Registry (GHCR)
 
           The \`main\` branch is protected and can only be updated
           through a pull request from \`dev\`.
