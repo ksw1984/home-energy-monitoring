@@ -127,12 +127,16 @@ def test_open_meteo_api():
         longitude=13.405,
     )
 
+    async def fetch_and_close():
+        try:
+            return await collector._get_data()
+        finally:
+            await collector.close_http()
+
     try:
-        data = asyncio.run(collector._get_data())
+        data = asyncio.run(fetch_and_close())
     except httpx.HTTPError as exc:
         pytest.skip(f"Open-Meteo unavailable: {exc}")
-    finally:
-        asyncio.run(collector.close_http())
 
     assert data
     assert "current" in data
