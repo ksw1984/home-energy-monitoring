@@ -4,6 +4,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, UTC
 from pathlib import Path
+from typing import Any
 
 from src.bems.core.controller import GridBalancingController
 from src.bems.core.domain import (
@@ -95,6 +96,7 @@ class LiveControlService:
         self._stale = False
         self._last_requested_power: dict[str, float] = {}
         self._last_command_at: dict[str, datetime] = {}
+        self._configuration_lock = asyncio.Lock()
         # Bus mode replaces this with the observed grid cadence; the database
         # path keeps the configured poll interval.
         self.control_interval_s = config.control.live_poll_interval_s
@@ -200,11 +202,14 @@ class LiveControlService:
         if self.bus is None:
             raise RuntimeError("run_forever_bus() requires a measurement bus")
 
-        grid_ref = self.config.inputs.grid
-        wait_timeout = max(MIN_BUS_WAIT_S, self.config.control.live_max_measurement_age_s)
-
         while stop_event is None or not stop_event.is_set():
             try:
+                if not self.config.enabled:
+                    await self._apply_stale_failsafe(datetime.now(UTC))
+                    await asyncio.sleep(1.0)
+                    continue
+                grid_ref = self.config.inputs.grid
+                wait_timeout = max(MIN_BUS_WAIT_S, self.config.control.live_max_measurement_age_s)
                 newer = await self.bus.wait_for_next(
                     source=grid_ref.source,
                     metric=grid_ref.metric,
@@ -243,6 +248,8 @@ class LiveControlService:
         """
         if self.bus is None:
             raise RuntimeError("bus mode is not configured")
+        if not self.config.enabled:
+            return
 
         grid_ref = self.config.inputs.grid
         grid = self.bus.latest(grid_ref.source, grid_ref.metric)
@@ -330,6 +337,11 @@ class LiveControlService:
         )
 
     async def _control_sample(self, sample: BemsPowerSample, now: datetime) -> None:
+        """Serialize a control cycle against runtime configuration changes."""
+        async with self._configuration_lock:
+            await self._control_sample_locked(sample, now)
+
+    async def _control_sample_locked(self, sample: BemsPowerSample, now: datetime) -> None:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
         timestamp = sample.timestamp
         outputs: list[Measurement] = []
@@ -447,7 +459,99 @@ class LiveControlService:
                 outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0))
         await self._store(outputs)
 
+    async def update_config(self, config: BemsConfig) -> None:
+        """Apply safe live settings and battery power limits without rebuilding adapters.
+
+        Device identity/connection settings, live device membership, battery
+        profile selection and capacity are fixed for a process lifetime. Those
+        changes need an explicit container restart; numeric control and power
+        limits can be applied while running.
+        """
+        async with self._configuration_lock:
+            next_devices = {device.id: device for device in config.devices if device.enabled and device.mode == "live"}
+            self._validate_runtime_devices(config, next_devices)
+
+            previous_grid = (self.config.inputs.grid.source, self.config.inputs.grid.metric)
+            next_grid = (config.inputs.grid.source, config.inputs.grid.metric)
+            self.config = config
+            self.devices = next_devices
+            self.controller.deadband_w = config.control.deadband_w
+            if previous_grid != next_grid:
+                self._grid_cursor = None
+                self._last_fresh_input = None
+
+            for device_id, device in self.devices.items():
+                await self._apply_device_power_limits(device_id, device, self._profile_for_device(device))
+
+            self._update_night_baseline_config(config)
+            if not config.enabled:
+                await self._apply_stale_failsafe_locked(datetime.now(UTC))
+            logger.info("BEMS live configuration reloaded")
+
+    def _validate_runtime_devices(self, config: BemsConfig, next_devices: dict[str, BemsDeviceConfig]) -> None:
+        """Reject hardware or device topology changes that require adapter recreation."""
+        if next_devices.keys() != self.devices.keys():
+            raise ValueError("Changing enabled live devices requires restarting the BEMS container")
+        for device_id, device in next_devices.items():
+            current = self.devices[device_id]
+            old_profile = self.config.profiles[current.profile]
+            new_profile = config.profiles[device.profile]
+            if device.profile != current.profile or device.attributes != current.attributes:
+                raise ValueError(f"Changing profile or hardware identity for {device_id} requires restarting BEMS")
+            if device.initial_soc_percent != current.initial_soc_percent or old_profile.capacity_wh != new_profile.capacity_wh:
+                raise ValueError(f"Changing capacity or initial SOC for {device_id} requires restarting BEMS")
+
+    async def _apply_device_power_limits(self, device_id: str, device: BemsDeviceConfig, profile: BatteryProfile) -> None:
+        """Apply effective limits to the adapter and immediately clamp an old target."""
+        charge_limit = min(profile.max_charge_power_w, device.max_output_power_w, self.config.control.max_output_power_w)
+        discharge_limit = min(profile.max_discharge_power_w, device.max_output_power_w, self.config.control.max_output_power_w)
+        battery: Any = self.batteries[device_id]
+        if hasattr(battery, "max_charge_power_w"):
+            battery.max_charge_power_w = charge_limit
+        if hasattr(battery, "max_discharge_power_w"):
+            battery.max_discharge_power_w = discharge_limit
+        if hasattr(battery, "profile"):
+            battery.profile = profile
+            if hasattr(battery, "power_w"):
+                power = battery.power_w
+                battery.power_w = max(-discharge_limit, min(charge_limit, power))
+        previous_target = self._last_requested_power.get(device_id, 0.0)
+        bounded_target = max(-discharge_limit, min(charge_limit, previous_target))
+        if bounded_target == previous_target:
+            return
+        timestamp = datetime.now(UTC)
+        try:
+            await battery.set_power(BatteryPowerCommand(timestamp, bounded_target))
+        except Exception:
+            logger.exception("Could not apply reduced BEMS power limit for %s; requesting zero", device_id)
+            try:
+                await battery.set_power(BatteryPowerCommand(datetime.now(UTC), 0.0))
+                bounded_target = 0.0
+            except Exception:
+                logger.exception("BEMS zero-power command failed after configuration update for %s", device_id)
+                return
+        self._last_requested_power[device_id] = bounded_target
+        self._last_command_at[device_id] = timestamp
+
+    def _update_night_baseline_config(self, config: BemsConfig) -> None:
+        """Refresh baseline settings and discard values cached under old settings."""
+        if self.night_baseline is None:
+            return
+        self.night_baseline.config = config
+        self.night_baseline.night = config.night
+        self.night_baseline.estimation = config.night.baseline_estimation
+        self.night_baseline._nights.clear()
+        self.night_baseline._baseline_cache.clear()
+        self.night_baseline._loaded_through = None
+        if self.night_baseline.repository is not None:
+            self.night_baseline.repository.source = config.night.baseline_estimation.measurement
+
     async def _apply_stale_failsafe(self, timestamp: datetime) -> None:
+        """Serialize fail-safe writes with control and config reloads."""
+        async with self._configuration_lock:
+            await self._apply_stale_failsafe_locked(timestamp)
+
+    async def _apply_stale_failsafe_locked(self, timestamp: datetime) -> None:
         """Request zero power when live inputs become stale.
 
         Zero is the only safe target without fresh grid data: it deactivates

@@ -1,10 +1,8 @@
 """In-process fan-out of the newest measurement per ``(source, metric)``.
 
-The bus is the single source of truth for "latest value" inside the HEMS
-process. :class:`~src.hems.manager.measurement_manager.MeasurementManager`
-publishes every collected batch synchronously on the event-loop thread;
-consumers such as BEMS live control read the latest value and await the next
-generation without touching a database.
+The bus stores the latest value per source and metric inside one process.
+HEMS uses it for local calculations; the MQTT subscriber uses a separate
+instance in BEMS. It does not cross the process boundary.
 
 Timing model:
 

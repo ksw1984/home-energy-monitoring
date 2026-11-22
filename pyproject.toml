@@ -24,10 +24,11 @@ dependencies = [
     "simpleeval (>=1.0.8,<2.0.0)",
     "plotly (>=7.1.0,<8.0.0)",
     "httpx (>=0.28,<1.0)",
+    "paho-mqtt (>=2.1,<3.0)",
 ]
 
 [project.scripts]
-home-energy-monitoring = "src.app:main"
+home-energy-monitoring = "src.hems.app:main"
 bems-simulate = "src.bems.cli:main"
 bems-live = "src.bems.live_cli:main"
 bems-night-baseline = "src.bems.night_baseline_cli:main"

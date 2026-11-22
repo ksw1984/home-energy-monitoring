@@ -161,10 +161,10 @@ def test_config_dataclass():
 # ============================================================================
 
 
-def test_bems_control_feed_defaults_to_bus():
+def test_bems_control_feed_defaults_to_mqtt():
     config = _load_bems_config({})
 
-    assert config.control.feed == "bus"
+    assert config.control.feed == "mqtt"
 
 
 def test_bems_control_accepts_database_feed():
@@ -178,14 +178,15 @@ def test_bems_control_accepts_database_feed():
     assert config.control.feed == "database"
 
 
-def test_bems_control_rejects_unknown_feed():
-    with pytest.raises(ValueError, match="feed"):
-        _load_bems_config(
-            {
-                "databases": [{"type": "influxdb"}],
-                "bems": {"control": {"feed": "mqtt"}},
-            }
-        )
+def test_bems_control_accepts_mqtt_feed():
+    config = _load_bems_config(
+        {
+            "databases": [{"type": "influxdb"}],
+            "bems": {"control": {"feed": "mqtt"}},
+        }
+    )
+
+    assert config.control.feed == "mqtt"
 
 
 def test_bems_control_command_log_defaults_to_none():

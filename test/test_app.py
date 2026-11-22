@@ -1,7 +1,7 @@
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
-import src.app
+import src.hems.app
 
 import pytest
 
@@ -31,41 +31,45 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
     mock_manager = Mock()
     mock_manager.run = AsyncMock()
     mock_bus = Mock()
+    publisher = Mock()
+    publisher.start = AsyncMock()
+    publisher.close = AsyncMock()
 
     with (
-        patch.object(src.app, "config_obj", mocked_config),
+        patch.object(src.hems.app, "config_obj", mocked_config),
+        patch.object(src.hems.app, "MqttMeasurementPublisher", return_value=publisher),
         patch.object(
-            src.app,
+            src.hems.app,
             "MeasurementBus",
             return_value=mock_bus,
         ),
         patch.object(
-            src.app,
+            src.hems.app,
             "create_collectors",
             return_value=mock_collectors,
         ) as collectors_factory,
         patch.object(
-            src.app,
+            src.hems.app,
             "create_databases",
             return_value=mock_databases,
         ) as databases_factory,
         patch.object(
-            src.app,
+            src.hems.app,
             "create_estimators",
             return_value=mock_estimators,
         ) as estimators_factory,
         patch.object(
-            src.app,
+            src.hems.app,
             "create_calculators",
             return_value=mock_calculators,
         ) as calculators_factory,
         patch.object(
-            src.app,
+            src.hems.app,
             "MeasurementManager",
             return_value=mock_manager,
         ) as manager_cls,
     ):
-        asyncio.run(src.app.run())
+        asyncio.run(src.hems.app.run())
 
     collectors_factory.assert_called_once_with(mocked_config)
     databases_factory.assert_called_once_with(mocked_config)
@@ -83,64 +87,44 @@ def test_run_creates_collectors_and_runs_manager(mocked_config):
         timezone="Europe/Berlin",
         storage_config=mocked_config.storage,
         bus=mock_bus,
+        live_publisher=publisher.publish,
+        configure_live_publisher=publisher.configure,
     )
 
     mock_manager.run.assert_awaited_once()
+    publisher.configure.assert_called_once_with(mocked_config)
+    publisher.start.assert_awaited_once()
+    publisher.close.assert_awaited_once()
 
     for database in mock_databases:
         database.close.assert_called_once()
 
 
-def test_run_starts_bus_fed_bems_live_service(mocked_config):
+def test_run_does_not_host_bems_control(mocked_config):
     mock_databases = [Mock()]
     mock_manager = Mock()
     mock_manager.run = AsyncMock()
     mock_bus = Mock()
-    live_service = Mock()
-    live_service.run_forever_bus = AsyncMock()
-    client = Mock()
-    client.close = AsyncMock()
-
     mocked_config.bems = Mock()
     mocked_config.bems.enabled = True
-    mocked_config.bems.control.feed = "bus"
-    device = Mock()
-    device.enabled = True
-    device.mode = "live"
-    mocked_config.bems.devices = [device]
+    publisher = Mock()
+    publisher.start = AsyncMock()
+    publisher.close = AsyncMock()
 
     with (
-        patch.object(src.app, "config_obj", mocked_config),
-        patch.object(src.app, "MeasurementBus", return_value=mock_bus),
-        patch.object(src.app, "create_collectors", return_value=[]),
-        patch.object(src.app, "create_databases", return_value=mock_databases),
-        patch.object(src.app, "create_estimators", return_value=[]),
-        patch.object(src.app, "create_calculators", return_value=[]),
-        patch.object(src.app, "MeasurementManager", return_value=mock_manager),
-        patch.object(
-            src.app,
-            "create_adapters",
-            return_value=({}, [client]),
-        ) as adapters_factory,
-        patch.object(
-            src.app,
-            "LiveControlService",
-            return_value=live_service,
-        ) as service_cls,
+        patch.object(src.hems.app, "config_obj", mocked_config),
+        patch.object(src.hems.app, "MeasurementBus", return_value=mock_bus),
+        patch.object(src.hems.app, "create_collectors", return_value=[]),
+        patch.object(src.hems.app, "create_databases", return_value=mock_databases),
+        patch.object(src.hems.app, "create_estimators", return_value=[]),
+        patch.object(src.hems.app, "create_calculators", return_value=[]),
+        patch.object(src.hems.app, "MeasurementManager", return_value=mock_manager),
+        patch.object(src.hems.app, "MqttMeasurementPublisher", return_value=publisher),
     ):
-        asyncio.run(src.app.run())
+        asyncio.run(src.hems.app.run())
 
-    adapters_factory.assert_called_once_with([device], mocked_config.bems)
-    service_cls.assert_called_once_with(
-        config=mocked_config.bems,
-        output_databases=mock_databases,
-        batteries={},
-        bus=mock_bus,
-        command_log_csv=mocked_config.bems.control.command_log_csv,
-        night_baseline=None,
-    )
-    live_service.run_forever_bus.assert_awaited_once()
-    client.close.assert_awaited_once()
+    publisher.start.assert_awaited_once()
+    publisher.close.assert_awaited_once()
 
     for database in mock_databases:
         database.close.assert_called_once()
@@ -154,35 +138,36 @@ def test_run_closes_database_when_manager_fails(mocked_config):
     mock_manager.run = AsyncMock(side_effect=error)
 
     with (
-        patch.object(src.app, "config_obj", mocked_config),
+        patch.object(src.hems.app, "config_obj", mocked_config),
+        patch.object(src.hems.app, "MqttMeasurementPublisher", return_value=Mock(start=AsyncMock(), close=AsyncMock())),
         patch.object(
-            src.app,
+            src.hems.app,
             "create_collectors",
             return_value=[],
         ),
         patch.object(
-            src.app,
+            src.hems.app,
             "create_databases",
             return_value=mock_databases,
         ),
         patch.object(
-            src.app,
+            src.hems.app,
             "create_estimators",
             return_value=[],
         ),
         patch.object(
-            src.app,
+            src.hems.app,
             "create_calculators",
             return_value=[],
         ),
         patch.object(
-            src.app,
+            src.hems.app,
             "MeasurementManager",
             return_value=mock_manager,
         ),
         pytest.raises(RuntimeError, match="manager failed"),
     ):
-        asyncio.run(src.app.run())
+        asyncio.run(src.hems.app.run())
 
     mock_databases[0].close.assert_called_once()
 
@@ -191,12 +176,12 @@ def test_main_sets_up_event_loop():
     loop = Mock()
 
     with (
-        patch.object(src.app, "asyncio") as asyncio_mock,
-        patch.object(src.app, "signal") as signal_mock,
+        patch.object(src.hems.app, "asyncio") as asyncio_mock,
+        patch.object(src.hems.app, "signal") as signal_mock,
     ):
         asyncio_mock.new_event_loop.return_value = loop
 
-        src.app.main()
+        src.hems.app.main()
 
     coroutine = loop.run_until_complete.call_args.args[0]
     coroutine.close()
@@ -211,4 +196,4 @@ def test_main_sets_up_event_loop():
 
 
 def test_module_entry_point():
-    assert callable(src.app.main)
+    assert callable(src.hems.app.main)

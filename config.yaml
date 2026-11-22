@@ -359,9 +359,8 @@ bems:
     household_import_ct_per_kwh: 31.67  #30.47
 
   control:
-    # bus: control from the in-process measurement stream (HEMS app).
-    # database: poll stored history (standalone live_cli / dry runs).
-    feed: bus
+    # mqtt: live control from HEMS measurement events; database is for one-shot diagnostics.
+    feed: mqtt
     # Optional CSV log of every setpoint sent to an adapter, including mocks.
     # Set to null to disable. The live service appends and flushes each command.
     command_log_csv: data/bems_commands.csv
@@ -375,6 +374,7 @@ bems:
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
     live_poll_interval_s: 5
+    mqtt_publish_interval_s: 1.0
 
   night:
     baseline_household_w: 300

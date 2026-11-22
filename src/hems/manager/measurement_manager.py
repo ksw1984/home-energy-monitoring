@@ -1,10 +1,12 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config.config import (
     CalculationConfig,
+    Config,
     CONFIG_FILE,
     load_config,
     StorageConfig,
@@ -80,6 +82,8 @@ class MeasurementManager:
         timezone: str,
         storage_config: StorageConfig,
         bus: MeasurementBus | None = None,
+        live_publisher: Callable[[list[Measurement]], None] | None = None,
+        configure_live_publisher: Callable[[Config], None] | None = None,
     ):
         """Initialize the collector manager.
 
@@ -90,15 +94,16 @@ class MeasurementManager:
             calculators: Calculators deriving additional measurements.
             timezone: Timezone used for daily measurement handling.
             storage_config: Storage selection and daily-snapshot policy.
-            bus: Shared measurement bus. ``None`` creates a private bus for
-                tests and standalone callers; the app injects one so BEMS can
-                consume the same stream.
+            bus: HEMS-local measurement bus for calculations and estimators.
+            live_publisher: Non-blocking publisher for external live consumers.
         """
         self.collectors = collectors
         self.databases = databases
         self.estimators = estimators
         self.calculators = calculators
         self.bus = bus if bus is not None else MeasurementBus()
+        self.live_publisher = live_publisher
+        self.configure_live_publisher = configure_live_publisher
 
         self.timezone = ZoneInfo(timezone)
         self.storage_filter = StorageFilter(storage_config)
@@ -145,6 +150,9 @@ class MeasurementManager:
                 self.databases,
                 config,
             )
+
+            if self.configure_live_publisher is not None:
+                self.configure_live_publisher(config)
 
             self._config_mod_time = mtime
 
@@ -328,6 +336,7 @@ class MeasurementManager:
         raw_measurements = list(measurements)
 
         self.bus.publish(raw_measurements)
+        self._publish_live_measurements(raw_measurements)
 
         if not persist:
             logger.debug(
@@ -389,6 +398,15 @@ class MeasurementManager:
 
         if calculated and persist:
             await self._store_measurements(calculated)
+
+    def _publish_live_measurements(self, measurements: list[Measurement]) -> None:
+        """Enqueue external live measurements without affecting collection."""
+        if self.live_publisher is None:
+            return
+        try:
+            self.live_publisher(measurements)
+        except Exception:
+            logger.exception("Failed to enqueue live measurement publication")
 
     def _align_calculation_inputs(
         self,
