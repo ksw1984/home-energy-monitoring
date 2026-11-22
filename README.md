@@ -587,33 +587,69 @@ curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 ```
 
-Create a `.env` file in the repository root. Example:
+Use a 64-bit Raspberry Pi OS; the published images target `linux/arm64` and `linux/amd64`. Check the Pi architecture with `uname -m` (`aarch64` is expected).
+
+Run these commands from the repository root. Keep `.env` and `config.yaml` in that root; `deployment/compose.yml` refers to them there. Create `.env` from the example and replace the sample credentials:
+
+```bash
+cp deployment/.env.example .env
+```
+
+Set `HEMS_VERSION` and `BEMS_VERSION` to the release version without the leading `v`. They can be changed independently. `MOSQUITTO_VERSION` is required too. Keep the `DOCKER_INFLUXDB_INIT_*` entries from the template; InfluxDB uses them when its data directory is initialized for the first time.
 
 ```dotenv
 HEMS_VERSION=0.10.1
 BEMS_VERSION=0.10.1
+MOSQUITTO_VERSION=2.0
 INFLUXDB_VERSION=2.9.1
 GRAFANA_VERSION=13.2
+
+DOCKER_INFLUXDB_INIT_MODE=setup
+DOCKER_INFLUXDB_INIT_USERNAME=admin
+DOCKER_INFLUXDB_INIT_PASSWORD=REPLACE_WITH_A_STRONG_PASSWORD
+DOCKER_INFLUXDB_INIT_ORG=home-energy
+DOCKER_INFLUXDB_INIT_BUCKET=energy
 
 MQTT_HEMS_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
 MQTT_BEMS_PASSWORD=REPLACE_WITH_ANOTHER_LONG_RANDOM_PASSWORD
 
-INFLUXDB_URL=http://influxdb:8086
-INFLUXDB_ORG=home-energy
-INFLUXDB_BUCKET=energy
 INFLUXDB_TOKEN=CHANGE_ME
 
 GF_SECURITY_ADMIN_USER=admin
 GF_SECURITY_ADMIN_PASSWORD=CHANGE_ME
 ```
 
-Start the deployment:
+The release workflow builds and publishes separate HEMS and BEMS images for ARM64 and AMD64. For a release deployment, do not build the Python images on the Pi: pull the published images, then start the Compose stack. HEMS and BEMS run as separate containers; Compose also starts MQTT, InfluxDB, and Grafana.
 
 ```bash
 docker compose \
   -f deployment/compose.yml \
   --env-file .env \
   pull
+
+docker compose \
+  -f deployment/compose.yml \
+  --env-file .env \
+  up -d
+```
+
+To update only one application container while the shared services are already running, set its version in `.env`, then pull and recreate that service:
+
+```bash
+docker compose -f deployment/compose.yml --env-file .env pull hems
+docker compose -f deployment/compose.yml --env-file .env up -d --no-deps hems
+
+docker compose -f deployment/compose.yml --env-file .env pull bems
+docker compose -f deployment/compose.yml --env-file .env up -d --no-deps bems
+```
+
+For a local source build instead of a published release, build only the two application images and then start the stack:
+
+```bash
+docker compose \
+  -f deployment/compose.yml \
+  --env-file .env \
+  build hems bems
 
 docker compose \
   -f deployment/compose.yml \
