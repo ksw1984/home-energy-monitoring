@@ -44,7 +44,7 @@ The application:
 
 Important repository files:
 
-- Application configuration: `config.yaml`
+- Shared HEMS and BEMS configuration: `config.yaml`
 - Docker Compose deployment: `deployment/compose.yml`
 - Example environment file: `deployment/.env.example`
 - Docker files: `docker/`
@@ -188,7 +188,7 @@ Collectors run independently and can use different collection intervals. For exa
 
 ## Configuration
 
-The main configuration file is `config.yaml`.
+The shared HEMS and BEMS configuration is `config.yaml`. Both Docker services mount this file and use the sections relevant to their process.
 
 ### Collection timezone
 
@@ -454,23 +454,26 @@ The CI workflow runs:
 
 ## Integration testing on Raspberry Pi
 
-Build an ARM64 image:
+Build the two ARM64 service images:
 
 ```bash
-docker buildx build   --platform linux/arm64   -t home-energy-monitoring:arm64  -f ./docker/app/Dockerfile   --load .
+docker buildx build --platform linux/arm64 -t home-energy-monitoring-hems:arm64 -f ./docker/hems/Dockerfile --load .
+docker buildx build --platform linux/arm64 -t home-energy-monitoring-bems:arm64 -f ./docker/bems/Dockerfile --load .
 ```
 
 Verify the architecture:
 
 ```bash
-docker image inspect home-energy-monitoring:arm64 \
+docker image inspect home-energy-monitoring-hems:arm64 \
+  --format '{{.Os}}/{{.Architecture}}'
+docker image inspect home-energy-monitoring-bems:arm64 \
   --format '{{.Os}}/{{.Architecture}}'
 ```
 
 Export the image:
 
 ```bash
-docker save home-energy-monitoring:arm64 \
+docker save home-energy-monitoring-hems:arm64 home-energy-monitoring-bems:arm64 \
   -o home-energy-monitoring-arm64.tar
 ```
 
@@ -485,8 +488,11 @@ Use a development Compose override:
 
 ```yaml
 services:
-  home-energy-monitoring:
-    image: home-energy-monitoring:arm64
+  hems:
+    image: home-energy-monitoring-hems:arm64
+    restart: "no"
+  bems:
+    image: home-energy-monitoring-bems:arm64
     restart: "no"
 ```
 
@@ -497,16 +503,16 @@ docker compose \
   -f deployment/compose.yml \
   -f docker-compose.dev.yml \
   run \
-  --name home-energy-monitoring-dev \
+  --name hems-dev \
   --no-deps \
-  home-energy-monitoring
+  hems
 ```
 
 For DLMS or IEC meter access, ensure the required serial devices are passed through in `deployment/compose.yml`:
 
 ```yaml
 services:
-  home-energy-monitoring:
+  hems:
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
       - /dev/ttyUSB1:/dev/ttyUSB1
@@ -560,7 +566,7 @@ View application logs:
 docker compose \
   -f deployment/compose.yml \
   --env-file .env \
-  logs -f home-energy-monitoring
+  logs -f hems bems mqtt
 ```
 
 Use container logs directly:
@@ -584,9 +590,13 @@ sh get-docker.sh
 Create a `.env` file in the repository root. Example:
 
 ```dotenv
-HOME_ENERGY_VERSION=0.9.0
+HEMS_VERSION=0.10.1
+BEMS_VERSION=0.10.1
 INFLUXDB_VERSION=2.9.1
 GRAFANA_VERSION=13.2
+
+MQTT_HEMS_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
+MQTT_BEMS_PASSWORD=REPLACE_WITH_ANOTHER_LONG_RANDOM_PASSWORD
 
 INFLUXDB_URL=http://influxdb:8086
 INFLUXDB_ORG=home-energy
@@ -617,7 +627,7 @@ Check the logs:
 docker compose \
   -f deployment/compose.yml \
   --env-file .env \
-  logs -f home-energy-monitoring
+  logs -f hems bems mqtt
 ```
 
 ---
