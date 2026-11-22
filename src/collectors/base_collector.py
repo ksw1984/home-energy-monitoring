@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -45,6 +46,14 @@ class BaseCollector(ABC):
         """Collect measurements."""
         raise NotImplementedError
 
+    async def collect_async(self) -> list[Measurement]:
+        """Collect without blocking the event loop.
+
+        Synchronous collectors retain the existing worker-thread behavior.
+        HTTP collectors may override this to await network I/O directly.
+        """
+        return await asyncio.to_thread(self.collect)
+
     def connect(self) -> None:
         """Open collector resources.
 
@@ -60,6 +69,10 @@ class BaseCollector(ABC):
         Collectors that do can override this method.
         """
         return
+
+    async def disconnect_async(self) -> None:
+        """Disconnect without blocking the event loop."""
+        await asyncio.to_thread(self.disconnect)
 
     def configure_runtime(
         self,

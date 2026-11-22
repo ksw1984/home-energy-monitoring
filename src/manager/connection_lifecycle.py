@@ -53,7 +53,7 @@ async def disconnect_collectors(
     collectors from being disconnected.
     """
     results = await asyncio.gather(
-        *[asyncio.to_thread(collector.disconnect) for collector in collectors],
+        *[collector.disconnect_async() for collector in collectors],
         return_exceptions=True,
     )
 

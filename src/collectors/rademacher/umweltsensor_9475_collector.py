@@ -2,16 +2,16 @@ import logging
 from datetime import datetime, UTC
 from typing import Any
 
-from src.collectors.base_collector import BaseCollector
+from src.collectors.async_http_collector import AsyncHttpCollector
 from src.collectors.definitions.collectors.rademacher import RADEMACHER_METRICS
 from src.collectors.definitions.common.measurement import Measurement
 
-import requests
+import httpx
 
 logger = logging.getLogger(__name__)
 
 
-class RademacherEnvironmentSensorCollector(BaseCollector):
+class RademacherEnvironmentSensorCollector(AsyncHttpCollector):
     """
     Collect environmental measurements from a Rademacher Smart Home Box.
 
@@ -64,22 +64,20 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         self.smart_home_box_ip = smart_home_box_ip
         self.device_id = device_id
         self.sensor_url = f"http://{smart_home_box_ip}/devices/{device_id}"
+        self.http_timeout_s = 5.0
 
-    def _get_data(self) -> dict[str, Any]:
+    async def _get_data(self) -> dict[str, Any]:
         """Fetch and validate the environment sensor data.
 
         Returns
             The ``payload.device`` dictionary returned by the Rademacher API.
 
         Raises:
-            requests.exceptions.RequestException: If the HTTP request fails.
+            httpx.HTTPError: If the HTTP request fails.
             RuntimeError: If the Rademacher API reports an error or returns
                 an invalid response structure.
         """
-        response = requests.get(
-            self.sensor_url,
-            timeout=5,
-        )
+        response = await self._client().get(self.sensor_url)
         response.raise_for_status()
 
         data = response.json()
@@ -92,7 +90,7 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
         except KeyError as exc:
             raise RuntimeError("Invalid Rademacher API response: payload.device missing") from exc
 
-    def collect(self) -> list[Measurement]:
+    async def collect_async(self) -> list[Measurement]:
         """Collect all supported measurements from the environment sensor.
 
         Each supported Rademacher capability is converted into a
@@ -112,9 +110,9 @@ class RademacherEnvironmentSensorCollector(BaseCollector):
             return []
 
         try:
-            device = self._get_data()
+            device = await self._get_data()
 
-        except requests.exceptions.RequestException as exc:
+        except httpx.HTTPError as exc:
             logger.warning(f"Rademacher environment sensor unavailable: {exc}. Returning no measurements.")
             return []
 

@@ -203,8 +203,8 @@ class MeasurementManager:
     ) -> None:
         """Run one collector continuously at its configured interval.
 
-        The collector is executed in a worker thread so that blocking
-        collector implementations do not block the asyncio event loop.
+        The collector's async hook is awaited. Synchronous collectors use the
+        base implementation, which offloads their blocking work to a thread.
 
         Every successful collection is published to the measurement bus and
         fed to estimators/calculators. Database writes follow the collector's
@@ -250,9 +250,7 @@ class MeasurementManager:
                     await asyncio.sleep(1)
                     continue
 
-                measurements = await asyncio.to_thread(
-                    collector.collect,
-                )
+                measurements = await collector.collect_async()
 
                 # The read duration drives the overrun warning. Database time
                 # is excluded here and included in the loop delay below.
@@ -558,7 +556,7 @@ class MeasurementManager:
         """
         logger.info("MeasurementManager.collect_all()")
 
-        tasks = [asyncio.to_thread(collector.collect) for collector in self.collectors]
+        tasks = [collector.collect_async() for collector in self.collectors]
 
         results = await asyncio.gather(
             *tasks,

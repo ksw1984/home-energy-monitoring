@@ -4,15 +4,15 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from src.collectors.base_collector import BaseCollector
+from src.collectors.async_http_collector import AsyncHttpCollector
 from src.collectors.definitions.common.measurement import Measurement
 
-import requests
+import httpx
 
 logger = logging.getLogger(__name__)
 
 
-class ShellyGen3Collector(BaseCollector, ABC):
+class ShellyGen3Collector(AsyncHttpCollector, ABC):
     """Base collector for Shelly Gen3 devices.
 
     Shelly Gen3 devices expose their measurements through the local
@@ -52,11 +52,10 @@ class ShellyGen3Collector(BaseCollector, ABC):
 
         self.ip = ip
         self.timeout = timeout
+        self.http_timeout_s = timeout
 
         self.base_url = f"http://{self.ip}"
         self.rpc_url = f"{self.base_url}/rpc"
-
-        self.session = requests.Session()
 
     @property
     @abstractmethod
@@ -82,16 +81,12 @@ class ShellyGen3Collector(BaseCollector, ABC):
             self.ip,
         )
 
-    def disconnect(self) -> None:
-        """Close the HTTP session."""
-        self.session.close()
-
-    def collect(self) -> list[Measurement]:
+    async def collect_async(self) -> list[Measurement]:
         """Collect the current Shelly measurements."""
         if not self.enabled:
             return []
 
-        status = self._get_status()
+        status = await self._get_status()
 
         timestamp = self.now()
 
@@ -176,18 +171,17 @@ class ShellyGen3Collector(BaseCollector, ABC):
 
         return measurements
 
-    def _get_status(self) -> dict[str, Any]:
+    async def _get_status(self) -> dict[str, Any]:
         """Read the current status through the Shelly RPC API."""
         try:
-            response = self.session.get(
+            response = await self._client().get(
                 f"{self.rpc_url}/{self.rpc_method}",
                 params={"id": 0},
-                timeout=self.timeout,
             )
 
             response.raise_for_status()
 
-        except requests.RequestException as exc:
+        except httpx.HTTPError as exc:
             logger.warning(
                 "Shelly '%s' at %s unavailable: %s",
                 self.source,
