@@ -18,6 +18,7 @@ Grafana.
 - [Configuration](#configuration)
 - [Storage configuration](#storage-configuration)
 - [Estimators and calculators](#estimators-and-calculators)
+- [Battery Energy Management System](#battery-energy-management-system)
 - [Testing](#testing)
 - [Pre-commit hooks](#pre-commit-hooks)
 - [Docker commands](#docker-commands)
@@ -43,7 +44,7 @@ The application:
 
 Important repository files:
 
-- Application configuration: `config.yaml`
+- Shared HEMS and BEMS configuration: `config.yaml`
 - Docker Compose deployment: `deployment/compose.yml`
 - Example environment file: `deployment/.env.example`
 - Docker files: `docker/`
@@ -68,7 +69,17 @@ The connection performs:
 5. Register reads using configured OBIS definitions.
 6. Scaler handling for meter values.
 
-DLMS supports faster polling intervals, such as one second, when supported by the meter and serial hardware.
+DLMS supports faster polling intervals, such as one second, when supported by the meter and serial hardware. The
+interval is a float, so `0.5` is valid after confirming the meter's stable read period.
+
+The collector reads the total active power register (`16.7.0`) on every cycle and the cumulative energy totals (`1.8.0`,
+`2.8.0`) on a separate hourly schedule inside the same connection. Energy totals are still stored only during the
+midnight hour.
+
+Use `storage_interval` to keep the database write rate below the measurement rate. With `interval: 1` and
+`storage_interval: 5`, the in-process bus and live BEMS see every one-second sample while the database receives every
+fifth batch. The effective database period is `n * interval`, where `n = max(1, round(storage_interval / interval))`. A
+batch containing daily energy totals is always written so the midnight snapshot is not lost.
 
 Example:
 
@@ -76,6 +87,7 @@ Example:
 - type: landys_gyr_zmd310_meter_dlms
   enabled: true
   interval: 1
+  storage_interval: 5
   attributes:
     port: /dev/ttyUSB0
     source: meter_grid_dlms
@@ -176,7 +188,7 @@ Collectors run independently and can use different collection intervals. For exa
 
 ## Configuration
 
-The main configuration file is `config.yaml`.
+The shared HEMS and BEMS configuration is `config.yaml`. Both Docker services mount this file and use the sections relevant to their process.
 
 ### Collection timezone
 
@@ -193,7 +205,9 @@ Each collector supports:
 
 - `type`: Collector implementation.
 - `enabled`: Enables or disables the collector.
-- `interval`: Collection interval in seconds.
+- `interval`: Collection interval in seconds. Fractional values are supported for the DLMS collector.
+- `storage_interval`: Optional positive integer number of seconds between database writes. `None` (default) stores every
+  successful collection. Measurements still reach the bus and calculators on every cycle.
 - `attributes.source`: Source name attached to generated measurements.
 - Additional device-specific attributes.
 
@@ -394,6 +408,18 @@ The measurement manager:
 
 ---
 
+## Battery Energy Management System
+
+The optional BEMS evaluates historical battery savings with local CSV/HTML reports and runs a live controller. It
+supports isolated battery simulations, app-hosted or standalone live control with mock batteries, and opt-in Anker and
+Marstek adapters. An optional `bems.control.command_log_csv` appends every sent setpoint, which is useful before
+hardware arrives. Historical simulations read the configured database but do not write simulation results back to it.
+
+See the [BEMS README](src/bems/README.md) for configuration and step-by-step instructions for historical simulations,
+app-hosted mock control, command logging, and real battery control.
+
+---
+
 ## Testing
 
 ### Run tests locally
@@ -428,27 +454,26 @@ The CI workflow runs:
 
 ## Integration testing on Raspberry Pi
 
-Build an ARM64 image:
+Build the two ARM64 service images:
 
 ```bash
-docker buildx build \
-  --platform linux/arm64 \
-  -t home-energy-monitoring:arm64 \
-  -f ./docker/app/Dockerfile \
-  --load .
+docker buildx build --platform linux/arm64 -t home-energy-monitoring-hems:arm64 -f ./docker/hems/Dockerfile --load .
+docker buildx build --platform linux/arm64 -t home-energy-monitoring-bems:arm64 -f ./docker/bems/Dockerfile --load .
 ```
 
 Verify the architecture:
 
 ```bash
-docker image inspect home-energy-monitoring:arm64 \
+docker image inspect home-energy-monitoring-hems:arm64 \
+  --format '{{.Os}}/{{.Architecture}}'
+docker image inspect home-energy-monitoring-bems:arm64 \
   --format '{{.Os}}/{{.Architecture}}'
 ```
 
 Export the image:
 
 ```bash
-docker save home-energy-monitoring:arm64 \
+docker save home-energy-monitoring-hems:arm64 home-energy-monitoring-bems:arm64 \
   -o home-energy-monitoring-arm64.tar
 ```
 
@@ -463,8 +488,11 @@ Use a development Compose override:
 
 ```yaml
 services:
-  home-energy-monitoring:
-    image: home-energy-monitoring:arm64
+  hems:
+    image: home-energy-monitoring-hems:arm64
+    restart: "no"
+  bems:
+    image: home-energy-monitoring-bems:arm64
     restart: "no"
 ```
 
@@ -475,16 +503,16 @@ docker compose \
   -f deployment/compose.yml \
   -f docker-compose.dev.yml \
   run \
-  --name home-energy-monitoring-dev \
+  --name hems-dev \
   --no-deps \
-  home-energy-monitoring
+  hems
 ```
 
 For DLMS or IEC meter access, ensure the required serial devices are passed through in `deployment/compose.yml`:
 
 ```yaml
 services:
-  home-energy-monitoring:
+  hems:
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
       - /dev/ttyUSB1:/dev/ttyUSB1
@@ -538,7 +566,7 @@ View application logs:
 docker compose \
   -f deployment/compose.yml \
   --env-file .env \
-  logs -f home-energy-monitoring
+  logs -f hems bems mqtt
 ```
 
 Use container logs directly:
@@ -559,23 +587,39 @@ curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 ```
 
-Create a `.env` file in the repository root. Example:
+Use a 64-bit Raspberry Pi OS; the published images target `linux/arm64` and `linux/amd64`. Check the Pi architecture with `uname -m` (`aarch64` is expected).
+
+Run these commands from the repository root. Keep `.env` and `config.yaml` in that root; `deployment/compose.yml` refers to them there. Create `.env` from the example and replace the sample credentials:
+
+```bash
+cp deployment/.env.example .env
+```
+
+Set `HEMS_VERSION` and `BEMS_VERSION` to the release version without the leading `v`. They can be changed independently. `MOSQUITTO_VERSION` is required too. Keep the `DOCKER_INFLUXDB_INIT_*` entries from the template; InfluxDB uses them when its data directory is initialized for the first time.
 
 ```dotenv
-HOME_ENERGY_VERSION=0.9.0
+HEMS_VERSION=0.11.0
+BEMS_VERSION=0.11.0
+MOSQUITTO_VERSION=2.0
 INFLUXDB_VERSION=2.9.1
 GRAFANA_VERSION=13.2
 
-INFLUXDB_URL=http://influxdb:8086
-INFLUXDB_ORG=home-energy
-INFLUXDB_BUCKET=energy
+DOCKER_INFLUXDB_INIT_MODE=setup
+DOCKER_INFLUXDB_INIT_USERNAME=admin
+DOCKER_INFLUXDB_INIT_PASSWORD=REPLACE_WITH_A_STRONG_PASSWORD
+DOCKER_INFLUXDB_INIT_ORG=home-energy
+DOCKER_INFLUXDB_INIT_BUCKET=energy
+
+MQTT_HEMS_PASSWORD=REPLACE_WITH_A_LONG_RANDOM_PASSWORD
+MQTT_BEMS_PASSWORD=REPLACE_WITH_ANOTHER_LONG_RANDOM_PASSWORD
+
 INFLUXDB_TOKEN=CHANGE_ME
 
 GF_SECURITY_ADMIN_USER=admin
 GF_SECURITY_ADMIN_PASSWORD=CHANGE_ME
 ```
 
-Start the deployment:
+The release workflow builds and publishes separate HEMS and BEMS images for ARM64 and AMD64. For a release deployment, do not build the Python images on the Pi: pull the published images, then start the Compose stack. HEMS and BEMS run as separate containers; Compose also starts MQTT, InfluxDB, and Grafana.
 
 ```bash
 docker compose \
@@ -589,13 +633,37 @@ docker compose \
   up -d
 ```
 
+To update only one application container while the shared services are already running, set its version in `.env`, then pull and recreate that service:
+
+```bash
+docker compose -f deployment/compose.yml --env-file .env pull hems
+docker compose -f deployment/compose.yml --env-file .env up -d --no-deps hems
+
+docker compose -f deployment/compose.yml --env-file .env pull bems
+docker compose -f deployment/compose.yml --env-file .env up -d --no-deps bems
+```
+
+For a local source build instead of a published release, build only the two application images and then start the stack:
+
+```bash
+docker compose \
+  -f deployment/compose.yml \
+  --env-file .env \
+  build hems bems
+
+docker compose \
+  -f deployment/compose.yml \
+  --env-file .env \
+  up -d
+```
+
 Check the logs:
 
 ```bash
 docker compose \
   -f deployment/compose.yml \
   --env-file .env \
-  logs -f home-energy-monitoring
+  logs -f hems bems mqtt
 ```
 
 ---

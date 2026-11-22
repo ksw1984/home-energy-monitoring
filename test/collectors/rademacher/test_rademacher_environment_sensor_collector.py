@@ -1,13 +1,13 @@
 from datetime import datetime
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from src.collectors.definitions.common.measurement import Measurement
-from src.collectors.rademacher.umweltsensor_9475_collector import (
+from src.hems.collectors.rademacher.umweltsensor_9475_collector import (
     RademacherEnvironmentSensorCollector,
 )
+from src.shared.measurement import Measurement
 
+import httpx
 import pytest
-import requests
 
 RADEMACHER_RESPONSE = {
     "error_description": "OK",
@@ -91,7 +91,7 @@ def mock_response():
 
 @pytest.fixture
 def mock_get():
-    with patch("src.collectors.rademacher.umweltsensor_9475_collector.requests.get") as mock:
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -220,10 +220,7 @@ def test_collect_calls_correct_url(
 
     collector.collect()
 
-    mock_get.assert_called_once_with(
-        "http://192.168.178.19/devices/50",
-        timeout=5,
-    )
+    mock_get.assert_awaited_once_with("http://192.168.178.19/devices/50")
 
 
 def test_http_error_is_handled(
@@ -231,7 +228,11 @@ def test_http_error_is_handled(
     mock_response,
     mock_get,
 ):
-    mock_response.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "500 Server Error",
+        request=httpx.Request("GET", collector.sensor_url),
+        response=httpx.Response(500),
+    )
 
     mock_get.return_value = mock_response
 
@@ -244,7 +245,7 @@ def test_connection_error_is_handled(
     collector,
     mock_get,
 ):
-    mock_get.side_effect = requests.exceptions.ConnectTimeout("connection timed out")
+    mock_get.side_effect = httpx.ConnectTimeout("connection timed out")
 
     result = collector.collect()
 

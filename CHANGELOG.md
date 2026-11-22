@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+## 0.11.0 - 2026-11-22
+
+### Added
+
+- HEMS and BEMS run as independent processes and Docker images. HEMS publishes configured grid and household meter readings to BEMS through an authenticated Mosquitto broker; the default publication interval is 1 s and is independent of database storage.
+- Docker Compose deployment for separate HEMS and BEMS services, plus a multi-platform GHCR release build for ARM64 and AMD64.
+- BEMS runtime configuration reload for numeric control and power limits. If a new limit is lower, BEMS immediately clamps the active battery target.
+- BEMS night-reserve estimation from recent measured household demand, with tools to backfill and inspect completed nights.
+- Mock live-battery runs, command logging for battery setpoints, and CSV export of mock commands.
+- Battery support for Marstek Venus E 3.0 and Anker SOLIX Solarbank Max AC, plus a local Zendure ZenSDK client.
+- Fractional-second polling intervals for DLMS collectors.
+
+### Changed
+
+- HEMS collectors, calculators, estimators, and manager now live under `src/hems`; shared measurement types and the MQTT boundary live under `src/shared`.
+- HEMS and BEMS use the repository-root `config.yaml`. BEMS live control consumes grid and household meter values over MQTT; PV is not a live input, while historical simulations and reports continue to use stored measurements.
+- BEMS controller calculations compensate for measured battery charge/discharge power when deriving the grid demand target.
+- HTTP-based collectors use asynchronous HTTPX clients.
+- Per-collector `storage_interval` separates database writes from collection cadence. DLMS fast polling reads only `16.7.0`; cumulative energy totals `1.8.0`/`2.8.0` are read hourly on the same connection.
+- The Shelly kitchen-light schedule switches off 20 minutes after sunrise and on 20 minutes before sunset, alongside its fixed schedule events.
+
+### Fixed
+
+- Stale live meter input requests 0 W from the battery, stopping charge and discharge. `max_measurement_age_s` remains specific to historical simulation and replay.
+
 ## 0.10.1 - 2026-10-03
 
 ### Fixed

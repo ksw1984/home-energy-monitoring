@@ -1,17 +1,38 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "space",
-    "indentWidth": 4,
-    "lineEnding": "lf"
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "complexity": {
-        "useArrowFunction": "off"
-      }
+    "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineEnding": "lf"
+    },
+    "overrides": [
+        {
+            "includes": [
+                "src/collectors/shelly/shelly_gen3_collector/scripts/**/*.js"
+            ],
+            "linter": {
+                "rules": {
+                    "correctness": {
+                        "noUnusedFunctionParameters": "off"
+                    },
+                    "style": {
+                        "useConst": "off",
+                        "useTemplate": "off"
+                    },
+                    "complexity": {
+                        "useOptionalChain": "off"
+                    }
+                }
+            }
+        }
+    ],
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "complexity": {
+                "useArrowFunction": "off"
+            }
+        }
     }
-  }
 }

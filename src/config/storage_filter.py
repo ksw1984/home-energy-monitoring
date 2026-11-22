@@ -1,5 +1,5 @@
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import StorageConfig
+from src.shared.measurement import Measurement
 
 
 class StorageFilter:

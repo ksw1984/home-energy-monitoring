@@ -1,8 +1,8 @@
 import logging
 
-from src.collectors.collector_factory import create_collectors
 from src.config.config import config_obj
 from src.databases.database_factory import create_databases
+from src.hems.collectors.collector_factory import create_collectors
 from src.logger.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)

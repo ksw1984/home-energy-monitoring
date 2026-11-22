@@ -1,10 +1,10 @@
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from src.collectors.definitions.common.measurement import Measurement
-from src.collectors.fronius_inverter.fronius_symo_inverter_collector import (
+from src.hems.collectors.fronius_inverter.fronius_symo_inverter_collector import (
     FroniusSymoInverterCollector,
 )
+from src.shared.measurement import Measurement
 
 import pytest
 import requests
@@ -76,7 +76,7 @@ def mock_response():
 
 @pytest.fixture
 def mock_get():
-    with patch("src.collectors.fronius_inverter.fronius_symo_inverter_collector.requests.get") as mock:
+    with patch("src.hems.collectors.fronius_inverter.fronius_symo_inverter_collector.requests.get") as mock:
         yield mock
 
 

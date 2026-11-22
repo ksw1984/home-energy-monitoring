@@ -1,12 +1,13 @@
+import asyncio
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from src.collectors.weather_forecast.open_meteo_weather_collector import (
+from src.hems.collectors.weather_forecast.open_meteo_weather_collector import (
     OpenMeteoWeatherCollector,
 )
 
+import httpx
 import pytest
-import requests
 
 
 @pytest.fixture
@@ -17,7 +18,7 @@ def collector():
     )
 
 
-@patch("src.collectors.weather_forecast.open_meteo_weather_collector.requests.get")
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
 def test_collect_current_weather(mock_get):
     mock_response = MagicMock()
     mock_response.json.return_value = {
@@ -52,7 +53,7 @@ def test_collect_current_weather(mock_get):
     mock_get.assert_called_once()
 
 
-@patch("src.collectors.weather_forecast.open_meteo_weather_collector.requests.get")
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
 def test_collect_hourly_forecast(mock_get):
     mock_response = MagicMock()
     mock_response.json.return_value = {
@@ -104,10 +105,10 @@ def test_collect_hourly_forecast(mock_get):
     assert temperature_measurements[2].measurement_type == "forecast"
 
 
-@patch("src.collectors.weather_forecast.open_meteo_weather_collector.requests.get")
+@patch("httpx.AsyncClient.get", new_callable=AsyncMock)
 def test_collect_returns_empty_list_when_api_unavailable(mock_get):
 
-    mock_get.side_effect = requests.exceptions.RequestException("Connection failed")
+    mock_get.side_effect = httpx.ConnectError("Connection failed")
 
     collector = OpenMeteoWeatherCollector(
         latitude=52.52,
@@ -126,9 +127,15 @@ def test_open_meteo_api():
         longitude=13.405,
     )
 
+    async def fetch_and_close():
+        try:
+            return await collector._get_data()
+        finally:
+            await collector.close_http()
+
     try:
-        data = collector._get_data()
-    except requests.exceptions.RequestException as exc:
+        data = asyncio.run(fetch_and_close())
+    except httpx.HTTPError as exc:
         pytest.skip(f"Open-Meteo unavailable: {exc}")
 
     assert data

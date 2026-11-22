@@ -18,9 +18,12 @@ repos:
     rev: v0.16.10
     hooks:
       - id: ruff-check
-        args: [ --fix ]
+        args: [ --fix, --show-fixes ]
+        verbose: true
         language_version: python3.13
+
       - id: ruff-format
+        verbose: true
         language_version: python3.13
 
   # Pyrefly type checking

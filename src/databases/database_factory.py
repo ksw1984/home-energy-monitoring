@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING
 
 from src.config.config import required_secret
@@ -17,7 +18,7 @@ def create_databases(config):
         if database_config.type == "influxdb":
             databases.append(
                 InfluxDatabase(
-                    url=str(attributes["url"]),
+                    url=os.getenv("INFLUXDB_URL", str(attributes["url"])),
                     token=required_secret("INFLUXDB_TOKEN"),
                     org=str(attributes["org"]),
                     bucket=str(attributes["bucket"]),

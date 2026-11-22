@@ -1,6 +1,6 @@
 from unittest.mock import Mock, patch
 
-from src.collectors.collector_factory import create_collectors
+from src.hems.collectors.collector_factory import create_collectors
 
 import pytest
 
@@ -10,12 +10,14 @@ def make_collector_config(
     attributes=None,
     enabled=True,
     interval=300,
+    storage_interval=None,
 ):
     config = Mock()
     config.type = collector_type
     config.attributes = attributes or {}
     config.enabled = enabled
     config.interval = interval
+    config.storage_interval = storage_interval
     return config
 
 
@@ -44,7 +46,7 @@ def test_create_collectors_creates_disabled_collector():
         )
     )
 
-    with patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
+    with patch("src.hems.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
         result = create_collectors(config)
 
     assert result == [fronius_cls.return_value]
@@ -55,6 +57,23 @@ def test_create_collectors_creates_disabled_collector():
         enabled=False,
         inverter_ip="192.168.178.25",
     )
+
+
+def test_create_collectors_attaches_storage_interval():
+    config = make_config(
+        make_collector_config(
+            "fronius",
+            {"inverter_ip": "192.168.178.25"},
+            interval=1,
+            storage_interval=5,
+        )
+    )
+
+    with patch("src.hems.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
+        result = create_collectors(config)
+
+    assert result == [fronius_cls.return_value]
+    assert result[0].storage_interval == 5
 
 
 def test_create_fronius_collector():
@@ -68,7 +87,7 @@ def test_create_fronius_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
+    with patch("src.hems.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
         result = create_collectors(config)
 
     fronius_cls.assert_called_once_with(
@@ -91,7 +110,7 @@ def test_create_iec_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.IecCollector") as iec_cls:
+    with patch("src.hems.collectors.collector_factory.IecCollector") as iec_cls:
         result = create_collectors(config)
 
     iec_cls.assert_called_once_with(
@@ -113,7 +132,7 @@ def test_create_environment_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.RademacherEnvironmentSensorCollector") as environment_cls:
+    with patch("src.hems.collectors.collector_factory.RademacherEnvironmentSensorCollector") as environment_cls:
         result = create_collectors(config)
 
     environment_cls.assert_called_once_with(
@@ -136,7 +155,7 @@ def test_create_weather_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.OpenMeteoWeatherCollector") as weather_cls:
+    with patch("src.hems.collectors.collector_factory.OpenMeteoWeatherCollector") as weather_cls:
         result = create_collectors(config)
 
     weather_cls.assert_called_once_with(
@@ -199,22 +218,22 @@ def test_create_collectors_creates_all_enabled_types():
 
     with (
         patch(
-            "src.collectors.collector_factory.FroniusSymoInverterCollector",
+            "src.hems.collectors.collector_factory.FroniusSymoInverterCollector",
         ) as fronius_cls,
         patch(
-            "src.collectors.collector_factory.IecCollector",
+            "src.hems.collectors.collector_factory.IecCollector",
         ) as iec_cls,
         patch(
-            "src.collectors.collector_factory.RademacherEnvironmentSensorCollector",
+            "src.hems.collectors.collector_factory.RademacherEnvironmentSensorCollector",
         ) as environment_cls,
         patch(
-            "src.collectors.collector_factory.OpenMeteoWeatherCollector",
+            "src.hems.collectors.collector_factory.OpenMeteoWeatherCollector",
         ) as weather_cls,
         patch(
-            "src.collectors.collector_factory.ShellyPmCollector",
+            "src.hems.collectors.collector_factory.ShellyPmCollector",
         ) as shelly_pm_cls,
         patch(
-            "src.collectors.collector_factory.ShellySwitchCollector",
+            "src.hems.collectors.collector_factory.ShellySwitchCollector",
         ) as shelly_switch_cls,
     ):
         result = create_collectors(config)
@@ -304,9 +323,9 @@ def test_create_collectors_creates_disabled_collectors():
     )
 
     with (
-        patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls,
-        patch("src.collectors.collector_factory.IecCollector") as iec_cls,
-        patch("src.collectors.collector_factory.OpenMeteoWeatherCollector") as weather_cls,
+        patch("src.hems.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls,
+        patch("src.hems.collectors.collector_factory.IecCollector") as iec_cls,
+        patch("src.hems.collectors.collector_factory.OpenMeteoWeatherCollector") as weather_cls,
     ):
         result = create_collectors(config)
 
@@ -351,7 +370,7 @@ def test_create_collectors_uses_collection_interval_when_collector_interval_is_n
     config = make_config(collector_config)
     config.collection.interval = 60
 
-    with patch("src.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
+    with patch("src.hems.collectors.collector_factory.FroniusSymoInverterCollector") as fronius_cls:
         result = create_collectors(config)
 
     fronius_cls.assert_called_once_with(
@@ -390,7 +409,7 @@ def test_create_shelly_pm_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
+    with patch("src.hems.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
         result = create_collectors(config)
 
     shelly_pm_cls.assert_called_once_with(
@@ -416,7 +435,7 @@ def test_create_shelly_switch_collector():
     )
     config = make_config(collector_config)
 
-    with patch("src.collectors.collector_factory.ShellySwitchCollector") as shelly_switch_cls:
+    with patch("src.hems.collectors.collector_factory.ShellySwitchCollector") as shelly_switch_cls:
         result = create_collectors(config)
 
     shelly_switch_cls.assert_called_once_with(
@@ -444,7 +463,7 @@ def test_create_shelly_pm_collector_preserves_disabled_state():
         )
     )
 
-    with patch("src.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
+    with patch("src.hems.collectors.collector_factory.ShellyPmCollector") as shelly_pm_cls:
         result = create_collectors(config)
 
     assert result == [shelly_pm_cls.return_value]

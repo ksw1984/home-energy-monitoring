@@ -4,16 +4,17 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 from zoneinfo import ZoneInfo
 
-from src.calculators.base_calculator import BaseCalculator
-from src.collectors.definitions.common.measurement import Measurement
 from src.config.config import (
     CalculationConfig,
     CalculatorInputConfig,
     StorageConfig,
     StorageMeasurementConfig,
 )
-from src.estimators.base_estimator import BaseEstimator
-from src.manager.measurement_manager import MeasurementManager
+from src.hems.calculators.base_calculator import BaseCalculator
+from src.hems.estimators.base_estimator import BaseEstimator
+from src.hems.manager.measurement_manager import MeasurementManager
+from src.shared.measurement import Measurement
+from src.shared.measurement_bus import MeasurementBus
 
 import pytest
 
@@ -54,6 +55,7 @@ def make_manager(  # noqa: PLR0913
     storage_measurements=(),
     estimators=None,
     calculators=None,
+    bus=None,
 ):
     return MeasurementManager(
         collectors=[] if collectors is None else collectors,
@@ -62,6 +64,7 @@ def make_manager(  # noqa: PLR0913
         storage_config=make_storage_config(*storage_measurements),
         estimators=[] if estimators is None else estimators,
         calculators=[] if calculators is None else calculators,
+        bus=bus,
     )
 
 
@@ -87,15 +90,67 @@ def test_init():
     assert manager.timezone == ZoneInfo("Europe/Berlin")
 
 
+def test_init_uses_injected_bus():
+    bus = MeasurementBus()
+
+    manager = make_manager(bus=bus)
+
+    assert manager.bus is bus
+
+
+def test_process_measurements_publishes_before_storage():
+    measurement = make_measurement("grid_active_power", 500.0)
+    bus = MeasurementBus()
+    manager = make_manager(bus=bus)
+    manager._store_measurements = AsyncMock(side_effect=RuntimeError("database down"))
+
+    # A failed write must not hide the value from live consumers.
+    with pytest.raises(RuntimeError, match="database down"):
+        asyncio.run(manager._process_measurements([measurement]))
+
+    assert bus.latest("test", "grid_active_power") == measurement
+
+
+def test_process_measurements_skips_storage_but_updates_bus_and_derived_state():
+    raw_measurement = make_measurement("power", 100.0)
+    calculated_measurement = make_measurement("calculated_power", 5.0, source="calculated")
+    estimator = Mock(spec=BaseEstimator)
+    calculator = Mock(spec=BaseCalculator)
+    calculator.calculate.return_value = [calculated_measurement]
+    bus = MeasurementBus()
+    manager = make_manager(
+        estimators=[estimator],
+        calculators=[calculator],
+        bus=bus,
+    )
+
+    with patch.object(
+        manager,
+        "_store_measurements",
+        new_callable=AsyncMock,
+    ) as store_measurements:
+        asyncio.run(
+            manager._process_measurements(
+                [raw_measurement],
+                persist=False,
+            ),
+        )
+
+    assert bus.latest("test", "power") == raw_measurement
+    estimator.add_measurements.assert_called_once_with([raw_measurement])
+    calculator.calculate.assert_called_once_with([raw_measurement])
+    store_measurements.assert_not_awaited()
+
+
 def test_collect_all_returns_measurements():
     measurement1 = make_measurement("temperature", 20.5)
     measurement2 = make_measurement("humidity", 60.0)
 
     collector1 = Mock()
-    collector1.collect.return_value = [measurement1]
+    collector1.collect_async = AsyncMock(return_value=[measurement1])
 
     collector2 = Mock()
-    collector2.collect.return_value = [measurement2]
+    collector2.collect_async = AsyncMock(return_value=[measurement2])
 
     manager = make_manager(
         collectors=[collector1, collector2],
@@ -105,18 +160,18 @@ def test_collect_all_returns_measurements():
 
     assert result == [measurement1, measurement2]
 
-    collector1.collect.assert_called_once()
-    collector2.collect.assert_called_once()
+    collector1.collect_async.assert_awaited_once()
+    collector2.collect_async.assert_awaited_once()
 
 
 def test_collect_all_skips_failed_collector():
     measurement = make_measurement()
 
     failing_collector = Mock()
-    failing_collector.collect.side_effect = RuntimeError("collector failed")
+    failing_collector.collect_async = AsyncMock(side_effect=RuntimeError("collector failed"))
 
     working_collector = Mock()
-    working_collector.collect.return_value = [measurement]
+    working_collector.collect_async = AsyncMock(return_value=[measurement])
 
     manager = make_manager(
         collectors=[failing_collector, working_collector],
@@ -138,10 +193,10 @@ def test_collect_all_skips_unavailable_collector():
     measurement = make_measurement()
 
     unavailable_collector = Mock()
-    unavailable_collector.collect.return_value = []
+    unavailable_collector.collect_async = AsyncMock(return_value=[])
 
     working_collector = Mock()
-    working_collector.collect.return_value = [measurement]
+    working_collector.collect_async = AsyncMock(return_value=[measurement])
 
     manager = make_manager(
         collectors=[unavailable_collector, working_collector],
@@ -161,7 +216,7 @@ def test_collect_all_skips_unavailable_collector():
 
 def test_collect_all_returns_empty_list_when_no_measurements():
     collector = Mock()
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -188,7 +243,7 @@ def test_output(caplog):
     assert "temperature" in caplog.text
     assert "20.5" in caplog.text
     assert "°C" in caplog.text
-    assert "src.manager.measurement_manager" in caplog.text
+    assert "src.hems.manager.measurement_manager" in caplog.text
 
 
 def test_filter_measurements_stores_current_meter_values():
@@ -247,7 +302,7 @@ def test_filter_measurements_does_not_store_daily_values_until_both_are_availabl
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -277,7 +332,7 @@ def test_filter_measurements_stores_daily_values_when_both_are_available():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -307,7 +362,7 @@ def test_filter_measurements_stores_daily_values_only_once():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(measurements)
@@ -339,7 +394,7 @@ def test_filter_measurements_does_not_store_daily_values_outside_midnight():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 12
 
         result = manager._filter_measurements(measurements)
@@ -398,7 +453,7 @@ def test_filter_measurements_stores_daily_values_from_one_meter():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -440,7 +495,7 @@ def test_filter_measurements_stores_daily_values_from_both_meters():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         result = manager._filter_measurements(measurements)
@@ -488,7 +543,7 @@ def test_filter_measurements_stores_each_meter_independently():
         ),
     ]
 
-    with patch("src.manager.measurement_manager.datetime") as datetime_mock:
+    with patch("src.hems.manager.measurement_manager.datetime") as datetime_mock:
         datetime_mock.now.return_value.hour = 0
 
         first_result = manager._filter_measurements(grid_measurements)
@@ -506,7 +561,7 @@ def test_run_collector_uses_collector_interval():
     collector = Mock()
     collector.interval = 10
     collector.enabled = True
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -520,26 +575,92 @@ def test_run_collector_uses_collector_interval():
 
     with (
         patch(
-            "src.manager.measurement_manager.asyncio.sleep",
+            "src.hems.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.measurement_manager.asyncio.get_running_loop",
+            "src.hems.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
-        get_loop.return_value.time.side_effect = [0, 0]
+        get_loop.return_value.time.side_effect = [0, 0, 0]
 
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(manager._run_collector(collector))
 
-    collector.collect.assert_called_once()
+    collector.collect_async.assert_awaited_once()
     assert sleep_calls == [10]
+
+
+def make_running_collector(*batches, interval=1, storage_interval=5):
+    """Return a mock collector that yields batches, then cancels the loop."""
+    collector = Mock()
+    collector.interval = interval
+    collector.storage_interval = storage_interval
+    collector.enabled = True
+    collector.source = "test"
+    collector.collect_async = AsyncMock(side_effect=[*batches, asyncio.CancelledError()])
+    return collector
+
+
+def run_collector_until_cancelled(manager, collector):
+    """Drive one collector loop until its final batch cancels the task."""
+    with (
+        patch.object(
+            manager,
+            "_reload_config_if_changed",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "src.hems.manager.measurement_manager.asyncio.sleep",
+            new_callable=AsyncMock,
+        ),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(manager._run_collector(collector))
+
+
+def test_run_collector_persists_every_nth_successful_collection():
+    batches = [[make_measurement("power", float(value))] for value in range(6)]
+    collector = make_running_collector(*batches)
+    manager = make_manager(collectors=[collector])
+
+    with patch.object(
+        manager,
+        "_process_measurements",
+        new_callable=AsyncMock,
+    ) as process_measurements:
+        run_collector_until_cancelled(manager, collector)
+
+    persist_flags = [call.kwargs["persist"] for call in process_measurements.await_args_list]
+    assert persist_flags == [True, False, False, False, False, True]
+
+
+def test_run_collector_writes_daily_values_outside_persistence_cadence():
+    regular = [make_measurement("grid_active_power", 500.0)]
+    daily = [
+        make_measurement("grid_active_power", 500.0),
+        make_measurement("grid_import_energy_total", 100.0),
+        make_measurement("grid_export_energy_total", 50.0),
+    ]
+    collector = make_running_collector(regular, daily, regular)
+    manager = make_manager(collectors=[collector])
+
+    with patch.object(
+        manager,
+        "_process_measurements",
+        new_callable=AsyncMock,
+    ) as process_measurements:
+        run_collector_until_cancelled(manager, collector)
+
+    persist_flags = [call.kwargs["persist"] for call in process_measurements.await_args_list]
+    assert persist_flags == [True, True, False]
 
 
 def test_run_collector_skips_disabled_collector():
     collector = Mock()
     collector.interval = 10
     collector.enabled = False
+    collector.collect_async = AsyncMock()
 
     manager = make_manager(
         collectors=[collector],
@@ -550,14 +671,14 @@ def test_run_collector_skips_disabled_collector():
 
     with (
         patch(
-            "src.manager.measurement_manager.asyncio.sleep",
+            "src.hems.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         pytest.raises(asyncio.CancelledError),
     ):
         asyncio.run(manager._run_collector(collector))
 
-    collector.collect.assert_not_called()
+    collector.collect_async.assert_not_awaited()
 
 
 def test_store_measurements_writes_to_database_immediately():
@@ -623,10 +744,7 @@ def test_run_collector_continues_after_collection_failure():
 
     collector.interval = 10
     collector.enabled = True
-    collector.collect.side_effect = [
-        RuntimeError("collector failed"),
-        asyncio.CancelledError(),
-    ]
+    collector.collect_async = AsyncMock(side_effect=[RuntimeError("collector failed"), asyncio.CancelledError()])
 
     sleep = AsyncMock()
 
@@ -636,14 +754,14 @@ def test_run_collector_continues_after_collection_failure():
 
     with (
         patch(
-            "src.manager.measurement_manager.asyncio.sleep",
+            "src.hems.manager.measurement_manager.asyncio.sleep",
             sleep,
         ),
         pytest.raises(asyncio.CancelledError),
     ):
         asyncio.run(manager._run_collector(collector))
 
-    assert collector.collect.call_count == 2
+    assert collector.collect_async.await_count == 2
     sleep.assert_awaited_once()
     assert sleep.await_args is not None
     sleep_time = sleep.await_args.args[0]
@@ -680,11 +798,11 @@ def test_run_creates_independent_task_for_each_collector():
             new_callable=AsyncMock,
         ),
         patch(
-            "src.manager.measurement_manager.asyncio.create_task",
+            "src.hems.manager.measurement_manager.asyncio.create_task",
             side_effect=fake_create_task,
         ),
         patch(
-            "src.manager.measurement_manager.asyncio.gather",
+            "src.hems.manager.measurement_manager.asyncio.gather",
             new_callable=AsyncMock,
             side_effect=asyncio.CancelledError,
         ),
@@ -703,7 +821,7 @@ def test_reload_config_if_changed_does_nothing_when_config_is_unchanged():
     with (
         patch.object(Path, "stat") as stat,
         patch(
-            "src.manager.measurement_manager.load_config",
+            "src.hems.manager.measurement_manager.load_config",
         ) as load_config,
     ):
         stat.return_value.st_mtime = manager._config_mod_time
@@ -739,10 +857,10 @@ def test_reload_config_if_changed_updates_storage_filter():
 
     with (
         patch(
-            "src.manager.measurement_manager.CONFIG_FILE",
+            "src.hems.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.measurement_manager.load_config",
+            "src.hems.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -785,10 +903,10 @@ def test_reload_config_if_changed_keeps_old_config_when_reload_fails(
 
     with (
         patch(
-            "src.manager.measurement_manager.CONFIG_FILE",
+            "src.hems.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.measurement_manager.load_config",
+            "src.hems.manager.measurement_manager.load_config",
             side_effect=ValueError("invalid YAML"),
         ) as load_config,
         caplog.at_level("ERROR"),
@@ -825,10 +943,10 @@ def test_reload_config_if_changed_only_reloads_once_for_same_mtime():
 
     with (
         patch(
-            "src.manager.measurement_manager.CONFIG_FILE",
+            "src.hems.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.measurement_manager.load_config",
+            "src.hems.manager.measurement_manager.load_config",
             return_value=new_config,
         ) as load_config,
     ):
@@ -846,7 +964,7 @@ def test_reload_config_if_changed_handles_missing_config_file(caplog):
 
     with (
         patch(
-            "src.manager.measurement_manager.CONFIG_FILE",
+            "src.hems.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         caplog.at_level("ERROR"),
     ):
@@ -862,7 +980,7 @@ def test_run_collector_checks_for_config_reload():
 
     collector.interval = 10
     collector.enabled = True
-    collector.collect.return_value = []
+    collector.collect_async = AsyncMock(return_value=[])
 
     manager = make_manager(
         collectors=[collector],
@@ -880,20 +998,20 @@ def test_run_collector_checks_for_config_reload():
             reload_config,
         ),
         patch(
-            "src.manager.measurement_manager.asyncio.sleep",
+            "src.hems.manager.measurement_manager.asyncio.sleep",
             side_effect=fake_sleep,
         ),
         patch(
-            "src.manager.measurement_manager.asyncio.get_running_loop",
+            "src.hems.manager.measurement_manager.asyncio.get_running_loop",
         ) as get_loop,
     ):
-        get_loop.return_value.time.side_effect = [0, 0]
+        get_loop.return_value.time.side_effect = [0, 0, 0]
 
         with pytest.raises(asyncio.CancelledError):
             asyncio.run(manager._run_collector(collector))
 
     reload_config.assert_awaited_once()
-    collector.collect.assert_called_once()
+    collector.collect_async.assert_awaited_once()
 
 
 def test_reload_config_if_changed_updates_measurement_type():
@@ -933,10 +1051,10 @@ def test_reload_config_if_changed_updates_measurement_type():
 
     with (
         patch(
-            "src.manager.measurement_manager.CONFIG_FILE",
+            "src.hems.manager.measurement_manager.CONFIG_FILE",
         ) as config_file,
         patch(
-            "src.manager.measurement_manager.load_config",
+            "src.hems.manager.measurement_manager.load_config",
             return_value=new_config,
         ),
     ):
@@ -1121,3 +1239,21 @@ def test_process_measurements_runs_estimator_then_calculator():
             calculated_measurement,
         ],
     )
+
+
+def test_format_measurement_value():
+    test_cases = [
+        (0, "        0.0   "),
+        (236.6, "      236.6   "),
+        (0.005, "        0.005 "),
+        (0.0031, "        0.0031"),
+        (0.057, "        0.057 "),
+        (193049400.0, "193049400.0   "),
+        (18967.278, "    18967.278 "),
+    ]
+
+    for value, expected in test_cases:
+        result = MeasurementManager.format_measurement_value(value)
+
+        assert len(result) == 14
+        assert result == expected
