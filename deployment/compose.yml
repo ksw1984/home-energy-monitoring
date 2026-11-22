@@ -1,40 +1,89 @@
 services:
-  home-energy-monitoring:
-    image: ghcr.io/ksw1984/home-energy-monitoring:${HOME_ENERGY_VERSION}
+  hems:
+    build:
+      context: ..
+      dockerfile: docker/hems/Dockerfile
+    image: ghcr.io/ksw1984/home-energy-monitoring-hems:${HEMS_VERSION:-latest}
     restart: unless-stopped
-
     env_file:
       - ../.env
-
+    environment:
+      APP_CONFIG_FILE: /app/config.yaml
+      INFLUXDB_URL: http://influxdb:8086
+      MQTT_HOST: mqtt
+      MQTT_USERNAME: hems
+      MQTT_PASSWORD: ${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}
     volumes:
-
-      - ./config.yaml:/app/config.yaml:ro
+      - ../config.yaml:/app/config.yaml:ro
       - ./data/backup:/app/data/backup
-
     devices:
       - /dev/ttyUSB0:/dev/ttyUSB0
       - /dev/ttyUSB1:/dev/ttyUSB1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [default, mqtt_bus]
+
+  bems:
+    build:
+      context: ..
+      dockerfile: docker/bems/Dockerfile
+    image: ghcr.io/ksw1984/home-energy-monitoring-bems:${BEMS_VERSION:-latest}
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      APP_CONFIG_FILE: /app/config.yaml
+      INFLUXDB_URL: http://influxdb:8086
+      MQTT_HOST: mqtt
+      MQTT_USERNAME: bems
+      MQTT_PASSWORD: ${MQTT_BEMS_PASSWORD:?Set MQTT_BEMS_PASSWORD in .env}
+    volumes:
+      - ../config.yaml:/app/config.yaml:ro
+      - ./data/bems:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [default, mqtt_bus]
+
+  mqtt:
+    image: eclipse-mosquitto:${MOSQUITTO_VERSION}
+    restart: unless-stopped
+    environment:
+      MQTT_HEMS_PASSWORD: ${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}
+      MQTT_BEMS_PASSWORD: ${MQTT_BEMS_PASSWORD:?Set MQTT_BEMS_PASSWORD in .env}
+    entrypoint: ["/bin/sh", "-ec"]
+    command: >-
+      mosquitto_passwd -b -c /mosquitto/data/passwordfile hems "$${MQTT_HEMS_PASSWORD}";
+      mosquitto_passwd -b /mosquitto/data/passwordfile bems "$${MQTT_BEMS_PASSWORD}";
+      exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto.acl:/mosquitto/config/acl:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u hems -P \"$$MQTT_HEMS_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks: [mqtt_bus]
 
   influxdb:
     image: influxdb:${INFLUXDB_VERSION}
     restart: unless-stopped
-
     env_file:
       - ../.env
-
     ports:
       - "8086:8086"
-
     volumes:
       - ./data/influxdb:/var/lib/influxdb2
-
     healthcheck:
-      test:
-        [
-          "CMD",
-          "influx",
-          "ping"
-        ]
+      test: ["CMD", "influx", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -43,14 +92,18 @@ services:
   grafana:
     image: grafana/grafana:${GRAFANA_VERSION}
     restart: unless-stopped
-
     env_file:
       - ../.env
-
     ports:
       - "3000:3000"
-
     volumes:
       - ./data/grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+networks:
+  mqtt_bus:
+    internal: true
+
+volumes:
+  mosquitto_data:

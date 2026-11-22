@@ -1,0 +1,6 @@
+user hems
+topic write home-energy/v1/measurements/#
+topic read $SYS/broker/uptime
+
+user bems
+topic read home-energy/v1/measurements/#
