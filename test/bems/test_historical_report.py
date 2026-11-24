@@ -54,9 +54,9 @@ def test_report_chart_uses_meter_signs_and_charge_positive_battery_power():
             "household_power_reference": 210.0,
             "heat_pump_power_reference": 20.0,
             "pv_power_reference": 0.0,
-            "actual_power": -210.0,
-            "soc": 49.9,
-            "energy_stored": 3500.0,
+            "battery_actual_power": -210.0,
+            "battery_soc": 49.9,
+            "battery_energy_stored": 3500.0,
         },
     )
 

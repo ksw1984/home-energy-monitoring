@@ -1,8 +1,5 @@
 services:
   hems:
-    build:
-      context: ..
-      dockerfile: docker/hems/Dockerfile
     image: ghcr.io/ksw1984/home-energy-monitoring-hems:${HEMS_VERSION:-latest}
     restart: unless-stopped
     env_file:
@@ -27,9 +24,6 @@ services:
     networks: [default, mqtt_bus]
 
   bems:
-    build:
-      context: ..
-      dockerfile: docker/bems/Dockerfile
     image: ghcr.io/ksw1984/home-energy-monitoring-bems:${BEMS_VERSION:-latest}
     restart: unless-stopped
     env_file:
@@ -48,27 +42,56 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    depends_on:
+      mqtt:
+        condition: service_healthy
     networks: [default, mqtt_bus]
 
   mqtt:
     image: eclipse-mosquitto:${MOSQUITTO_VERSION}
     restart: unless-stopped
+    # The custom entrypoint prepares the volume as root; the broker drops privileges.
+    user: "0:0"
     environment:
       MQTT_HEMS_PASSWORD: ${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}
       MQTT_BEMS_PASSWORD: ${MQTT_BEMS_PASSWORD:?Set MQTT_BEMS_PASSWORD in .env}
     entrypoint: ["/bin/sh", "-ec"]
-    command: >-
-      mosquitto_passwd -b -c /mosquitto/data/passwordfile hems "$${MQTT_HEMS_PASSWORD}";
-      mosquitto_passwd -b /mosquitto/data/passwordfile bems "$${MQTT_BEMS_PASSWORD}";
-      exec /usr/sbin/mosquitto -c /mosquitto/config/mosquitto.conf
+    command:
+      - |
+        : "$${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}"
+        : "$${MQTT_BEMS_PASSWORD:?Set MQTT_BEMS_PASSWORD in .env}"
+        chown -R 1883:1883 /mosquitto/data
+        cat > /tmp/mosquitto.conf <<'MOSQUITTO_CONF'
+        listener 1883 0.0.0.0
+        allow_anonymous false
+        user mosquitto
+        password_file /mosquitto/data/passwordfile
+        acl_file /tmp/mosquitto.acl
+        persistence true
+        persistence_location /mosquitto/data/
+        sys_interval 10
+        log_dest stdout
+        MOSQUITTO_CONF
+        cat > /tmp/mosquitto.acl <<'MOSQUITTO_ACL'
+        user hems
+        topic write home-energy/v1/measurements/#
+        topic read $$SYS/broker/uptime
+
+        user bems
+        topic read home-energy/v1/measurements/#
+        MOSQUITTO_ACL
+        mosquitto_passwd -b -c /mosquitto/data/passwordfile hems "$${MQTT_HEMS_PASSWORD}";
+        mosquitto_passwd -b /mosquitto/data/passwordfile bems "$${MQTT_BEMS_PASSWORD}";
+        chown 1883:1883 /mosquitto/data/passwordfile
+        chown 1883:1883 /tmp/mosquitto.acl
+        chmod 0700 /tmp/mosquitto.acl
+        exec /usr/sbin/mosquitto -c /tmp/mosquitto.conf
     volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
-      - ./mosquitto.acl:/mosquitto/config/acl:ro
       - mosquitto_data:/mosquitto/data
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u hems -P \"$$MQTT_HEMS_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u hems -P \"$$MQTT_HEMS_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 15 >/dev/null"]
       interval: 10s
-      timeout: 5s
+      timeout: 20s
       retries: 5
       start_period: 5s
     networks: [mqtt_bus]

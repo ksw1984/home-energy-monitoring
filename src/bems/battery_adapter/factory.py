@@ -13,10 +13,11 @@ from dataclasses import replace
 from src.bems.battery_adapter.anker import AnkerBatteryAdapter, AnkerModbusTcpClient
 from src.bems.battery_adapter.marstek import MarstekBatteryAdapter, MarstekUdpClient
 from src.bems.battery_adapter.mock import MockBatteryAdapter
+from src.bems.battery_adapter.zendure import ZendureBatteryAdapter, ZendureZenSdkClient
 from src.bems.core.domain import Battery, BatteryProfile
 from src.config.config import BemsConfig, BemsDeviceConfig
 
-AdapterClient = MarstekUdpClient | AnkerModbusTcpClient
+AdapterClient = MarstekUdpClient | AnkerModbusTcpClient | ZendureZenSdkClient
 
 
 def create_profile(config: BemsConfig, profile_id: str) -> BatteryProfile:
@@ -117,8 +118,8 @@ def create_adapter(
     attributes = device.attributes
     vendor = attributes.get("vendor")
 
-    if vendor not in {"marstek", "anker"}:
-        raise RuntimeError(f"Live device '{device.id}' must set attributes.vendor to 'marstek' or 'anker'")
+    if vendor not in {"marstek", "anker", "zendure"}:
+        raise RuntimeError(f"Live device '{device.id}' must set attributes.vendor to 'marstek', 'anker' or 'zendure'")
 
     if attributes.get("allow_control") is not True:
         raise RuntimeError(f"Live device '{device.id}' needs attributes.allow_control: true; hardware writes are disabled by default")
@@ -127,6 +128,24 @@ def create_adapter(
 
     if not isinstance(host, str) or not host:
         raise RuntimeError(f"Live device '{device.id}' requires attributes.host")
+
+    if vendor == "zendure":
+        client = ZendureZenSdkClient(
+            host=host,
+            port=int(attributes.get("port", 80)),
+            serial_number=attributes.get("serial_number"),
+            timeout_s=float(attributes.get("timeout_s", 3.0)),
+        )
+        return (
+            ZendureBatteryAdapter(
+                client=client,
+                capacity_wh=profile.capacity_wh,
+                max_charge_power_w=min(profile.max_charge_power_w, device.max_output_power_w, config.control.max_output_power_w),
+                max_discharge_power_w=min(profile.max_discharge_power_w, device.max_output_power_w, config.control.max_output_power_w),
+                allow_control=True,
+            ),
+            client,
+        )
 
     if vendor == "anker":
         client = AnkerModbusTcpClient(

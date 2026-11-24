@@ -138,7 +138,15 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert len(battery.targets) == 1
     assert battery.targets[0].power_w == -480
     metrics = {point.metric for point in output_database.writes}
-    assert {"requested_power", "actual_power", "soc", "energy_stored", "control_ok", "device_alive", "firmware_compatible"} <= metrics
+    assert {
+        "battery_requested_power",
+        "battery_actual_power",
+        "battery_soc",
+        "battery_energy_stored",
+        "battery_night_reserve_wh",
+    } <= metrics
+    assert "battery_available" not in metrics
+    assert "firmware_compatible" not in metrics
 
 
 def test_live_service_uses_measured_baseline_and_persists_it():
@@ -160,7 +168,7 @@ def test_live_service_uses_measured_baseline_and_persists_it():
     baseline_writes = [point for point in output_database.writes if point.metric == "night_baseline_power"]
     assert len(baseline_writes) == 1
     assert baseline_writes[0].value == 420.0
-    assert any(point.metric == "night_reserve" for point in output_database.writes)
+    assert any(point.metric == "battery_night_reserve_wh" for point in output_database.writes)
 
 
 def test_live_service_uses_fixed_baseline_when_provider_has_no_value():
@@ -306,9 +314,9 @@ def test_live_service_blocks_unapproved_firmware_and_records_compatibility():
     assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1))) == 1
 
     assert battery.targets == []
-    assert any(point.metric == "device_alive" and point.value == 1 for point in output_database.writes)
-    assert any(point.metric == "firmware_compatible" and point.value == 0 for point in output_database.writes)
-    assert any(point.metric == "control_ok" and point.value == 0 for point in output_database.writes)
+    assert not any(point.metric == "battery_device_alive" for point in output_database.writes)
+    assert not any(point.metric == "firmware_compatible" for point in output_database.writes)
+    assert any(point.metric == "battery_control_ok" and point.value == 0 for point in output_database.writes)
 
 
 def test_live_service_blocks_when_firmware_allowlist_is_missing():
@@ -343,7 +351,7 @@ def test_live_service_blocks_control_when_device_identity_is_unavailable():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
 
     assert battery.targets == []
-    assert any(point.metric == "device_alive" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "battery_device_alive" and point.value == 0 for point in output_database.writes)
 
 
 def test_live_service_requests_zero_when_inputs_become_stale():
@@ -362,7 +370,7 @@ def test_live_service_requests_zero_when_inputs_become_stale():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=25)))
 
     assert [command.power_w for command in battery.targets] == [-480, 0]
-    assert any(point.metric == "stale_input" and point.value == 1 for point in output_database.writes)
+    assert any(point.metric == "battery_stale_input" and point.value == 1 for point in output_database.writes)
 
 
 def test_adapter_failure_is_recorded_and_does_not_raise_from_poll_cycle():
@@ -376,7 +384,7 @@ def test_adapter_failure_is_recorded_and_does_not_raise_from_poll_cycle():
     )
 
     assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1))) == 1
-    assert any(point.metric == "control_ok" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "battery_control_ok" and point.value == 0 for point in output_database.writes)
 
 
 def test_invalid_meter_unit_triggers_zero_power_failsafe():
@@ -432,8 +440,8 @@ def test_stale_failsafe_sends_zero_even_when_firmware_is_unverified():
     asyncio.run(service.run_once(now=timestamp))
 
     assert [command.power_w for command in battery.targets] == [0.0]
-    assert any(point.metric == "firmware_compatible" and point.value == 0 for point in output_database.writes)
-    assert any(point.metric == "control_ok" and point.value == 1 for point in output_database.writes)
+    assert not any(point.metric == "firmware_compatible" for point in output_database.writes)
+    assert not any(point.metric == "battery_control_ok" for point in output_database.writes)
 
 
 def test_live_service_requires_adapters_only_for_enabled_live_devices():
