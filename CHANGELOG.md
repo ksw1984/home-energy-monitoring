@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.4 - 2026-11-24
+
+### Changed
+
+- Store live BEMS power in kW and battery energy in kWh, matching HEMS meter units; keep controller calculations in W and Wh.
+- Store persisted night-baseline energy and power in kWh and kW, with matching `_kwh` and `_kw` field names.
+- Name the power readback attached to a command `battery_command_reported_power` to distinguish it from the requested setpoint and ongoing battery power.
+- Rename the HEMS MQTT publish interval and BEMS database polling interval to show which process uses each setting; MQTT control remains message-driven.
+
 ## 0.11.3 - 2026-11-24
 
 ### Fixed
