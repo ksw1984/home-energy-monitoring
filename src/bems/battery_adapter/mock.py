@@ -42,6 +42,7 @@ class MockBatteryAdapter:
         """Return the mock's current SOC, energy, and signed power."""
         if self.fail_operations:
             raise ConnectionError("mock battery unavailable")
+        self._integrate_energy(datetime.now(UTC))
         return BatteryState(
             timestamp=self.timestamp,
             soc_percent=100.0 * self.energy_wh / self.profile.capacity_wh,
@@ -59,6 +60,7 @@ class MockBatteryAdapter:
         """Accept an instantaneous, profile-limited target for dry-run purposes."""
         if self.fail_operations:
             raise ConnectionError("mock battery unavailable")
+        self._integrate_energy(command.timestamp)
         charge_limit = self.profile.max_charge_power_w
         discharge_limit = self.profile.max_discharge_power_w
         self.power_w = min(charge_limit, max(-discharge_limit, command.power_w))
@@ -77,3 +79,24 @@ class MockBatteryAdapter:
             command.power_w,
             command.timestamp.isoformat(),
         )
+
+    def _integrate_energy(self, timestamp: datetime) -> None:
+        """Integrate the previous power target up to ``timestamp``."""
+        elapsed_s = (timestamp - self.timestamp).total_seconds()
+        if elapsed_s <= 0:
+            return
+
+        if self.power_w >= 0:
+            energy_delta_wh = self.power_w * elapsed_s / 3600.0 * self.profile.charge_efficiency
+        else:
+            energy_delta_wh = self.power_w * elapsed_s / 3600.0 / self.profile.discharge_efficiency
+
+        minimum_wh = self.profile.capacity_wh * self.profile.min_soc_percent / 100.0
+        maximum_wh = self.profile.capacity_wh * self.profile.max_soc_percent / 100.0
+        self.energy_wh = min(maximum_wh, max(minimum_wh, self.energy_wh + energy_delta_wh))
+        self.timestamp = timestamp
+
+        at_charge_limit = self.energy_wh >= maximum_wh and self.power_w > 0
+        at_discharge_limit = self.energy_wh <= minimum_wh and self.power_w < 0
+        if at_charge_limit or at_discharge_limit:
+            self.power_w = 0.0

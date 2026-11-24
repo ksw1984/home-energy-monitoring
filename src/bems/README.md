@@ -98,7 +98,7 @@ This runs the live controller loop against current MQTT meter measurements while
    poetry run bems-live --mock
    ```
 
-The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. Every accepted setpoint is appended to `data/bems_mock_commands.csv` by default. Use `--mock-csv <path>` to choose another file. The CSV contains `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, and `soc_percent`, and is written on exit (including Ctrl-C), so it can be plotted without querying InfluxDB. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
+The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. It integrates charging and discharging over elapsed time with the configured efficiency and SOC limits. Every accepted setpoint is appended to `data/bems_mock_commands.csv` by default. Use `--mock-csv <path>` to choose another file. The CSV contains `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, and `soc_percent`, and is written on exit (including Ctrl-C), so it can be plotted without querying InfluxDB. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
 
 ## Separate BEMS mock and command log
 
@@ -127,7 +127,7 @@ bems:
 
 The CSV columns are `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, `soc_percent`, `status`, and `error`. `status` is `accepted` when the adapter state was read after the write, `sent` when the write succeeded but state could not be read, and `failed` when the write itself failed. The live service appends and flushes each row, so commands survive a crash. This log works for both mock and real adapters. Without hardware, an Anker adapter fails at identity/state preflight before `set_power`, so no command row is produced; use `attributes.mock: true` with the Anker profile to exercise the control path before the battery arrives.
 
-The `bems-live` process also honors `bems.control.command_log_csv`. Its `--mock-csv` export remains available as a separate one-file plotting snapshot.
+The live service also writes each attempted command to InfluxDB under `bems_live_<device-id>`: `command_requested_power` is the requested setpoint, `command_delivered_power` is the post-command measured output when available, and `command_status` is `1` accepted, `0` sent but unreadable, or `-1` failed. The regular `requested_power` and `actual_power` metrics remain available for continuous time-series charts. The `bems-live` process also honors `bems.control.command_log_csv`; its `--mock-csv` export remains available as a separate one-file plotting snapshot.
 
 ## Live feed and stale-input safety
 
@@ -144,11 +144,11 @@ If either meter stream is missing or stale, BEMS requests 0 W. The MQTT broker i
 
 ## Live controller with a real battery
 
-Live hardware adapters exist for the Marstek Venus E 3.0 and Anker SOLIX Solarbank Max AC. Hardware writes are opt-in and compatibility-gated.
+Live hardware adapters exist for the Zendure SolarFlow ZenSDK API, Marstek Venus E 3.0, and Anker SOLIX Solarbank Max AC. Hardware writes are opt-in and compatibility-gated.
 
 1. Configure the live device's profile, measured device IP, vendor, and transport settings. Keep `enabled: false` until setup and identity checks are complete.
 2. Read the device's exact reported model and firmware using the vendor adapter's read-only checks or a mock/dry setup. Set `expected_model` and `supported_firmware_versions` to explicit verified values; the firmware list must contain the exact version token.
-3. Verify the correct network protocol and enable the device's local control feature where required. Anker uses Modbus TCP; Marstek uses its local UDP API.
+3. Verify the correct network protocol and enable the device's local control feature where required. Zendure uses the local ZenSDK HTTP API; Anker uses Modbus TCP; Marstek uses its local UDP API.
 4. Set `attributes.allow_control: true`, then `enabled: true` only when you intend to permit hardware writes. Missing identity allowlists, mismatched model/firmware, communication failure, or stale meter readings block or stop power requests.
 5. Start the controller:
 

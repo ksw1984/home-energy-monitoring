@@ -432,6 +432,15 @@ class LiveControlService:
                         soc_percent=state.soc_percent,
                         status="accepted",
                     )
+                    outputs.extend(
+                        self._command_measurements(
+                            device,
+                            timestamp,
+                            requested_power_w,
+                            state.charge_power_w - state.discharge_power_w,
+                            status=1,
+                        )
+                    )
                 outputs.extend(
                     self._state_measurements(
                         device,
@@ -454,6 +463,15 @@ class LiveControlService:
                         soc_percent=None,
                         status="sent" if command_sent else "failed",
                         error=str(exc),
+                    )
+                    outputs.extend(
+                        self._command_measurements(
+                            device,
+                            timestamp,
+                            requested_power_w,
+                            None,
+                            status=0 if command_sent else -1,
+                        )
                     )
                 logger.exception("BEMS adapter operation failed for device %s", device_id)
                 outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0))
@@ -767,6 +785,25 @@ class LiveControlService:
             version_code = None
         if version_code is not None:
             measurements.append(Measurement(timestamp, source, "firmware_version_code", version_code, "version"))
+        return measurements
+
+    @staticmethod
+    def _command_measurements(
+        device: BemsDeviceConfig,
+        timestamp: datetime,
+        requested_power_w: float,
+        delivered_power_w: float | None,
+        *,
+        status: int,
+    ) -> list[Measurement]:
+        """Represent one attempted command and its measured outcome."""
+        source = f"bems_live_{device.id}"
+        measurements = [
+            Measurement(timestamp, source, "command_requested_power", requested_power_w, "W"),
+            Measurement(timestamp, source, "command_status", float(status), "code"),
+        ]
+        if delivered_power_w is not None:
+            measurements.append(Measurement(timestamp, source, "command_delivered_power", delivered_power_w, "W"))
         return measurements
 
     @staticmethod
