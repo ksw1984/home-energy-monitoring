@@ -31,9 +31,9 @@ BOOL_TRUE_THRESHOLD = 0.5
 
 NIGHT_METRICS = (
     "night_date_ordinal",
-    "night_energy_wh",
+    "night_energy_kwh",
     "night_duration_h",
-    "night_avg_power_w",
+    "night_avg_power_kw",
     "night_samples",
     "night_valid",
     "night_battery_adjusted",
@@ -51,9 +51,9 @@ class MeasurementNightBaselineRepository:
         """Write a night record idempotently at its window end timestamp."""
         values = {
             "night_date_ordinal": float(night.night_date.toordinal()),
-            "night_energy_wh": night.energy_wh,
+            "night_energy_kwh": night.energy_wh / 1000.0,
             "night_duration_h": night.duration_h,
-            "night_avg_power_w": night.avg_power_w,
+            "night_avg_power_kw": night.avg_power_w / 1000.0,
             "night_samples": float(night.samples),
             "night_valid": float(night.valid),
             "night_battery_adjusted": float(night.battery_adjusted),
@@ -86,9 +86,9 @@ class MeasurementNightBaselineRepository:
                 night_date=night_date,
                 window_start=timestamp - timedelta(hours=duration_h),
                 window_end=timestamp,
-                energy_wh=values["night_energy_wh"],
+                energy_wh=values["night_energy_kwh"] * 1000.0,
                 duration_h=duration_h,
-                avg_power_w=values["night_avg_power_w"],
+                avg_power_w=values["night_avg_power_kw"] * 1000.0,
                 samples=int(values["night_samples"]),
                 valid=values["night_valid"] >= BOOL_TRUE_THRESHOLD,
                 battery_adjusted=values["night_battery_adjusted"] >= BOOL_TRUE_THRESHOLD,
@@ -100,9 +100,9 @@ def _night_metric_unit(metric: str) -> str:
     """Return a readable unit for one persisted night metric."""
     return {
         "night_date_ordinal": "ordinal",
-        "night_energy_wh": "Wh",
+        "night_energy_kwh": "kWh",
         "night_duration_h": "h",
-        "night_avg_power_w": "W",
+        "night_avg_power_kw": "kW",
         "night_samples": "count",
         "night_valid": "bool",
         "night_battery_adjusted": "bool",
