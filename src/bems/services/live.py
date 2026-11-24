@@ -99,7 +99,9 @@ class LiveControlService:
         self._configuration_lock = asyncio.Lock()
         # Bus mode replaces this with the observed grid cadence; the database
         # path keeps the configured poll interval.
-        self.control_interval_s = config.control.live_poll_interval_s
+        self.control_interval_s = (
+            config.control.hems_mqtt_publish_interval_s if config.control.feed == "mqtt" else config.control.bems_db_poll_interval_s
+        )
 
     async def run_once(self, *, now: datetime | None = None) -> int:
         """Process each newly stored grid point once and return the count handled."""

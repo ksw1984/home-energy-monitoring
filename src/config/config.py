@@ -148,8 +148,8 @@ class BemsControlConfig:
     live_max_measurement_age_s: float
     history_alignment_tolerance_s: float
     simulation_ramp_seconds: float
-    live_poll_interval_s: float
-    mqtt_publish_interval_s: float = 1.0
+    bems_db_poll_interval_s: float
+    hems_mqtt_publish_interval_s: float = 1.0
     # MQTT is the cross-process live feed; database remains for one-shot checks.
     feed: str = "mqtt"
     # Optional CSV log of every setpoint actually sent to an adapter. Works
@@ -537,8 +537,8 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         live_max_measurement_age_s=float(raw_control.get("live_max_measurement_age_s", 3.0)),
         history_alignment_tolerance_s=float(raw_control.get("history_alignment_tolerance_s", 10.0)),
         simulation_ramp_seconds=float(raw_control.get("simulation_ramp_seconds", 10.0)),
-        live_poll_interval_s=float(raw_control.get("live_poll_interval_s", 5.0)),
-        mqtt_publish_interval_s=float(raw_control.get("mqtt_publish_interval_s", 1.0)),
+        bems_db_poll_interval_s=float(raw_control.get("bems_db_poll_interval_s", 5.0)),
+        hems_mqtt_publish_interval_s=float(raw_control.get("hems_mqtt_publish_interval_s", 1.0)),
         feed=feed,
         command_log_csv=command_log_csv,
     )
@@ -548,10 +548,10 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         raise ValueError("BEMS time settings cannot be negative")
     if control.live_max_measurement_age_s <= 0:
         raise ValueError("BEMS live_max_measurement_age_s must be positive")
-    if control.live_poll_interval_s <= 0:
-        raise ValueError("BEMS live_poll_interval_s must be positive")
-    if control.mqtt_publish_interval_s <= 0:
-        raise ValueError("BEMS mqtt_publish_interval_s must be positive")
+    if control.bems_db_poll_interval_s <= 0:
+        raise ValueError("BEMS bems_db_poll_interval_s must be positive")
+    if control.hems_mqtt_publish_interval_s <= 0:
+        raise ValueError("BEMS hems_mqtt_publish_interval_s must be positive")
 
     night = BemsNightConfig(
         baseline_household_w=float(raw_night.get("baseline_household_w", 250.0)),

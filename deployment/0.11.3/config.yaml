@@ -365,7 +365,7 @@ bems:
     # Optional CSV log of every setpoint sent to an adapter, including mocks.
     # Set to null to disable. The live service appends and flushes each command.
     command_log_csv: data/bems_commands.csv
-    deadband_w: 20
+    deadband_w: 20 # Grid meter deadband after battery compensation; not applied separately to the household meter.
     max_output_power_w: 3500
     # Simulation/replay only: gaps larger than this skip energy integration.
     max_measurement_age_s: 20
@@ -374,8 +374,8 @@ bems:
     live_max_measurement_age_s: 3
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
-    live_poll_interval_s: 5
-    mqtt_publish_interval_s: 1.0
+    live_poll_interval_s: 5 # BEMS database polling cadence; with feed: mqtt, new grid messages trigger control cycles.
+    mqtt_publish_interval_s: 1.0 # HEMS publication cadence for grid/household meter values to MQTT.
 
   night:
     baseline_household_w: 300
