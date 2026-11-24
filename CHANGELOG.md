@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.2 - 2026-11-24
+
+### Added
+
+- Zendure SolarFlow live adapter using the local ZenSDK HTTP API, with identity checks and explicitly gated power commands.
+- InfluxDB command events for requested power, delivered power, and command outcome.
+- Time-based energy integration for the live mock battery, including profile efficiency and SOC limits.
+
+### Fixed
+
+- Set `storage.enabled: true` in the release config so HEMS logs mark selected measurements with `X`.
+- Prepare Mosquitto volume and ACL permissions in Compose, and correct the `$SYS/broker/uptime` healthcheck topic.
+
 ## 0.11.1 - 2026-11-22
 
 ### Changed
