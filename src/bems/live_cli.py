@@ -116,7 +116,7 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
             bus=None if once else bus,
             output_databases=connected_databases,
             batteries=batteries,
-            poll_interval_s=config.control.live_poll_interval_s,
+            poll_interval_s=config.control.bems_db_poll_interval_s,
             command_log_csv=config.control.command_log_csv,
             night_baseline=night_baseline,
         )

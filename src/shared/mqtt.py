@@ -73,7 +73,7 @@ class MqttMeasurementPublisher:
             (bems.inputs.grid.source, bems.inputs.grid.metric),
             (bems.inputs.household.source, bems.inputs.household.metric),
         }
-        self.minimum_interval_s = bems.control.mqtt_publish_interval_s
+        self.minimum_interval_s = bems.control.hems_mqtt_publish_interval_s
 
     def _on_connect(self, _client: mqtt.Client, _userdata: Any, _flags: Any, reason_code: Any, _properties: Any) -> None:
         self.connected = reason_code == 0
