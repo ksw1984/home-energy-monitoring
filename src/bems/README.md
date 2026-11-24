@@ -102,7 +102,7 @@ The mock starts at the device's configured `initial_soc_percent`; its state is i
 
 ## Separate BEMS mock and command log
 
-The separate BEMS container can host the live controller against a mock battery. Set `attributes.mock: true` on an enabled `mode: live` device; no vendor, host, or `allow_control` setting is required.
+The separate BEMS container can host the live controller against a mock battery. Set `attributes.mock: true` on an enabled `mode: live` device; no vendor, host, or `allow_control` setting is required. Mock meter values remain the battery-free household load, so BEMS does not subtract simulated battery delivery from them a second time. Real `mode: live` meter readings include battery effects and continue to be compensated using measured battery power.
 
 ```yaml
 - id: anker_mock
