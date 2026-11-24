@@ -143,7 +143,7 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
         "battery_actual_power",
         "battery_soc",
         "battery_energy_stored",
-        "battery_night_reserve_wh",
+        "battery_night_reserve_kwh",
     } <= metrics
     assert "battery_available" not in metrics
     assert "firmware_compatible" not in metrics
@@ -167,8 +167,9 @@ def test_live_service_uses_measured_baseline_and_persists_it():
     assert provider.power_calls == [timestamp]
     baseline_writes = [point for point in output_database.writes if point.metric == "night_baseline_power"]
     assert len(baseline_writes) == 1
-    assert baseline_writes[0].value == 420.0
-    assert any(point.metric == "battery_night_reserve_wh" for point in output_database.writes)
+    assert baseline_writes[0].value == 0.42
+    assert baseline_writes[0].unit == "kW"
+    assert any(point.metric == "battery_night_reserve_kwh" for point in output_database.writes)
 
 
 def test_live_service_uses_fixed_baseline_when_provider_has_no_value():
@@ -186,7 +187,8 @@ def test_live_service_uses_fixed_baseline_when_provider_has_no_value():
 
     assert asyncio.run(service.run_once(now=timestamp + timedelta(seconds=2))) == 1
     baseline_writes = [point for point in output_database.writes if point.metric == "night_baseline_power"]
-    assert baseline_writes[0].value == config_obj.bems.night.baseline_household_w
+    assert baseline_writes[0].value == config_obj.bems.night.baseline_household_w / 1000.0
+    assert baseline_writes[0].unit == "kW"
 
 
 def test_live_service_logs_accepted_commands_to_csv(tmp_path):

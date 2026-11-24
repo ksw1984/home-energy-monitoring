@@ -99,7 +99,9 @@ class LiveControlService:
         self._configuration_lock = asyncio.Lock()
         # Bus mode replaces this with the observed grid cadence; the database
         # path keeps the configured poll interval.
-        self.control_interval_s = config.control.live_poll_interval_s
+        self.control_interval_s = (
+            config.control.hems_mqtt_publish_interval_s if config.control.feed == "mqtt" else config.control.bems_db_poll_interval_s
+        )
 
     async def run_once(self, *, now: datetime | None = None) -> int:
         """Process each newly stored grid point once and return the count handled."""
@@ -517,8 +519,8 @@ class LiveControlService:
         )
         source = f"bems_live_{device.id}"
         measurements = [
-            Measurement(timestamp, source, "night_baseline_power", baseline_power_w, "W"),
-            Measurement(timestamp, source, "battery_night_reserve_wh", reserve_wh, "Wh"),
+            Measurement(timestamp, source, "night_baseline_power", baseline_power_w / 1000.0, "kW"),
+            Measurement(timestamp, source, "battery_night_reserve_kwh", reserve_wh / 1000.0, "kWh"),
         ]
         return reserve_wh, measurements
 
@@ -831,10 +833,10 @@ class LiveControlService:
         source = f"bems_live_{device.id}"
         actual_power = state.charge_power_w - state.discharge_power_w
         measurements = [
-            Measurement(timestamp, source, "battery_requested_power", requested_power_w, "W"),
-            Measurement(state.timestamp, source, "battery_actual_power", actual_power, "W"),
+            Measurement(timestamp, source, "battery_requested_power", requested_power_w / 1000.0, "kW"),
+            Measurement(state.timestamp, source, "battery_actual_power", actual_power / 1000.0, "kW"),
             Measurement(state.timestamp, source, "battery_soc", state.soc_percent, "%"),
-            Measurement(state.timestamp, source, "battery_energy_stored", state.energy_wh, "Wh"),
+            Measurement(state.timestamp, source, "battery_energy_stored", state.energy_wh / 1000.0, "kWh"),
         ]
         if not control_ok:
             measurements.append(Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"))
@@ -854,11 +856,11 @@ class LiveControlService:
         """Represent one attempted command and its measured outcome."""
         source = f"bems_live_{device.id}"
         measurements = [
-            Measurement(timestamp, source, "battery_command_requested_power", requested_power_w, "W"),
+            Measurement(timestamp, source, "battery_command_requested_power", requested_power_w / 1000.0, "kW"),
             Measurement(timestamp, source, "battery_command_status", float(status), "code"),
         ]
         if delivered_power_w is not None:
-            measurements.append(Measurement(timestamp, source, "battery_command_delivered_power", delivered_power_w, "W"))
+            measurements.append(Measurement(timestamp, source, "battery_command_reported_power", delivered_power_w / 1000.0, "kW"))
         return measurements
 
     @staticmethod
@@ -873,7 +875,7 @@ class LiveControlService:
         """Record a failed adapter cycle without inventing an actual power value."""
         source = f"bems_live_{device.id}"
         measurements = [
-            Measurement(timestamp, source, "battery_requested_power", requested_power_w, "W"),
+            Measurement(timestamp, source, "battery_requested_power", requested_power_w / 1000.0, "kW"),
             Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"),
         ]
         if not device_alive:
