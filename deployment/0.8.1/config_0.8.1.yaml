@@ -1,0 +1,158 @@
+# Home Energy Monitoring configuration
+
+collection:
+  # Timezone used for all collected measurements.
+  timezone: Europe/Berlin
+
+
+collectors:
+
+  # IEC electricity meter for grid import/export
+  - type: iec
+    enabled: true
+    interval: 10
+    attributes:
+      port: /dev/ttyUSB0
+      source: meter_grid
+
+  # IEC electricity meter for household consumption
+  - type: iec
+    enabled: true
+    interval: 10
+    attributes:
+      port: /dev/ttyUSB1
+      source: meter_household
+
+  # Fronius Symo inverter
+  - type: fronius
+    enabled: true
+    interval: 10
+    attributes:
+      source: inverter_fronius
+      inverter_ip: 192.168.178.25
+      latitude: 52.4
+      longitude: 13.7
+
+  # Rademacher environment sensor
+  - type: environment
+    enabled: true
+    interval: 60
+    attributes:
+      source: sensor_rademacher
+      smart_home_box_ip: 192.168.178.19
+      device_id: 50
+
+  # Open-Meteo weather forecast
+  - type: weather
+    enabled: false
+    interval: 3600
+    attributes:
+      source: online_open_meteo
+      latitude: 52.4
+      longitude: 13.7
+
+databases:
+  # InfluxDB instance used to store measurements
+  - type: influxdb
+    enabled: true
+    attributes:
+      url: http://influxdb:8086
+      org: home-energy
+      bucket: home
+
+  - type: text_file
+    enabled: true
+    attributes:
+      directory: ./data/backup
+
+storage:
+  measurements:
+    meter_grid:
+      - grid_import_power
+      - grid_export_power
+      - grid_import_energy_total
+      - grid_export_energy_total
+      - grid_active_power
+
+    meter_household:
+      - grid_import_power
+      - grid_export_power
+      - grid_import_energy_total
+      - grid_export_energy_total
+      - grid_active_power
+
+    inverter_fronius:
+      - pv_power
+      - pv_energy_day
+      - pv_energy_year
+      - pv_energy_total
+      #- ac_power
+      - ac_energy_total
+      - mppt_1_energy_total
+      - mppt_2_energy_total
+
+    sensor_rademacher:
+      - temperature
+      - light
+      - wind_speed
+      - rain_detected
+
+    online_open_meteo:
+      current:
+        - temperature
+        - cloud_cover
+        - shortwave_radiation
+
+      forecast:
+        - temperature
+        - precipitation_probability
+        - cloud_cover
+
+    calculated:
+      - inverter_efficiency
+      - heat_pump_power
+
+estimators:
+  - type: kalman
+    enabled: true
+    lookback: 1
+
+calculators:
+  - type: formula
+    enabled: true
+
+    calculations:
+      - source: calculated
+        metric: heat_pump_power
+        unit: kW
+        formula: "grid_import - grid_export - household_import + household_export"
+
+        inputs:
+          grid_import:
+            source: meter_grid
+            metric: grid_import_power
+          grid_export:
+            source: meter_grid
+            metric: grid_export_power
+          household_import:
+            source: meter_household
+            metric: grid_import_power
+          household_export:
+            source: meter_household
+            metric: grid_export_power
+
+      - source: calculated
+        metric: inverter_efficiency
+        unit: "%"
+        formula: "ac / (dc1 + dc2) * 100"
+
+        inputs:
+          ac:
+            source: inverter_fronius
+            metric: ac_power
+          dc1:
+            source: inverter_fronius
+            metric: mppt_1_power
+          dc2:
+            source: inverter_fronius
+            metric: mppt_2_power
