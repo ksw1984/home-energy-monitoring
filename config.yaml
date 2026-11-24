@@ -33,7 +33,7 @@ collectors:
   # storage_interval: persist every 5th 1s sample; the bus still sees all 5.
   - type: landys_gyr_zmd310_meter_dlms
     enabled: true
-    interval: 1.05
+    interval: 1.0
     storage_interval: 5
     attributes:
       port: /dev/ttyUSB1
