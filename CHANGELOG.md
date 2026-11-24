@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 
 - Zendure SolarFlow live adapter using the local ZenSDK HTTP API, with identity checks and explicitly gated power commands.
 - InfluxDB command events for requested power, delivered power, and command outcome.
+- Prefix live battery and stored night-baseline metrics with `battery_` and `night_`; keep firmware compatibility as an internal control check instead of an Influx measurement.
+- Use `battery_` names in historical simulation output too, drop legacy Influx metric-name fallbacks, and keep only `battery_device_alive` for device read availability.
+- Clarify that the night reserve covers household baseline energy through the night.
+- Allow household demand to use the night reserve while limiting additional heat-pump discharge to energy above that reserve; write healthy status flags only when a problem occurs.
 - Time-based energy integration for the live mock battery, including profile efficiency and SOC limits.
 
 ### Fixed

@@ -263,7 +263,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     )
                     if measured_baseline_w is not None:
                         baseline_power_w = measured_baseline_w
-                heat_pump_reserve_wh = night_reserve_wh(
+                household_reserve_wh = night_reserve_wh(
                     timestamp=sample.timestamp,
                     profile=battery.profile,
                     baseline_household_w=baseline_power_w,
@@ -283,7 +283,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     global_max_output_power_w=config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(household_with_battery_w, state),
                     heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=heat_pump_reserve_wh,
+                    heat_pump_reserve_wh=household_reserve_wh,
                     control_interval_s=config.control.history_alignment_tolerance_s or 10.0,
                 )
                 await battery.set_power(BatteryPowerCommand(timestamp=sample.timestamp, power_w=setpoint))
@@ -292,10 +292,10 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                 # measurements, including cumulative costs and restart state.
                 outputs[device.id].extend(
                     [
-                        Measurement(sample.timestamp, source, "requested_power", setpoint, "W"),
-                        Measurement(sample.timestamp, source, "actual_power", actual_power, "W"),
-                        Measurement(sample.timestamp, source, "soc", state.soc_percent, "%"),
-                        Measurement(sample.timestamp, source, "energy_stored", state.energy_wh, "Wh"),
+                        Measurement(sample.timestamp, source, "battery_requested_power", setpoint, "W"),
+                        Measurement(sample.timestamp, source, "battery_actual_power", actual_power, "W"),
+                        Measurement(sample.timestamp, source, "battery_soc", state.soc_percent, "%"),
+                        Measurement(sample.timestamp, source, "battery_energy_stored", state.energy_wh, "Wh"),
                         Measurement(sample.timestamp, source, "charge_loss_total", battery.charge_loss_wh, "Wh"),
                         Measurement(sample.timestamp, source, "discharge_loss_total", battery.discharge_loss_wh, "Wh"),
                         Measurement(sample.timestamp, source, "grid_power_reference", sample.grid_w, "W"),
@@ -313,7 +313,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                         Measurement(sample.timestamp, source, "heat_pump_power_reference", sample.heat_pump_w, "W"),
                         Measurement(sample.timestamp, source, "pv_power_reference", sample.pv_w or 0.0, "W"),
                         Measurement(sample.timestamp, source, "night_baseline_power", baseline_power_w, "W"),
-                        Measurement(sample.timestamp, source, "night_reserve", heat_pump_reserve_wh, "Wh"),
+                        Measurement(sample.timestamp, source, "battery_night_reserve_wh", household_reserve_wh, "Wh"),
                     ]
                 )
                 previous_samples[device.id] = sample

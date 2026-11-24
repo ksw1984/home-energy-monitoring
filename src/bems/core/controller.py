@@ -56,8 +56,8 @@ class GridBalancingController:
         if grid_headroom_w <= 0:
             return 0.0
 
-        # Household demand has first claim on available battery output. Heat-pump
-        # demand is served only by energy above the reserve for the coming night.
+        # Household demand may use the reserve. Additional heat-pump demand is
+        # served only from energy above the reserve for household use overnight.
         household_demand_w = max(0.0, household_power_w if household_power_w is not None else grid_power_w)
         household_discharge_w = min(household_demand_w, output_limit_w, grid_headroom_w)
         energy_above_reserve_wh = max(0.0, state.energy_wh - heat_pump_reserve_wh)

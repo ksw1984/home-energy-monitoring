@@ -197,7 +197,7 @@ def _timeseries_row(
             saved_kwh = _grid_import_saved_kwh(
                 previous.grid_reference_w,
                 previous.actual_power_w,
-                values["actual_power"],
+                values["battery_actual_power"],
                 duration,
             )
             savings_cents = values["savings_total"] - previous.savings_total_cents
@@ -212,10 +212,10 @@ def _timeseries_row(
         "meter_household_without_battery_w": values.get("household_power_reference", 0.0),
         "heat_pump_w": values.get("heat_pump_power_reference", 0.0),
         "pv_w": values.get("pv_power_reference", 0.0),
-        "requested_power_w": values.get("requested_power", 0.0),
-        "actual_power_w": values.get("actual_power", 0.0),
-        "soc_percent": values.get("soc", 0.0),
-        "energy_stored_wh": values.get("energy_stored", 0.0),
+        "requested_power_w": values.get("battery_requested_power", 0.0),
+        "actual_power_w": values.get("battery_actual_power", 0.0),
+        "soc_percent": values.get("battery_soc", 0.0),
+        "energy_stored_wh": values.get("battery_energy_stored", 0.0),
         "grid_with_battery_w": values.get("grid_power_with_battery", 0.0),
         "grid_import_saved_kwh_interval": saved_kwh,
         "household_import_saved_kwh_interval": household_saved,
@@ -258,7 +258,7 @@ def _branch_savings(
 ) -> tuple[float, float, float, float]:
     """Split measured grid import reduction into household and heat-pump parts."""
     start_power = previous.actual_power_w
-    end_power = values.get("actual_power", 0.0)
+    end_power = values.get("battery_actual_power", 0.0)
     delta = end_power - start_power
     household = previous.household_reference_w
     fractions = [0.0, 1.0]
@@ -305,7 +305,7 @@ def _previous_state(timestamp: datetime, values: dict[str, float]) -> PreviousPo
         grid_reference_w=values.get("grid_power_reference", 0.0),
         household_reference_w=values.get("household_power_reference", 0.0),
         heat_pump_reference_w=values.get("heat_pump_power_reference", 0.0),
-        actual_power_w=values.get("actual_power", 0.0),
+        actual_power_w=values.get("battery_actual_power", 0.0),
         savings_total_cents=values.get("savings_total", 0.0),
     )
 
@@ -321,9 +321,9 @@ def _chart_row(timestamp: datetime, values: dict[str, float]) -> dict[str, float
         "pv": values.get("pv_power_reference", 0.0),
         # Match the BEMS convention: positive AC power charges the battery;
         # negative AC power discharges it.
-        "battery": values.get("actual_power", 0.0),
-        "soc": values.get("soc", 0.0),
-        "energy_kwh": values.get("energy_stored", 0.0) / 1000.0,
+        "battery": values.get("battery_actual_power", 0.0),
+        "soc": values.get("battery_soc", 0.0),
+        "energy_kwh": values.get("battery_energy_stored", 0.0) / 1000.0,
     }
 
 

@@ -31,12 +31,12 @@ BOOL_TRUE_THRESHOLD = 0.5
 
 NIGHT_METRICS = (
     "night_date_ordinal",
-    "energy_wh",
-    "duration_h",
-    "avg_power_w",
-    "samples",
-    "valid",
-    "battery_adjusted",
+    "night_energy_wh",
+    "night_duration_h",
+    "night_avg_power_w",
+    "night_samples",
+    "night_valid",
+    "night_battery_adjusted",
 )
 
 
@@ -51,12 +51,12 @@ class MeasurementNightBaselineRepository:
         """Write a night record idempotently at its window end timestamp."""
         values = {
             "night_date_ordinal": float(night.night_date.toordinal()),
-            "energy_wh": night.energy_wh,
-            "duration_h": night.duration_h,
-            "avg_power_w": night.avg_power_w,
-            "samples": float(night.samples),
-            "valid": float(night.valid),
-            "battery_adjusted": float(night.battery_adjusted),
+            "night_energy_wh": night.energy_wh,
+            "night_duration_h": night.duration_h,
+            "night_avg_power_w": night.avg_power_w,
+            "night_samples": float(night.samples),
+            "night_valid": float(night.valid),
+            "night_battery_adjusted": float(night.battery_adjusted),
         }
         await self.database.store(
             [Measurement(night.window_end, self.source, metric, value, _night_metric_unit(metric)) for metric, value in values.items()]
@@ -73,24 +73,25 @@ class MeasurementNightBaselineRepository:
         )
         grouped: dict[datetime, dict[str, float]] = {}
         for row in rows:
-            grouped.setdefault(row.timestamp, {})[row.metric] = row.value
+            values = grouped.setdefault(row.timestamp, {})
+            values[row.metric] = row.value
 
         nights: dict[date, NightHouseholdEnergy] = {}
         for timestamp, values in grouped.items():
             if not set(NIGHT_METRICS) <= values.keys():
                 continue
             night_date = date.fromordinal(int(values["night_date_ordinal"]))
-            duration_h = values["duration_h"]
+            duration_h = values["night_duration_h"]
             nights[night_date] = NightHouseholdEnergy(
                 night_date=night_date,
                 window_start=timestamp - timedelta(hours=duration_h),
                 window_end=timestamp,
-                energy_wh=values["energy_wh"],
+                energy_wh=values["night_energy_wh"],
                 duration_h=duration_h,
-                avg_power_w=values["avg_power_w"],
-                samples=int(values["samples"]),
-                valid=values["valid"] >= BOOL_TRUE_THRESHOLD,
-                battery_adjusted=values["battery_adjusted"] >= BOOL_TRUE_THRESHOLD,
+                avg_power_w=values["night_avg_power_w"],
+                samples=int(values["night_samples"]),
+                valid=values["night_valid"] >= BOOL_TRUE_THRESHOLD,
+                battery_adjusted=values["night_battery_adjusted"] >= BOOL_TRUE_THRESHOLD,
             )
         return nights
 
@@ -99,12 +100,12 @@ def _night_metric_unit(metric: str) -> str:
     """Return a readable unit for one persisted night metric."""
     return {
         "night_date_ordinal": "ordinal",
-        "energy_wh": "Wh",
-        "duration_h": "h",
-        "avg_power_w": "W",
-        "samples": "count",
-        "valid": "bool",
-        "battery_adjusted": "bool",
+        "night_energy_wh": "Wh",
+        "night_duration_h": "h",
+        "night_avg_power_w": "W",
+        "night_samples": "count",
+        "night_valid": "bool",
+        "night_battery_adjusted": "bool",
     }[metric]
 
 
@@ -346,7 +347,7 @@ class NightBaselineProvider:
                 rows = await _query_all(
                     self.database,
                     source=f"bems_live_{device.id}",
-                    metric_list=["actual_power"],
+                    metric_list=["battery_actual_power"],
                     start=window.start - timedelta(seconds=self.estimation.max_gap_s),
                     stop=window.end,
                 )

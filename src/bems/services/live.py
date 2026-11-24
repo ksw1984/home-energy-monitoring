@@ -357,7 +357,7 @@ class LiveControlService:
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
             profile = self._profile_for_device(device)
             source = f"bems_live_{device_id}"
-            heat_pump_reserve_wh = night_reserve_wh(
+            household_reserve_wh = night_reserve_wh(
                 timestamp=timestamp,
                 profile=profile,
                 baseline_household_w=baseline_power_w,
@@ -370,14 +370,16 @@ class LiveControlService:
             outputs.extend(
                 [
                     Measurement(timestamp, source, "night_baseline_power", baseline_power_w, "W"),
-                    Measurement(timestamp, source, "night_reserve", heat_pump_reserve_wh, "Wh"),
+                    Measurement(timestamp, source, "battery_night_reserve_wh", household_reserve_wh, "Wh"),
                 ]
             )
             command_attempted = False
             command_sent = False
+            device_state_read = False
             try:
                 identity = await battery.get_identity()
                 before = await battery.get_state()
+                device_state_read = True
                 compatible, reason = self._firmware_compatibility(device, identity)
                 if not compatible:
                     logger.error(
@@ -395,8 +397,6 @@ class LiveControlService:
                             before,
                             control_ok=0,
                             stale=0,
-                            identity=identity,
-                            firmware_compatible=False,
                         )
                     )
                     continue
@@ -408,7 +408,7 @@ class LiveControlService:
                     global_max_output_power_w=self.config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(sample.household_w, before),
                     heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=heat_pump_reserve_wh,
+                    heat_pump_reserve_wh=household_reserve_wh,
                     control_interval_s=self.control_interval_s,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)
@@ -449,8 +449,6 @@ class LiveControlService:
                         state,
                         control_ok=1,
                         stale=0,
-                        identity=identity,
-                        firmware_compatible=True,
                     )
                 )
             except Exception as exc:
@@ -474,7 +472,15 @@ class LiveControlService:
                         )
                     )
                 logger.exception("BEMS adapter operation failed for device %s", device_id)
-                outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0))
+                outputs.extend(
+                    self._error_measurements(
+                        device,
+                        now,
+                        requested_power_w,
+                        stale=0,
+                        device_alive=device_state_read,
+                    )
+                )
         await self._store(outputs)
 
     async def update_config(self, config: BemsConfig) -> None:
@@ -589,6 +595,7 @@ class LiveControlService:
             device = self.devices[device_id]
             zero_applied = self._last_requested_power.get(device_id) == 0.0
             zero_sent = False
+            device_state_read = False
             try:
                 if not zero_applied:
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=0.0))
@@ -606,11 +613,13 @@ class LiveControlService:
                     status="failed",
                     error=str(exc),
                 )
+                outputs.extend(self._command_measurements(device, timestamp, 0.0, None, status=-1))
                 logger.exception("BEMS stale-input zero command failed for device %s", device_id)
 
             # Diagnostics must not prevent or undo the zero command above.
             try:
                 state = await battery.get_state()
+                device_state_read = True
                 identity = await battery.get_identity()
                 compatible, reason = self._firmware_compatibility(device, identity)
                 if not compatible:
@@ -624,6 +633,15 @@ class LiveControlService:
                         soc_percent=state.soc_percent,
                         status="accepted",
                     )
+                    outputs.extend(
+                        self._command_measurements(
+                            device,
+                            timestamp,
+                            0.0,
+                            state.charge_power_w - state.discharge_power_w,
+                            status=1,
+                        )
+                    )
                 outputs.extend(
                     self._state_measurements(
                         device,
@@ -632,8 +650,6 @@ class LiveControlService:
                         state,
                         control_ok=1 if zero_applied else 0,
                         stale=1,
-                        identity=identity,
-                        firmware_compatible=compatible,
                     )
                 )
             except Exception as exc:
@@ -647,8 +663,17 @@ class LiveControlService:
                         status="sent",
                         error=str(exc),
                     )
+                    outputs.extend(self._command_measurements(device, timestamp, 0.0, None, status=0))
                 logger.exception("BEMS stale-input state read failed for device %s", device_id)
-                outputs.extend(self._error_measurements(device, timestamp, 0.0, stale=1))
+                outputs.extend(
+                    self._error_measurements(
+                        device,
+                        timestamp,
+                        0.0,
+                        stale=1,
+                        device_alive=device_state_read,
+                    )
+                )
         await self._store(outputs)
 
     def _inputs_are_stale(self, now: datetime) -> bool:
@@ -762,29 +787,20 @@ class LiveControlService:
         *,
         control_ok: int,
         stale: int,
-        identity: BatteryIdentity,
-        firmware_compatible: bool,
     ) -> list[Measurement]:
         """Represent the requested target, observed state, and service status."""
         source = f"bems_live_{device.id}"
         actual_power = state.charge_power_w - state.discharge_power_w
         measurements = [
-            Measurement(timestamp, source, "requested_power", requested_power_w, "W"),
-            Measurement(state.timestamp, source, "actual_power", actual_power, "W"),
-            Measurement(state.timestamp, source, "soc", state.soc_percent, "%"),
-            Measurement(state.timestamp, source, "energy_stored", state.energy_wh, "Wh"),
-            Measurement(timestamp, source, "battery_available", float(state.available), "bool"),
-            Measurement(timestamp, source, "control_ok", float(control_ok), "bool"),
-            Measurement(timestamp, source, "stale_input", float(stale), "bool"),
-            Measurement(timestamp, source, "device_alive", 1.0, "bool"),
-            Measurement(timestamp, source, "firmware_compatible", float(firmware_compatible), "bool"),
+            Measurement(timestamp, source, "battery_requested_power", requested_power_w, "W"),
+            Measurement(state.timestamp, source, "battery_actual_power", actual_power, "W"),
+            Measurement(state.timestamp, source, "battery_soc", state.soc_percent, "%"),
+            Measurement(state.timestamp, source, "battery_energy_stored", state.energy_wh, "Wh"),
         ]
-        try:
-            version_code = float(identity.firmware_version)
-        except ValueError:
-            version_code = None
-        if version_code is not None:
-            measurements.append(Measurement(timestamp, source, "firmware_version_code", version_code, "version"))
+        if not control_ok:
+            measurements.append(Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"))
+        if stale:
+            measurements.append(Measurement(timestamp, source, "battery_stale_input", 1.0, "bool"))
         return measurements
 
     @staticmethod
@@ -799,25 +815,33 @@ class LiveControlService:
         """Represent one attempted command and its measured outcome."""
         source = f"bems_live_{device.id}"
         measurements = [
-            Measurement(timestamp, source, "command_requested_power", requested_power_w, "W"),
-            Measurement(timestamp, source, "command_status", float(status), "code"),
+            Measurement(timestamp, source, "battery_command_requested_power", requested_power_w, "W"),
+            Measurement(timestamp, source, "battery_command_status", float(status), "code"),
         ]
         if delivered_power_w is not None:
-            measurements.append(Measurement(timestamp, source, "command_delivered_power", delivered_power_w, "W"))
+            measurements.append(Measurement(timestamp, source, "battery_command_delivered_power", delivered_power_w, "W"))
         return measurements
 
     @staticmethod
-    def _error_measurements(device: BemsDeviceConfig, timestamp: datetime, requested_power_w: float, *, stale: int) -> list[Measurement]:
+    def _error_measurements(
+        device: BemsDeviceConfig,
+        timestamp: datetime,
+        requested_power_w: float,
+        *,
+        stale: int,
+        device_alive: bool,
+    ) -> list[Measurement]:
         """Record a failed adapter cycle without inventing an actual power value."""
         source = f"bems_live_{device.id}"
-        return [
-            Measurement(timestamp, source, "requested_power", requested_power_w, "W"),
-            Measurement(timestamp, source, "battery_available", 0.0, "bool"),
-            Measurement(timestamp, source, "control_ok", 0.0, "bool"),
-            Measurement(timestamp, source, "stale_input", float(stale), "bool"),
-            Measurement(timestamp, source, "device_alive", 0.0, "bool"),
-            Measurement(timestamp, source, "firmware_compatible", 0.0, "bool"),
+        measurements = [
+            Measurement(timestamp, source, "battery_requested_power", requested_power_w, "W"),
+            Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"),
         ]
+        if not device_alive:
+            measurements.append(Measurement(timestamp, source, "battery_device_alive", 0.0, "bool"))
+        if stale:
+            measurements.append(Measurement(timestamp, source, "battery_stale_input", 1.0, "bool"))
+        return measurements
 
     @staticmethod
     def _require_aware(timestamp: datetime) -> None:
