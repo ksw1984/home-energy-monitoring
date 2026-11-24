@@ -461,25 +461,45 @@ bems:
       initial_soc_percent: 95
       max_output_power_w: 800
 
-    # App-hosted dry run: enable this and keep the matching real live device
-    # disabled. The live controller runs normally, but the battery is
-    # in-memory and every accepted setpoint is appended to
-    # control.command_log_csv.
+    # App-hosted dry run: the live controller runs normally, but the battery is
+    # in-memory and accepted setpoints are logged to command_log_csv.
     - id: anker_mock
       profile: anker_solarbank_max_ac
       mode: live
-      enabled: true
+      enabled: false
       initial_soc_percent: 50
       max_output_power_w: 800
       attributes:
         mock: true
 
+    - id: zendure_mock
+      profile: zendure_solarflow_4000_mix_ac
+      mode: live
+      enabled: false
+      initial_soc_percent: 50
+      max_output_power_w: 2000
+      attributes:
+        mock: true
+
     # Separate live instances are present but inactive until the hardware is installed.
+    - id: zendure_live
+      profile: zendure_solarflow_4000_mix_ac
+      mode: live
+      enabled: false
+      max_output_power_w: 3000
+      attributes:
+        vendor: zendure
+        host: "<zendure-ip>"
+        port: 80
+        serial_number: "<zendure-serial-number>"
+        allow_control: false
+        expected_model: "<reported-model>"
+        supported_firmware_versions: [ "<exact-verified-firmware-revision>" ]
+
     - id: anker_live
       profile: anker_solarbank_max_ac
       mode: live
       enabled: false
-      initial_soc_percent: 50
       max_output_power_w: 800
       attributes:
         vendor: anker
@@ -493,7 +513,6 @@ bems:
       profile: marstek_venus_e_3_5120
       mode: live
       enabled: false
-      initial_soc_percent: 50
       max_output_power_w: 800
       attributes:
         vendor: marstek
