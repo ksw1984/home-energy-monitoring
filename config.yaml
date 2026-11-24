@@ -207,6 +207,7 @@ databases:
       directory: ./data/backup
 
 storage:
+  enabled: true
   measurements:
     meter_grid_dlms:
       - grid_import_energy_total
