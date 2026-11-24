@@ -30,7 +30,7 @@ The sample configuration includes `anker_sim` and `marstek_sim` (enabled) and co
 
 ## Measured night baseline
 
-Set `bems.night.baseline_estimation.enabled: true` to replace the fixed `baseline_household_w` with a measured night baseline. Each completed night is stored as one logical `bems_night_household` measurement with `energy_wh`, `duration_h`, `avg_power_w`, `samples`, `valid`, and `battery_adjusted`. `avg_power_w` is `energy_wh / duration_h`, not a time-of-day profile.
+Set `bems.night.baseline_estimation.enabled: true` to replace the fixed `baseline_household_w` with a measured night baseline. Each completed night is stored as one logical `bems_night_household` record with `night_energy_wh`, `night_duration_h`, `night_avg_power_w`, `night_samples`, `night_valid`, and `night_battery_adjusted`. `night_avg_power_w` is `night_energy_wh / night_duration_h`, not a time-of-day profile. `night_date_ordinal` is an internal numeric encoding of the night date used to reconstruct the record from InfluxDB.
 
 The reserve uses the latest valid night for each weekday in `selection`, weighted by `sum(energy_wh) / sum(duration_h)`, multiplied by `safety_factor`. Only nights strictly before the simulated/current evening are eligible. Historical household references are already gross, so `--backfill-days` always aggregates raw history as gross, independent of `household_meter_includes_battery`. Live input meters include battery flow and are corrected with actual measured battery power before a setpoint is calculated. The selected baseline is cached in memory, so the control loop does not query the database. Missing or invalid nights fall back to `baseline_household_w` without stopping control. With `enabled: false`, the fixed value is used and no baseline query or backfill is needed.
 
@@ -41,7 +41,7 @@ poetry run bems-night-baseline --backfill-days 14
 poetry run bems-night-baseline --show --night-date 2026-11-18
 ```
 
-Both simulation and live control emit `night_baseline_power` and `night_reserve` on the `bems_<mode>_<device-id>` source, so the applied value is visible in `measurements_<device-id>.jsonl` and in stored live measurements.
+Both simulation and live control emit `night_baseline_power` and `battery_night_reserve_wh` on the `bems_<mode>_<device-id>` source. The reserve estimates household baseline energy through the night; the controller uses it as the battery energy floor. It is not a heat-pump-only reserve.
 
 ## Historical simulation
 
@@ -98,7 +98,7 @@ This runs the live controller loop against current MQTT meter measurements while
    poetry run bems-live --mock
    ```
 
-The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. Every accepted setpoint is appended to `data/bems_mock_commands.csv` by default. Use `--mock-csv <path>` to choose another file. The CSV contains `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, and `soc_percent`, and is written on exit (including Ctrl-C), so it can be plotted without querying InfluxDB. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
+The mock starts at the device's configured `initial_soc_percent`; its state is in memory and resets when the process restarts. It integrates charging and discharging over elapsed time with the configured efficiency and SOC limits. Every accepted setpoint is appended to `data/bems_mock_commands.csv` by default. Use `--mock-csv <path>` to choose another file. The CSV contains `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, and `soc_percent`, and is written on exit (including Ctrl-C), so it can be plotted without querying InfluxDB. Live-loop measurements use source `bems_live_<device-id>` and include requested/actual power, SOC, energy, input freshness, device availability, and firmware/control status. This mode does not calculate historical cost savings; use `bems-simulate` for that comparison.
 
 ## Separate BEMS mock and command log
 
@@ -127,7 +127,7 @@ bems:
 
 The CSV columns are `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, `soc_percent`, `status`, and `error`. `status` is `accepted` when the adapter state was read after the write, `sent` when the write succeeded but state could not be read, and `failed` when the write itself failed. The live service appends and flushes each row, so commands survive a crash. This log works for both mock and real adapters. Without hardware, an Anker adapter fails at identity/state preflight before `set_power`, so no command row is produced; use `attributes.mock: true` with the Anker profile to exercise the control path before the battery arrives.
 
-The `bems-live` process also honors `bems.control.command_log_csv`. Its `--mock-csv` export remains available as a separate one-file plotting snapshot.
+The live service writes battery metrics to InfluxDB under `bems_live_<device-id>` with a `battery_` prefix. Continuous values include `battery_requested_power`, `battery_actual_power`, `battery_soc`, and `battery_energy_stored`. Problem indicators are event-style: `battery_stale_input=1` is written only for stale input, `battery_control_ok=0` only when control is blocked or fails, and `battery_device_alive=0` only when the adapter cannot read state. Successful states are assumed; no healthy `1` points are written. Each attempted command adds `battery_command_requested_power`, `battery_command_delivered_power` when readback is available, and `battery_command_status` (`1` accepted, `0` sent but unreadable, `-1` failed). Firmware compatibility remains enforced by the controller but is not stored in InfluxDB. The `bems-live` process also honors `bems.control.command_log_csv`; its `--mock-csv` export remains available as a separate one-file plotting snapshot.
 
 ## Live feed and stale-input safety
 
@@ -144,11 +144,11 @@ If either meter stream is missing or stale, BEMS requests 0 W. The MQTT broker i
 
 ## Live controller with a real battery
 
-Live hardware adapters exist for the Marstek Venus E 3.0 and Anker SOLIX Solarbank Max AC. Hardware writes are opt-in and compatibility-gated.
+Live hardware adapters exist for the Zendure SolarFlow ZenSDK API, Marstek Venus E 3.0, and Anker SOLIX Solarbank Max AC. Hardware writes are opt-in and compatibility-gated.
 
 1. Configure the live device's profile, measured device IP, vendor, and transport settings. Keep `enabled: false` until setup and identity checks are complete.
 2. Read the device's exact reported model and firmware using the vendor adapter's read-only checks or a mock/dry setup. Set `expected_model` and `supported_firmware_versions` to explicit verified values; the firmware list must contain the exact version token.
-3. Verify the correct network protocol and enable the device's local control feature where required. Anker uses Modbus TCP; Marstek uses its local UDP API.
+3. Verify the correct network protocol and enable the device's local control feature where required. Zendure uses the local ZenSDK HTTP API; Anker uses Modbus TCP; Marstek uses its local UDP API.
 4. Set `attributes.allow_control: true`, then `enabled: true` only when you intend to permit hardware writes. Missing identity allowlists, mismatched model/firmware, communication failure, or stale meter readings block or stop power requests.
 5. Start the controller:
 
@@ -159,7 +159,7 @@ Live hardware adapters exist for the Marstek Venus E 3.0 and Anker SOLIX Solarba
    poetry run bems-live
    ```
 
-6. Monitor `bems_live_<device-id>` for `requested_power`, `actual_power`, `soc`, `device_alive`, `firmware_compatible`, `control_ok`, and `stale_input`.
+6. Monitor `bems_live_<device-id>` for `battery_requested_power`, `battery_actual_power`, `battery_soc`, `battery_energy_stored`, and `battery_night_reserve_wh`. Error indicators `battery_device_alive=0`, `battery_control_ok=0`, or `battery_stale_input=1` appear only when a problem occurs.
 
 The live service is always a separate process from HEMS monitoring. Do not enable more than one live controller for the same physical battery.
 
@@ -167,8 +167,8 @@ The live service is always a separate process from HEMS monitoring. Do not enabl
 
 | Source | Example metrics | Purpose |
 | --- | --- | --- |
-| `bems_sim_<device-id>_<run-id>` | `requested_power`, `actual_power`, `soc`, `energy_stored`, `charge_loss_total`, `discharge_loss_total`, `savings_total` | Source identifier inside local simulation JSONL output |
-| `bems_live_<device-id>` | `requested_power`, `actual_power`, `soc`, `energy_stored`, `device_alive`, `firmware_compatible`, `control_ok`, `stale_input` | Live controller/device status |
+| `bems_sim_<device-id>_<run-id>` | `battery_requested_power`, `battery_actual_power`, `battery_soc`, `battery_energy_stored`, `charge_loss_total`, `discharge_loss_total`, `savings_total` | Source identifier inside local simulation JSONL output |
+| `bems_live_<device-id>` | `battery_requested_power`, `battery_actual_power`, `battery_soc`, `battery_energy_stored`, `battery_device_alive`, `battery_control_ok`, `battery_stale_input`, `battery_command_*` | Live battery readings, commands, and control status |
 
 ## Tests and checks
 
