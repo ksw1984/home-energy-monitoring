@@ -356,23 +356,13 @@ class LiveControlService:
             device = self.devices[device_id]
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
             profile = self._profile_for_device(device)
-            source = f"bems_live_{device_id}"
-            household_reserve_wh = night_reserve_wh(
+            household_reserve_wh, reserve_measurements = self._night_reserve_measurements(
+                device=device,
                 timestamp=timestamp,
                 profile=profile,
-                baseline_household_w=baseline_power_w,
-                latitude=self.config.night.latitude,
-                longitude=self.config.night.longitude,
-                timezone=self.config.night.timezone,
-                dusk_margin_minutes=self.config.night.dusk_margin_minutes,
-                dawn_margin_minutes=self.config.night.dawn_margin_minutes,
+                baseline_power_w=baseline_power_w,
             )
-            outputs.extend(
-                [
-                    Measurement(timestamp, source, "night_baseline_power", baseline_power_w, "W"),
-                    Measurement(timestamp, source, "battery_night_reserve_wh", household_reserve_wh, "Wh"),
-                ]
-            )
+            outputs.extend(reserve_measurements)
             command_attempted = False
             command_sent = False
             device_state_read = False
@@ -400,16 +390,12 @@ class LiveControlService:
                         )
                     )
                     continue
-                requested_power_w = self.controller.calculate_setpoint(
-                    grid_power_w=estimate_power_without_battery(sample.grid_w, before),
+                requested_power_w = self._calculate_device_setpoint(
+                    device=device,
+                    sample=sample,
                     state=before,
                     profile=profile,
-                    device_max_output_power_w=device.max_output_power_w,
-                    global_max_output_power_w=self.config.control.max_output_power_w,
-                    household_power_w=estimate_power_without_battery(sample.household_w, before),
-                    heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=household_reserve_wh,
-                    control_interval_s=self.control_interval_s,
+                    reserve_wh=household_reserve_wh,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)
                 last_command_at = self._last_command_at.get(device_id)
@@ -482,6 +468,59 @@ class LiveControlService:
                     )
                 )
         await self._store(outputs)
+
+    def _calculate_device_setpoint(
+        self,
+        *,
+        device: BemsDeviceConfig,
+        sample: BemsPowerSample,
+        state: BatteryState,
+        profile: BatteryProfile,
+        reserve_wh: float,
+    ) -> float:
+        """Calculate a target using baseline mock meters or battery-adjusted live meters."""
+        # Mock meters stay at battery-free household load. Real meter values
+        # already include battery delivery and must be compensated to it.
+        mock_meter = device.attributes.get("mock") is True
+        grid_power_w = sample.grid_w if mock_meter else estimate_power_without_battery(sample.grid_w, state)
+        household_power_w = sample.household_w if mock_meter else estimate_power_without_battery(sample.household_w, state)
+        return self.controller.calculate_setpoint(
+            grid_power_w=grid_power_w,
+            state=state,
+            profile=profile,
+            device_max_output_power_w=device.max_output_power_w,
+            global_max_output_power_w=self.config.control.max_output_power_w,
+            household_power_w=household_power_w,
+            heat_pump_power_w=sample.heat_pump_w,
+            heat_pump_reserve_wh=reserve_wh,
+            control_interval_s=self.control_interval_s,
+        )
+
+    def _night_reserve_measurements(
+        self,
+        *,
+        device: BemsDeviceConfig,
+        timestamp: datetime,
+        profile: BatteryProfile,
+        baseline_power_w: float,
+    ) -> tuple[float, list[Measurement]]:
+        """Calculate and report the reserve used to protect household night energy from heat-pump discharge."""
+        reserve_wh = night_reserve_wh(
+            timestamp=timestamp,
+            profile=profile,
+            baseline_household_w=baseline_power_w,
+            latitude=self.config.night.latitude,
+            longitude=self.config.night.longitude,
+            timezone=self.config.night.timezone,
+            dusk_margin_minutes=self.config.night.dusk_margin_minutes,
+            dawn_margin_minutes=self.config.night.dawn_margin_minutes,
+        )
+        source = f"bems_live_{device.id}"
+        measurements = [
+            Measurement(timestamp, source, "night_baseline_power", baseline_power_w, "W"),
+            Measurement(timestamp, source, "battery_night_reserve_wh", reserve_wh, "Wh"),
+        ]
+        return reserve_wh, measurements
 
     async def update_config(self, config: BemsConfig) -> None:
         """Apply safe live settings and battery power limits without rebuilding adapters.

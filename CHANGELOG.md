@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.3 - 2026-11-24
+
+### Fixed
+
+- Prevent the live mock controller from compensating battery power against unchanged HEMS meter values, which caused requested battery power to grow on each control cycle.
+- Write healthy live status flags only when a problem occurs to reduce redundant InfluxDB points.
+
 ## 0.11.2 - 2026-11-24
 
 ### Added
