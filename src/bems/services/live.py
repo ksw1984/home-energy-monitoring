@@ -32,6 +32,12 @@ QUERY_PAGE_SIZE = 1000
 # failsafe still runs every cycle; this only bounds the wake-up frequency.
 MIN_BUS_WAIT_S = 0.1
 
+# Grid and household arrive as separate bus messages from independent collector
+# tasks, so the household timestamp can be a few milliseconds newer than the
+# grid timestamp even when both describe the same sample instant. Allow that
+# small skew when aligning live samples; historical replay never looks ahead.
+LIVE_ALIGNMENT_LOOKAHEAD_S = 1.0
+
 
 class LiveControlService:
     """Control injected battery adapters from stored rows or the measurement bus."""
@@ -292,6 +298,7 @@ class LiveControlService:
                     self.config.control.history_alignment_tolerance_s,
                     self.config.control.live_max_measurement_age_s,
                 ),
+                lookahead_seconds=LIVE_ALIGNMENT_LOOKAHEAD_S,
             )
         except ValueError:
             logger.exception("BEMS rejected invalid live power measurements from the bus")
@@ -832,11 +839,14 @@ class LiveControlService:
         """Represent the requested target, observed state, and service status."""
         source = f"bems_live_{device.id}"
         actual_power = state.charge_power_w - state.discharge_power_w
+        # Adapters report state in UTC; align the displayed offset with the
+        # sample timestamp so one batch never mixes timezone representations.
+        state_timestamp = state.timestamp.astimezone(timestamp.tzinfo)
         measurements = [
             Measurement(timestamp, source, "battery_requested_power", requested_power_w / 1000.0, "kW"),
-            Measurement(state.timestamp, source, "battery_actual_power", actual_power / 1000.0, "kW"),
-            Measurement(state.timestamp, source, "battery_soc", state.soc_percent, "%"),
-            Measurement(state.timestamp, source, "battery_energy_stored", state.energy_wh / 1000.0, "kWh"),
+            Measurement(state_timestamp, source, "battery_actual_power", actual_power / 1000.0, "kW"),
+            Measurement(state_timestamp, source, "battery_soc", state.soc_percent, "%"),
+            Measurement(state_timestamp, source, "battery_energy_stored", state.energy_wh / 1000.0, "kWh"),
         ]
         if not control_ok:
             measurements.append(Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"))

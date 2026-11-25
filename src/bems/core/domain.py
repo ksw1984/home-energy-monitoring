@@ -146,41 +146,55 @@ def align_power_samples(
     pv_measurements: list[Measurement],
     *,
     tolerance_seconds: float,
+    lookahead_seconds: float = 0.0,
 ) -> list[BemsPowerSample]:
-    """Align grid-led samples with earlier household/PV values within tolerance."""
-    """Align on grid timestamps with the latest earlier meter/PV points.
+    """Align on grid timestamps with the closest meter/PV points.
 
-    No interpolation or look-ahead is performed. Household data is required
-    for the cascade split; PV data is retained when a matching point exists,
-    but is not added to grid power because the grid meter is already net.
+    No interpolation is performed. Household data is required for the cascade
+    split; PV data is retained when a matching point exists, but is not added
+    to grid power because the grid meter is already net.
+
+    Points older than ``tolerance_seconds`` are ignored. ``lookahead_seconds``
+    extends the accepted window into the future by that amount. Live bus
+    samples are collected by independent tasks, so the household reading can be
+    a few milliseconds newer than the grid reading for the same sample instant.
+    Historical replay keeps the default of zero and therefore never looks ahead.
     """
     if tolerance_seconds < 0:
         raise ValueError("tolerance_seconds cannot be negative")
+    if lookahead_seconds < 0:
+        raise ValueError("lookahead_seconds cannot be negative")
 
     household = sorted(household_measurements, key=lambda item: _utc(item.timestamp))
     pv = sorted(pv_measurements, key=lambda item: _utc(item.timestamp))
 
-    def latest_prior(
+    def closest(
         points: list[Measurement],
         target: datetime,
     ) -> Measurement | None:
-        """Return the newest point at/before target, if it is still fresh."""
+        """Return the point nearest target inside the accepted window."""
         match = None
+        match_distance = None
         for point in points:
             point_time = _utc(point.timestamp)
-            if point_time > target:
+            delta = (point_time - target).total_seconds()
+            if delta > lookahead_seconds:
                 break
-            if (target - point_time).total_seconds() <= tolerance_seconds:
+            if delta < -tolerance_seconds:
+                continue
+            distance = abs(delta)
+            if match_distance is None or distance < match_distance:
                 match = point
+                match_distance = distance
         return match
 
     aligned: list[BemsPowerSample] = []
     for grid_point in sorted(grid_measurements, key=lambda item: _utc(item.timestamp)):
         target = _utc(grid_point.timestamp)
-        household_point = latest_prior(household, target)
+        household_point = closest(household, target)
         if household_point is None:
             continue
-        pv_point = latest_prior(pv, target)
+        pv_point = closest(pv, target)
         grid_w = normalize_grid_meter(grid_point)
         household_w = normalize_grid_meter(household_point)
         aligned.append(
