@@ -595,6 +595,60 @@ def test_bus_mode_controls_on_each_new_grid_sample():
     asyncio.run(scenario())
 
 
+def test_bus_mode_accepts_household_sample_slightly_newer_than_grid():
+    """A household timestamp a few ms after the grid must not trigger 0 W."""
+    bems = config_obj.bems
+    assert bems is not None
+    timestamp = datetime.now(UTC)
+
+    async def scenario() -> None:
+        bus = MeasurementBus()
+        battery = RecordingBattery()
+        service = LiveControlService(
+            config=live_config(),
+            output_databases=[],
+            batteries={"test_live": battery},
+            bus=bus,
+        )
+
+        bus.publish(
+            [
+                Measurement(
+                    timestamp,
+                    bems.inputs.grid.source,
+                    bems.inputs.grid.metric,
+                    500.0,
+                    "W",
+                ),
+                Measurement(
+                    timestamp + timedelta(milliseconds=5),
+                    bems.inputs.household.source,
+                    bems.inputs.household.metric,
+                    300.0,
+                    "W",
+                ),
+                Measurement(
+                    timestamp,
+                    bems.inputs.pv.source,
+                    bems.inputs.pv.metric,
+                    200.0,
+                    "W",
+                ),
+            ]
+        )
+        task = asyncio.create_task(service.run_forever_bus())
+
+        try:
+            await wait_until(lambda: len(battery.targets) == 1)
+            assert battery.targets[0].power_w == -300
+        finally:
+            await cancel_and_wait(task)
+
+    # Keep the heat pump blocked so only the alignment path is exercised.
+    with patch("src.bems.services.live.night_reserve_wh", return_value=5000.0):
+        asyncio.run(scenario())
+
+
 def test_bus_mode_requests_zero_once_when_grid_stalls():
     async def scenario() -> None:
         config = live_config()

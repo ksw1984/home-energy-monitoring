@@ -32,6 +32,12 @@ QUERY_PAGE_SIZE = 1000
 # failsafe still runs every cycle; this only bounds the wake-up frequency.
 MIN_BUS_WAIT_S = 0.1
 
+# Grid and household arrive as separate bus messages from independent collector
+# tasks, so the household timestamp can be a few milliseconds newer than the
+# grid timestamp even when both describe the same sample instant. Allow that
+# small skew when aligning live samples; historical replay never looks ahead.
+LIVE_ALIGNMENT_LOOKAHEAD_S = 1.0
+
 
 class LiveControlService:
     """Control injected battery adapters from stored rows or the measurement bus."""
@@ -292,6 +298,7 @@ class LiveControlService:
                     self.config.control.history_alignment_tolerance_s,
                     self.config.control.live_max_measurement_age_s,
                 ),
+                lookahead_seconds=LIVE_ALIGNMENT_LOOKAHEAD_S,
             )
         except ValueError:
             logger.exception("BEMS rejected invalid live power measurements from the bus")
