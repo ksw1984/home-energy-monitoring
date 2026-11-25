@@ -12,6 +12,7 @@ from pathlib import Path
 from src.bems.core.controller import GridBalancingController
 from src.bems.core.domain import align_power_samples, BatteryPowerCommand, BatteryProfile, estimate_power_without_battery
 from src.bems.core.economics import interval_cost_cents
+from src.bems.core.heat_pump_gate import HeatPumpDischargeGate
 from src.bems.core.reserve import night_reserve_wh
 from src.bems.core.simulation import SimulatedBattery
 from src.bems.reporting.report import append_measurements, build_device_report
@@ -139,6 +140,11 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
         report_dir,
     )
     controller = GridBalancingController(deadband_w=config.control.deadband_w)
+    heat_pump_gate = HeatPumpDischargeGate(
+        min_sustain_s=config.control.min_heat_pump_sustain_s,
+        reference_power_w=config.control.heat_pump_reference_power_w,
+    )
+    heat_pump_active: dict[str, bool] = {}
     night_baseline = NightBaselineProvider(config, history_database) if config.night.baseline_estimation.enabled else None
     batteries: dict[str, SimulatedBattery] = {}
     previous_samples = {}
@@ -273,6 +279,15 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     dusk_margin_minutes=config.night.dusk_margin_minutes,
                     dawn_margin_minutes=config.night.dawn_margin_minutes,
                 )
+                surplus_wh = max(0.0, state.energy_wh - household_reserve_wh)
+                hp_active = heat_pump_gate.allows(
+                    active=heat_pump_active.get(device.id, False),
+                    surplus_wh=surplus_wh,
+                    heat_pump_power_w=sample.heat_pump_w,
+                    discharge_efficiency=battery.profile.discharge_efficiency,
+                )
+                heat_pump_active[device.id] = hp_active
+                effective_reserve_wh = household_reserve_wh if hp_active else state.energy_wh
                 setpoint = controller.calculate_setpoint(
                     # Replay a meter that includes the simulated battery, then
                     # recover its baseline from delivered (not requested) power.
@@ -283,7 +298,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     global_max_output_power_w=config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(household_with_battery_w, state),
                     heat_pump_power_w=sample.heat_pump_w,
-                    heat_pump_reserve_wh=household_reserve_wh,
+                    minimum_household_reserve_wh=effective_reserve_wh,
                     control_interval_s=config.control.history_alignment_tolerance_s or 10.0,
                 )
                 await battery.set_power(BatteryPowerCommand(timestamp=sample.timestamp, power_w=setpoint))

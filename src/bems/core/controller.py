@@ -20,7 +20,7 @@ class GridBalancingController:
         global_max_output_power_w: float,
         household_power_w: float | None = None,
         heat_pump_power_w: float = 0.0,
-        heat_pump_reserve_wh: float = 0.0,
+        minimum_household_reserve_wh: float = 0.0,
         control_interval_s: float = 10.0,
     ) -> float:
         """Return signed AC power: positive charges and negative discharges."""
@@ -60,12 +60,16 @@ class GridBalancingController:
         # served only from energy above the reserve for household use overnight.
         household_demand_w = max(0.0, household_power_w if household_power_w is not None else grid_power_w)
         household_discharge_w = min(household_demand_w, output_limit_w, grid_headroom_w)
-        energy_above_reserve_wh = max(0.0, state.energy_wh - heat_pump_reserve_wh)
-        reserve_limited_hp_w = energy_above_reserve_wh * profile.discharge_efficiency * 3600.0 / max(1.0, control_interval_s)
+        # free reserve for heat-pump
+        energy_above_household_reserve_wh = max(0.0, state.energy_wh - minimum_household_reserve_wh)
+        # calculate the power output of the heat pump
+        # P_hp = above_reserve (Wh) * efficiency * 3600 (s / h) / control_interval_s
+        # P_hp = W h/h s/s
+        reserve_limited_heat_pump_w = energy_above_household_reserve_wh * profile.discharge_efficiency * 3600.0 / max(1.0, control_interval_s)
         heat_pump_discharge_w = min(
             max(0.0, heat_pump_power_w),
             max(0.0, output_limit_w - household_discharge_w),
             max(0.0, grid_headroom_w - household_discharge_w),
-            reserve_limited_hp_w,
+            reserve_limited_heat_pump_w,
         )
         return -(household_discharge_w + heat_pump_discharge_w)
