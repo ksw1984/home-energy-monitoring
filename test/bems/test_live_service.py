@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import csv
 from dataclasses import replace
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone, UTC
 from unittest.mock import patch
 
 from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatteryState
@@ -147,6 +147,30 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     } <= metrics
     assert "battery_available" not in metrics
     assert "firmware_compatible" not in metrics
+
+
+def test_state_measurements_use_sample_timezone_offset():
+    """Keep adapter UTC readings in the sample's CET representation."""
+    sample_time = datetime(2026, 11, 25, 7, 13, 57, tzinfo=timezone(timedelta(hours=1)))
+    state = BatteryState(
+        timestamp=datetime(2026, 11, 25, 6, 13, 57, tzinfo=UTC),
+        soc_percent=42.0,
+        energy_wh=3400.0,
+        charge_power_w=0.0,
+        discharge_power_w=290.0,
+    )
+
+    measurements = LiveControlService._state_measurements(
+        live_config().devices[0],
+        sample_time,
+        0.0,
+        state,
+        control_ok=1,
+        stale=0,
+    )
+
+    assert {point.timestamp.utcoffset() for point in measurements} == {timedelta(hours=1)}
+    assert all(point.timestamp == sample_time for point in measurements)
 
 
 def test_live_service_uses_measured_baseline_and_persists_it():
@@ -638,12 +662,14 @@ def test_bus_mode_requests_zero_when_household_is_missing():
 
 def test_bus_mode_requests_zero_when_household_is_stale():
     timestamp = datetime.now(UTC)
+    config = live_config()
+    config = replace(config, control=replace(config.control, live_max_measurement_age_s=3))
 
     async def scenario() -> None:
         bus = MeasurementBus()
         battery = RecordingBattery()
         service = LiveControlService(
-            config=live_config(),
+            config=config,
             output_databases=[],
             batteries={"test_live": battery},
             bus=bus,
