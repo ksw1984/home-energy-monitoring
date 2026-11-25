@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.6 - 2026-11-25
+
+### Added
+
+- Gate heat-pump discharge with `control.min_heat_pump_sustain_s` and `control.heat_pump_reference_power_w`: a burst may only start when the energy above the night reserve covers the configured window at the reference load. Once started, it runs until the reserve is reached instead of being re-checked each cycle. Set the sustain time to 0 to keep the previous behaviour.
+
 ## 0.11.5 - 2026-11-25
 
 ### Changed

@@ -155,6 +155,11 @@ class BemsControlConfig:
     # Optional CSV log of every setpoint actually sent to an adapter. Works
     # for mock and vendor adapters; ``None`` disables the log.
     command_log_csv: str | None = None
+    # Heat-pump discharge may only start when the energy above the night
+    # reserve covers this many seconds at heat_pump_reference_power_w. Zero
+    # disables the gate and keeps the legacy per-cycle reserve cap.
+    min_heat_pump_sustain_s: float = 0.0
+    heat_pump_reference_power_w: float = 2000.0
 
 
 @dataclass(frozen=True)
@@ -541,6 +546,8 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         hems_mqtt_publish_interval_s=float(raw_control.get("hems_mqtt_publish_interval_s", 1.0)),
         feed=feed,
         command_log_csv=command_log_csv,
+        min_heat_pump_sustain_s=float(raw_control.get("min_heat_pump_sustain_s", 0.0)),
+        heat_pump_reference_power_w=float(raw_control.get("heat_pump_reference_power_w", 2000.0)),
     )
     if control.deadband_w < 0 or control.max_output_power_w < 0:
         raise ValueError("BEMS deadband and output power limit cannot be negative")
@@ -552,6 +559,8 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         raise ValueError("BEMS bems_db_poll_interval_s must be positive")
     if control.hems_mqtt_publish_interval_s <= 0:
         raise ValueError("BEMS hems_mqtt_publish_interval_s must be positive")
+    if control.min_heat_pump_sustain_s < 0 or control.heat_pump_reference_power_w < 0:
+        raise ValueError("BEMS heat-pump sustain time and reference power cannot be negative")
 
     night = BemsNightConfig(
         baseline_household_w=float(raw_night.get("baseline_household_w", 250.0)),

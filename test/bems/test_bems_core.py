@@ -114,7 +114,7 @@ def test_positive_meter_import_triggers_discharge_and_soc_falls():
         grid_power_w=sample.grid_w,
         household_power_w=sample.household_w,
         heat_pump_power_w=sample.heat_pump_w,
-        heat_pump_reserve_wh=100,
+        minimum_household_reserve_wh=100,
         state=state,
         profile=battery.profile,
         device_max_output_power_w=800,
@@ -231,8 +231,8 @@ def test_controller_prioritizes_household_and_reserves_energy_from_heat_pump():
         "heat_pump_power_w": 700,
         "control_interval_s": 10,
     }
-    assert controller.calculate_setpoint(**kwargs, heat_pump_reserve_wh=500) == -300
-    assert controller.calculate_setpoint(**kwargs, heat_pump_reserve_wh=0) == -800
+    assert controller.calculate_setpoint(**kwargs, minimum_household_reserve_wh=500) == -300
+    assert controller.calculate_setpoint(**kwargs, minimum_household_reserve_wh=0) == -800
 
 
 def test_controller_keeps_configured_import_margin_and_prevents_grid_export():
@@ -245,7 +245,7 @@ def test_controller_keeps_configured_import_margin_and_prevents_grid_export():
         global_max_output_power_w=800,
         household_power_w=300,
         heat_pump_power_w=700,
-        heat_pump_reserve_wh=0,
+        minimum_household_reserve_wh=0,
     )
 
     assert setpoint == -480
@@ -296,7 +296,7 @@ def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
         grid_power_w=2260,
         household_power_w=460,
         heat_pump_power_w=1800,
-        heat_pump_reserve_wh=reserve,
+        minimum_household_reserve_wh=reserve,
         state=state,
         profile=reserve_profile,
         device_max_output_power_w=2000,
