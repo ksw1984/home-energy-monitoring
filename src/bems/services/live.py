@@ -17,6 +17,7 @@ from src.bems.core.domain import (
     BemsPowerSample,
     estimate_power_without_battery,
 )
+from src.bems.core.heat_pump_gate import HeatPumpDischargeGate
 from src.bems.core.reserve import night_reserve_wh
 from src.bems.services.command_log import BatteryCommandLog
 from src.bems.services.night_baseline_service import NightBaselineProvider
@@ -102,6 +103,11 @@ class LiveControlService:
         self._stale = False
         self._last_requested_power: dict[str, float] = {}
         self._last_command_at: dict[str, datetime] = {}
+        self._heat_pump_discharge_active: dict[str, bool] = {}
+        self._heat_pump_gate = HeatPumpDischargeGate(
+            min_sustain_s=config.control.min_heat_pump_sustain_s,
+            reference_power_w=config.control.heat_pump_reference_power_w,
+        )
         self._configuration_lock = asyncio.Lock()
         # Bus mode replaces this with the observed grid cadence; the database
         # path keeps the configured poll interval.
@@ -399,12 +405,19 @@ class LiveControlService:
                         )
                     )
                     continue
+                effective_reserve_wh = self._effective_night_reserve(
+                    device_id=device_id,
+                    sample=sample,
+                    state=before,
+                    profile=profile,
+                    reserve_wh=household_reserve_wh,
+                )
                 requested_power_w = self._calculate_device_setpoint(
                     device=device,
                     sample=sample,
                     state=before,
                     profile=profile,
-                    reserve_wh=household_reserve_wh,
+                    reserve_wh=effective_reserve_wh,
                 )
                 refresh_after = getattr(battery, "command_refresh_interval_s", None)
                 last_command_at = self._last_command_at.get(device_id)
@@ -478,6 +491,28 @@ class LiveControlService:
                 )
         await self._store(outputs)
 
+    def _effective_night_reserve(
+        self,
+        *,
+        device_id: str,
+        sample: BemsPowerSample,
+        state: BatteryState,
+        profile: BatteryProfile,
+        reserve_wh: float,
+    ) -> float:
+        """Apply the heat-pump sustain gate and return the reserve the controller should use."""
+        surplus_wh = max(0.0, state.energy_wh - reserve_wh)
+        hp_active = self._heat_pump_gate.allows(
+            active=self._heat_pump_discharge_active.get(device_id, False),
+            surplus_wh=surplus_wh,
+            heat_pump_power_w=sample.heat_pump_w,
+            discharge_efficiency=profile.discharge_efficiency,
+        )
+        self._heat_pump_discharge_active[device_id] = hp_active
+        # A closed gate raises the reserve to the current energy: household
+        # demand may still use it, heat-pump demand may not.
+        return reserve_wh if hp_active else state.energy_wh
+
     def _calculate_device_setpoint(
         self,
         *,
@@ -501,7 +536,7 @@ class LiveControlService:
             global_max_output_power_w=self.config.control.max_output_power_w,
             household_power_w=household_power_w,
             heat_pump_power_w=sample.heat_pump_w,
-            heat_pump_reserve_wh=reserve_wh,
+            total_night_reserve_wh=reserve_wh,
             control_interval_s=self.control_interval_s,
         )
 
@@ -548,6 +583,10 @@ class LiveControlService:
             self.config = config
             self.devices = next_devices
             self.controller.deadband_w = config.control.deadband_w
+            self._heat_pump_gate = HeatPumpDischargeGate(
+                min_sustain_s=config.control.min_heat_pump_sustain_s,
+                reference_power_w=config.control.heat_pump_reference_power_w,
+            )
             if previous_grid != next_grid:
                 self._grid_cursor = None
                 self._last_fresh_input = None
