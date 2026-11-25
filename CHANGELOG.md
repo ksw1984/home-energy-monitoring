@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.5 - 2026-11-25
+
+### Changed
+
+- Raise the shipped `live_max_measurement_age_s` to 5 s.
+
+### Fixed
+
+- Accept a household meter sample that is a few milliseconds newer than the grid sample when aligning live BEMS inputs, instead of requesting 0 W for one control cycle.
+- Write live battery actual power, SOC, and stored energy with the grid sample's UTC offset so one measurement batch does not mix timezone representations.
+
 ## 0.11.4 - 2026-11-24
 
 ### Changed
