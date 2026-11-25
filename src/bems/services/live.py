@@ -536,7 +536,7 @@ class LiveControlService:
             global_max_output_power_w=self.config.control.max_output_power_w,
             household_power_w=household_power_w,
             heat_pump_power_w=sample.heat_pump_w,
-            total_night_reserve_wh=reserve_wh,
+            minimum_household_reserve_wh=reserve_wh,
             control_interval_s=self.control_interval_s,
         )
 

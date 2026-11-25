@@ -298,7 +298,7 @@ async def simulate_historical(  # noqa: C901, PLR0912, PLR0913, PLR0915 - orches
                     global_max_output_power_w=config.control.max_output_power_w,
                     household_power_w=estimate_power_without_battery(household_with_battery_w, state),
                     heat_pump_power_w=sample.heat_pump_w,
-                    total_night_reserve_wh=effective_reserve_wh,
+                    minimum_household_reserve_wh=effective_reserve_wh,
                     control_interval_s=config.control.history_alignment_tolerance_s or 10.0,
                 )
                 await battery.set_power(BatteryPowerCommand(timestamp=sample.timestamp, power_w=setpoint))
