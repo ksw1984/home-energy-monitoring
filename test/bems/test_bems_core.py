@@ -59,6 +59,35 @@ def test_meter_import_sign_and_alignment_do_not_look_ahead():
     assert align_power_samples(grid, household_future, [], tolerance_seconds=10) == []
 
 
+def test_live_alignment_accepts_slightly_newer_household_sample():
+    """Bus collectors can stamp the household a few ms after the grid."""
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
+    grid = [measurement("grid_active_power", 420, source="meter_grid_dlms", timestamp=t0)]
+    household = [
+        measurement(
+            "grid_active_power",
+            200,
+            source="meter_household_dlms",
+            timestamp=t0 + timedelta(milliseconds=5),
+        )
+    ]
+
+    assert align_power_samples(grid, household, [], tolerance_seconds=3) == []
+
+    samples = align_power_samples(
+        grid,
+        household,
+        [],
+        tolerance_seconds=3,
+        lookahead_seconds=1.0,
+    )
+
+    assert len(samples) == 1
+    assert samples[0].grid_w == 420
+    assert samples[0].household_w == 200
+    assert samples[0].heat_pump_w == 220
+
+
 def test_legacy_dlms_power_without_unit_is_interpreted_as_kw():
     point = measurement(
         "grid_active_power",

@@ -371,7 +371,7 @@ bems:
     max_measurement_age_s: 20
     # Live only: request 0 W after this long without a fresh grid sample.
     # 0 W deactivates both charging and feed-in.
-    live_max_measurement_age_s: 3
+    live_max_measurement_age_s: 5
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
     bems_db_poll_interval_s: 5 # Used only with feed: database; MQTT mode reacts to each new grid message.
@@ -379,8 +379,8 @@ bems:
 
   night:
     baseline_household_w: 300
-    latitude: 52.4
-    longitude: 13.7
+    latitude: 52.45
+    longitude: 13.75
     timezone: Europe/Berlin
     dusk_margin_minutes: 30
     dawn_margin_minutes: 50          # Reserve ends 50 minutes after sunrise
