@@ -832,11 +832,14 @@ class LiveControlService:
         """Represent the requested target, observed state, and service status."""
         source = f"bems_live_{device.id}"
         actual_power = state.charge_power_w - state.discharge_power_w
+        # Adapters report state in UTC; align the displayed offset with the
+        # sample timestamp so one batch never mixes timezone representations.
+        state_timestamp = state.timestamp.astimezone(timestamp.tzinfo)
         measurements = [
             Measurement(timestamp, source, "battery_requested_power", requested_power_w / 1000.0, "kW"),
-            Measurement(state.timestamp, source, "battery_actual_power", actual_power / 1000.0, "kW"),
-            Measurement(state.timestamp, source, "battery_soc", state.soc_percent, "%"),
-            Measurement(state.timestamp, source, "battery_energy_stored", state.energy_wh / 1000.0, "kWh"),
+            Measurement(state_timestamp, source, "battery_actual_power", actual_power / 1000.0, "kW"),
+            Measurement(state_timestamp, source, "battery_soc", state.soc_percent, "%"),
+            Measurement(state_timestamp, source, "battery_energy_stored", state.energy_wh / 1000.0, "kWh"),
         ]
         if not control_ok:
             measurements.append(Measurement(timestamp, source, "battery_control_ok", 0.0, "bool"))
