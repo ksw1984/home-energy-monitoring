@@ -375,7 +375,7 @@ bems:
     history_alignment_tolerance_s: 10
     simulation_ramp_seconds: 10
     bems_db_poll_interval_s: 5 # Used only with feed: database; MQTT mode reacts to each new grid message.
-    hems_mqtt_publish_interval_s: 1.0 # HEMS publishes grid/household values at most once per interval; BEMS reacts to each grid message.
+    hems_mqtt_publish_interval_s: 0.5 # HEMS publishes grid/household values at most once per interval; BEMS reacts to each grid message.
     # Heat-pump discharge starts only when the energy above the night reserve
     # covers this many seconds at the reference load. Once started it is not
     # re-checked while the heat pump draws; it stops when the reserve is reached.
