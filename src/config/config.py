@@ -97,8 +97,15 @@ class EstimatorConfig:
 
 @dataclass(frozen=True)
 class CalculatorInputConfig:
+    """Reference to a measurement used as a formula input.
+
+    `default` is used only when no matching measurement is available in the
+    current calculation batch; it is not emitted as a stored measurement.
+    """
+
     source: str
     metric: str
+    default: float | None = None
 
 
 @dataclass(frozen=True)
@@ -376,6 +383,7 @@ def load_calculator_configs(
                 name: CalculatorInputConfig(
                     source=value["source"],
                     metric=value["metric"],
+                    default=(float(value["default"]) if "default" in value else None),
                 )
                 for name, value in calculation["inputs"].items()
             }

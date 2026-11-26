@@ -83,6 +83,12 @@ class FormulaCalculator(BaseCalculator):
         calculation: CalculationConfig,
         measurements: list[Measurement],
     ) -> dict[str, float] | None:
+        """Resolve formula inputs from the current batch or configured defaults.
+
+        Defaults are intended for optional inputs such as PV power when an
+        inverter is offline. A default is used in-memory for the formula only;
+        it is never stored as a measurement.
+        """
         values: dict[str, float] = {}
 
         for name, input_config in calculation.inputs.items():
@@ -93,7 +99,10 @@ class FormulaCalculator(BaseCalculator):
             ]
 
             if not matching:
-                return None
+                if input_config.default is None:
+                    return None
+                values[name] = input_config.default
+                continue
 
             latest = max(
                 matching,
