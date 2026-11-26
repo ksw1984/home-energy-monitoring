@@ -496,12 +496,12 @@ bems:
       max_output_power_w: 3000
       attributes:
         vendor: zendure
-        host: "<zendure-ip>"
+        host: "192.168.178.190"
         port: 80
-        serial_number: "<zendure-serial-number>"
+        serial_number: "HEE3NDP5P200169"
         allow_control: false
-        expected_model: "<reported-model>"
-        supported_firmware_versions: [ "<exact-verified-firmware-revision>" ]
+        expected_model: "solarFlow4000MixAC+"
+        supported_firmware_versions: [ "4144" ]
 
     - id: anker_live
       profile: anker_solarbank_max_ac
