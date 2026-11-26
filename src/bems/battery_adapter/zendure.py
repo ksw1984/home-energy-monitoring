@@ -10,6 +10,7 @@ No Zendure cloud connection is used.
 
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import datetime, UTC
 from typing import Any
@@ -19,10 +20,25 @@ from src.bems.core.domain import BatteryIdentity, BatteryPowerCommand, BatterySt
 import httpx
 
 MAX_SOC_PERCENT = 100
+INVERSE_MAX_POWER_PROPERTY = "inverseMaxPower"
 
 
 class ZendureApiError(RuntimeError):
     """Raised when the Zendure local API returns an invalid response."""
+
+
+def _finite_number(properties: dict[str, Any], key: str) -> float:
+    """Read a finite numeric ZenSDK property, accepting numeric strings."""
+    value = properties.get(key)
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        raise ZendureApiError(f"Zendure report is missing numeric property '{key}'")
+    try:
+        result = float(value)
+    except ValueError as error:
+        raise ZendureApiError(f"Zendure property '{key}' is not numeric") from error
+    if not math.isfinite(result):
+        raise ZendureApiError(f"Zendure property '{key}' is not finite")
+    return result
 
 
 class ZendureZenSdkClient:
@@ -173,6 +189,33 @@ class ZendureZenSdkClient:
             }
         )
 
+    async def ensure_inverse_max_power(
+        self,
+        power_w: int,
+        *,
+        attempts: int = 8,
+        retry_interval_s: float = 0.5,
+    ) -> None:
+        """Write the device-side discharge ceiling and verify it by readback.
+
+        The ZenSDK report can lag behind a write by several seconds, so the
+        readback is retried before the mismatch is treated as an error.
+        """
+        if power_w < 0:
+            raise ValueError("Inverse max power must be >= 0")
+        if attempts < 1:
+            raise ValueError("At least one readback attempt is required")
+
+        await self.write_properties({INVERSE_MAX_POWER_PROPERTY: power_w})
+        for attempt in range(attempts):
+            properties = await self.get_properties()
+            reported = _finite_number(properties, INVERSE_MAX_POWER_PROPERTY)
+            if round(reported) == power_w:
+                return
+            if attempt + 1 < attempts and retry_interval_s > 0:
+                await asyncio.sleep(retry_interval_s)
+        raise ZendureApiError(f"Zendure {INVERSE_MAX_POWER_PROPERTY} readback is {reported:g} W, expected {power_w} W")
+
     async def close(self) -> None:
         """Close the HTTP session."""
         if self._http is not None:
@@ -257,6 +300,22 @@ class ZendureBatteryAdapter:
         if not firmware_version:
             raise ZendureApiError("Zendure report returned an empty firmware version")
         return BatteryIdentity(model=product, firmware_version=firmware_version)
+
+    async def configure_device_limits(self, *, discharge_limit_w: float) -> None:
+        """Write and verify the device-side AC discharge ceiling.
+
+        BEMS clamps setpoints itself, but the Zendure unit keeps its own
+        ``inverseMaxPower`` ceiling. If the app left that value at 800 W, BEMS
+        requests would be silently reduced. The lower of the configured and
+        already effective limit is written here and read back from the device.
+        """
+        if not self.allow_control:
+            raise PermissionError("Zendure writes are disabled; set allow_control: true to enable them")
+        if not math.isfinite(discharge_limit_w) or discharge_limit_w < 0:
+            raise ValueError("Zendure discharge limit must be finite and >= 0")
+
+        target_w = math.floor(min(discharge_limit_w, self.max_discharge_power_w))
+        await self.client.ensure_inverse_max_power(target_w)
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         """Send a bounded AC target, only after explicit write opt-in."""

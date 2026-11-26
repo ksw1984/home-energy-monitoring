@@ -363,7 +363,8 @@ bems:
     # mqtt: live control from HEMS measurement events; database is for one-shot diagnostics.
     feed: mqtt
     # Optional CSV log of every setpoint sent to an adapter, including mocks.
-    # Set to null to disable. The live service appends and flushes each command.
+    # Set command_log_enabled: false to disable. The live service appends and flushes each command.
+    command_log_enabled: false
     command_log_csv: data/bems_commands.csv
     deadband_w: 20 # Grid meter deadband after battery compensation; not applied separately to the household meter.
     max_output_power_w: 3500
@@ -496,12 +497,12 @@ bems:
       max_output_power_w: 3000
       attributes:
         vendor: zendure
-        host: "<zendure-ip>"
+        host: "192.168.178.190"
         port: 80
-        serial_number: "<zendure-serial-number>"
+        serial_number: "HEE3NDP5P200169"
         allow_control: false
-        expected_model: "<reported-model>"
-        supported_firmware_versions: [ "<exact-verified-firmware-revision>" ]
+        expected_model: "solarFlow4000MixAC+"
+        supported_firmware_versions: [ "4144" ]
 
     - id: anker_live
       profile: anker_solarbank_max_ac

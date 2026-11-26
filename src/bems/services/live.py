@@ -86,7 +86,8 @@ class LiveControlService:
         self.output_databases = output_databases
         self.batteries = batteries
         self.poll_interval_s = poll_interval_s
-        self.command_log = BatteryCommandLog(command_log_csv) if command_log_csv else None
+        command_log_enabled = config.control.command_log_enabled and command_log_csv is not None
+        self.command_log = BatteryCommandLog(command_log_csv) if command_log_enabled else None
         self.night_baseline = night_baseline
         self.controller = GridBalancingController(deadband_w=config.control.deadband_w)
         self.devices = {device.id: device for device in config.devices if device.enabled and device.mode == "live"}
@@ -104,6 +105,7 @@ class LiveControlService:
         self._last_requested_power: dict[str, float] = {}
         self._last_command_at: dict[str, datetime] = {}
         self._heat_pump_discharge_active: dict[str, bool] = {}
+        self._verified_identities: dict[str, BatteryIdentity] = {}
         self._heat_pump_gate = HeatPumpDischargeGate(
             min_sustain_s=config.control.min_heat_pump_sustain_s,
             reference_power_w=config.control.heat_pump_reference_power_w,
@@ -360,13 +362,7 @@ class LiveControlService:
         """Calculate and dispatch a target per live device, isolating adapter failures."""
         timestamp = sample.timestamp
         outputs: list[Measurement] = []
-        if self.night_baseline is not None:
-            await self.night_baseline.refresh_completed_night(now)
-        baseline_power_w = self.config.night.baseline_household_w
-        if self.night_baseline is not None:
-            measured_baseline_w = await self.night_baseline.power_for(timestamp)
-            if measured_baseline_w is not None:
-                baseline_power_w = measured_baseline_w
+        baseline_power_w = await self._baseline_power_w(now, timestamp)
         for device_id, battery in self.batteries.items():
             device = self.devices[device_id]
             requested_power_w = self._last_requested_power.get(device_id, 0.0)
@@ -382,114 +378,150 @@ class LiveControlService:
             command_sent = False
             device_state_read = False
             try:
-                identity = await battery.get_identity()
                 before = await battery.get_state()
                 device_state_read = True
-                compatible, reason = self._firmware_compatibility(device, identity)
-                if not compatible:
-                    logger.error(
-                        "BEMS live control blocked for %s: %s (model=%s firmware=%s)",
-                        device_id,
-                        reason,
-                        identity.model,
-                        identity.firmware_version,
-                    )
-                    outputs.extend(
-                        self._state_measurements(
-                            device,
-                            timestamp,
-                            0.0,
-                            before,
-                            control_ok=0,
-                            stale=0,
-                        )
-                    )
+                if not await self._identity_ok(device_id, battery, device, timestamp, before, outputs):
                     continue
-                effective_reserve_wh = self._effective_night_reserve(
-                    device_id=device_id,
-                    sample=sample,
-                    state=before,
-                    profile=profile,
-                    reserve_wh=household_reserve_wh,
-                )
                 requested_power_w = self._calculate_device_setpoint(
                     device=device,
                     sample=sample,
                     state=before,
                     profile=profile,
-                    reserve_wh=effective_reserve_wh,
+                    reserve_wh=self._effective_night_reserve(
+                        device_id=device_id,
+                        sample=sample,
+                        state=before,
+                        profile=profile,
+                        reserve_wh=household_reserve_wh,
+                    ),
                 )
-                refresh_after = getattr(battery, "command_refresh_interval_s", None)
-                last_command_at = self._last_command_at.get(device_id)
-                refresh_due = (
-                    refresh_after is not None and last_command_at is not None and (timestamp - last_command_at).total_seconds() >= refresh_after
-                )
-                if self._last_requested_power.get(device_id) != requested_power_w or refresh_due:
+                should_send = self._should_send(device_id, timestamp, requested_power_w)
+                if should_send:
                     command_attempted = True
                     await battery.set_power(BatteryPowerCommand(timestamp=timestamp, power_w=requested_power_w))
                     command_sent = True
                     self._last_requested_power[device_id] = requested_power_w
                     self._last_command_at[device_id] = timestamp
-                state = await battery.get_state()
+                state = await battery.get_state() if command_sent else before
                 if command_sent:
-                    self._record_command(
-                        timestamp=timestamp,
-                        device_id=device_id,
-                        requested_power_w=requested_power_w,
-                        accepted_power_w=state.charge_power_w - state.discharge_power_w,
-                        soc_percent=state.soc_percent,
-                        status="accepted",
-                    )
-                    outputs.extend(
-                        self._command_measurements(
-                            device,
-                            timestamp,
-                            requested_power_w,
-                            state.charge_power_w - state.discharge_power_w,
-                            status=1,
-                        )
-                    )
-                outputs.extend(
-                    self._state_measurements(
-                        device,
-                        timestamp,
-                        requested_power_w,
-                        state,
-                        control_ok=1,
-                        stale=0,
-                    )
-                )
-            except Exception as exc:
-                if command_attempted:
+                    self._append_command_outputs(outputs, device, timestamp, requested_power_w, state)
+                outputs.extend(self._state_measurements(device, timestamp, requested_power_w, state, control_ok=1, stale=0))
+            except Exception as exc:  # noqa: BLE001 - adapter failures must not stop live control
+                if command_sent:
                     self._record_command(
                         timestamp=timestamp,
                         device_id=device_id,
                         requested_power_w=requested_power_w,
                         accepted_power_w=None,
                         soc_percent=None,
-                        status="sent" if command_sent else "failed",
+                        status="sent",
                         error=str(exc),
                     )
-                    outputs.extend(
-                        self._command_measurements(
-                            device,
-                            timestamp,
-                            requested_power_w,
-                            None,
-                            status=0 if command_sent else -1,
-                        )
-                    )
-                logger.exception("BEMS adapter operation failed for device %s", device_id)
-                outputs.extend(
-                    self._error_measurements(
-                        device,
-                        now,
-                        requested_power_w,
-                        stale=0,
-                        device_alive=device_state_read,
-                    )
+                    outputs.extend(self._command_measurements(device, timestamp, requested_power_w, None, status=0))
+                    command_attempted = False
+                self._handle_control_error(
+                    outputs=outputs,
+                    device=device,
+                    device_id=device_id,
+                    now=now,
+                    timestamp=timestamp,
+                    requested_power_w=requested_power_w,
+                    command_attempted=command_attempted,
+                    command_sent=False,
+                    device_state_read=device_state_read,
+                    exc=exc,
                 )
         await self._store(outputs)
+
+    async def _baseline_power_w(self, now: datetime, timestamp: datetime) -> float:
+        if self.night_baseline is not None:
+            await self.night_baseline.refresh_completed_night(now)
+        baseline_power_w = self.config.night.baseline_household_w
+        if self.night_baseline is not None:
+            measured_baseline_w = await self.night_baseline.power_for(timestamp)
+            if measured_baseline_w is not None:
+                baseline_power_w = measured_baseline_w
+        return baseline_power_w
+
+    async def _identity_ok(  # noqa: PLR0913, PLR0917
+        self,
+        device_id: str,
+        battery: Battery,
+        device: BemsDeviceConfig,
+        timestamp: datetime,
+        state: BatteryState,
+        outputs: list[Measurement],
+    ) -> bool:
+        identity = self._verified_identities.get(device_id)
+        if identity is not None:
+            return True
+        identity = await battery.get_identity()
+        compatible, reason = self._firmware_compatibility(device, identity)
+        if compatible:
+            self._verified_identities[device_id] = identity
+            return True
+        logger.error(
+            "BEMS live control blocked for %s: %s (model=%s firmware=%s)",
+            device_id,
+            reason,
+            identity.model,
+            identity.firmware_version,
+        )
+        outputs.extend(self._state_measurements(device, timestamp, 0.0, state, control_ok=0, stale=0))
+        return False
+
+    def _should_send(self, device_id: str, timestamp: datetime, requested_power_w: float) -> bool:
+        refresh_after = getattr(self.batteries[device_id], "command_refresh_interval_s", None)
+        last_command_at = self._last_command_at.get(device_id)
+        refresh_due = refresh_after is not None and last_command_at is not None and (timestamp - last_command_at).total_seconds() >= refresh_after
+        return self._last_requested_power.get(device_id) != requested_power_w or refresh_due
+
+    def _append_command_outputs(
+        self,
+        outputs: list[Measurement],
+        device: BemsDeviceConfig,
+        timestamp: datetime,
+        requested_power_w: float,
+        state: BatteryState,
+    ) -> None:
+        accepted_power_w = state.charge_power_w - state.discharge_power_w
+        self._record_command(
+            timestamp=timestamp,
+            device_id=device.id,
+            requested_power_w=requested_power_w,
+            accepted_power_w=accepted_power_w,
+            soc_percent=state.soc_percent,
+            status="accepted",
+        )
+        outputs.extend(self._command_measurements(device, timestamp, requested_power_w, accepted_power_w, status=1))
+
+    def _handle_control_error(  # noqa: PLR0913
+        self,
+        *,
+        outputs: list[Measurement],
+        device: BemsDeviceConfig,
+        device_id: str,
+        now: datetime,
+        timestamp: datetime,
+        requested_power_w: float,
+        command_attempted: bool,
+        command_sent: bool,
+        device_state_read: bool,
+        exc: Exception,
+    ) -> None:
+        if command_attempted:
+            self._record_command(
+                timestamp=timestamp,
+                device_id=device_id,
+                requested_power_w=requested_power_w,
+                accepted_power_w=None,
+                soc_percent=None,
+                status="sent" if command_sent else "failed",
+                error=str(exc),
+            )
+            outputs.extend(self._command_measurements(device, timestamp, requested_power_w, None, status=0 if command_sent else -1))
+        logger.error("BEMS adapter operation failed for device %s: %s", device_id, exc)
+        outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0, device_alive=device_state_read))
 
     def _effective_night_reserve(
         self,
@@ -566,6 +598,26 @@ class LiveControlService:
         ]
         return reserve_wh, measurements
 
+    async def initialize(self) -> None:
+        """Verify live identities and apply vendor-side limits before control starts.
+
+        Device-side ceilings such as Zendure ``inverseMaxPower`` are written
+        only after the exact model/firmware allowlist passes. A failed check or
+        write prevents the service from starting instead of letting BEMS send
+        setpoints that the device silently clamps.
+        """
+        async with self._configuration_lock:
+            for device_id, battery in self.batteries.items():
+                device = self.devices[device_id]
+                identity = await battery.get_identity()
+                compatible, reason = self._firmware_compatibility(device, identity)
+                if not compatible:
+                    raise RuntimeError(
+                        f"BEMS live startup blocked for {device_id}: {reason} (model={identity.model} firmware={identity.firmware_version})"
+                    )
+                self._verified_identities[device_id] = identity
+                await self._apply_device_power_limits(device_id, device, self._profile_for_device(device))
+
     async def update_config(self, config: BemsConfig) -> None:
         """Apply safe live settings and battery power limits without rebuilding adapters.
 
@@ -626,6 +678,9 @@ class LiveControlService:
             if hasattr(battery, "power_w"):
                 power = battery.power_w
                 battery.power_w = max(-discharge_limit, min(charge_limit, power))
+        configure_device_limits = getattr(battery, "configure_device_limits", None)
+        if configure_device_limits is not None:
+            await configure_device_limits(discharge_limit_w=discharge_limit)
         previous_target = self._last_requested_power.get(device_id, 0.0)
         bounded_target = max(-discharge_limit, min(charge_limit, previous_target))
         if bounded_target == previous_target:
@@ -707,7 +762,9 @@ class LiveControlService:
             try:
                 state = await battery.get_state()
                 device_state_read = True
-                identity = await battery.get_identity()
+                identity = self._verified_identities.get(device_id)
+                if identity is None:
+                    identity = await battery.get_identity()
                 compatible, reason = self._firmware_compatibility(device, identity)
                 if not compatible:
                     logger.error("BEMS stale-input firmware unverified for %s: %s", device_id, reason)

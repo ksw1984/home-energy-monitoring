@@ -117,17 +117,20 @@ The separate BEMS container can host the live controller against a mock battery.
 
 Keep the matching real device disabled while the mock is enabled. The app substitutes the synthetic `BEMS-MOCK` / `mock` identity for mock devices, so the real firmware allowlist is not needed. Mixed configurations are supported: real devices still go through their normal identity and firmware checks.
 
-Set `bems.control.command_log_csv` to append every setpoint actually sent to an adapter:
+Set `bems.control.command_log_enabled: true` to append every setpoint actually sent to an adapter:
 
 ```yaml
 bems:
   control:
+    command_log_enabled: true
     command_log_csv: data/bems_commands.csv
 ```
 
+Set `command_log_enabled: false` to disable the CSV log.
+
 The CSV columns are `timestamp`, `device_id`, `requested_power_w`, `accepted_power_w`, `soc_percent`, `status`, and `error`. `status` is `accepted` when the adapter state was read after the write, `sent` when the write succeeded but state could not be read, and `failed` when the write itself failed. The live service appends and flushes each row, so commands survive a crash. This log works for both mock and real adapters. Without hardware, an Anker adapter fails at identity/state preflight before `set_power`, so no command row is produced; use `attributes.mock: true` with the Anker profile to exercise the control path before the battery arrives.
 
-The live service writes battery metrics to InfluxDB under `bems_live_<device-id>` with a `battery_` prefix. Power values (`battery_requested_power`, `battery_actual_power`, `battery_command_requested_power`, and `battery_command_reported_power`) are stored in kW, and battery energies (`battery_energy_stored`, `battery_night_reserve_kwh`) in kWh, matching HEMS meter units; BEMS converts them from internal W and Wh values. SOC remains in percent. Problem indicators are event-style: `battery_stale_input=1` is written only for stale input, `battery_control_ok=0` only when control is blocked or fails, and `battery_device_alive=0` only when the adapter cannot read state. Successful states are assumed; no healthy `1` points are written. Each attempted command adds a requested power, a reported power when readback is available, and status (`1` accepted, `0` sent but unreadable, `-1` failed). Firmware compatibility remains enforced by the controller but is not stored in InfluxDB. The `bems-live` process also honors `bems.control.command_log_csv`; its `--mock-csv` export remains available as a separate one-file plotting snapshot with W-valued columns.
+The live service writes battery metrics to InfluxDB under `bems_live_<device-id>` with a `battery_` prefix. Power values (`battery_requested_power`, `battery_actual_power`, `battery_command_requested_power`, and `battery_command_reported_power`) are stored in kW, and battery energies (`battery_energy_stored`, `battery_night_reserve_kwh`) in kWh, matching HEMS meter units; BEMS converts them from internal W and Wh values. SOC remains in percent. Problem indicators are event-style: `battery_stale_input=1` is written only for stale input, `battery_control_ok=0` only when control is blocked or fails, and `battery_device_alive=0` only when the adapter cannot read state. Successful states are assumed; no healthy `1` points are written. Each attempted command adds a requested power, a reported power when readback is available, and status (`1` accepted, `0` sent but unreadable, `-1` failed). Firmware compatibility remains enforced by the controller but is not stored in InfluxDB. The `bems-live` process also honors `bems.control.command_log_enabled`/`command_log_csv`; its `--mock-csv` export remains available as a separate one-file plotting snapshot with W-valued columns.
 
 ## Live feed and stale-input safety
 

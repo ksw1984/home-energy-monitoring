@@ -17,11 +17,11 @@ services:
       - /dev/ttyUSB0:/dev/ttyUSB0
       - /dev/ttyUSB1:/dev/ttyUSB1
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      test: [ "CMD", "python", "-c", "import os; os.kill(1, 0)" ]
       interval: 30s
       timeout: 5s
       retries: 3
-    networks: [default, mqtt_bus]
+    networks: [ default, mqtt_bus ]
 
   bems:
     image: ghcr.io/ksw1984/home-energy-monitoring-bems:${BEMS_VERSION:-latest}
@@ -38,14 +38,14 @@ services:
       - ../config.yaml:/app/config.yaml:ro
       - ./data/bems:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      test: [ "CMD", "python", "-c", "import os; os.kill(1, 0)" ]
       interval: 30s
       timeout: 5s
       retries: 3
     depends_on:
       mqtt:
         condition: service_healthy
-    networks: [default, mqtt_bus]
+    networks: [ default, mqtt_bus ]
 
   mqtt:
     image: eclipse-mosquitto:${MOSQUITTO_VERSION}
@@ -55,7 +55,7 @@ services:
     environment:
       MQTT_HEMS_PASSWORD: ${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}
       MQTT_BEMS_PASSWORD: ${MQTT_BEMS_PASSWORD:?Set MQTT_BEMS_PASSWORD in .env}
-    entrypoint: ["/bin/sh", "-ec"]
+    entrypoint: [ "/bin/sh", "-ec" ]
     command:
       - |
         : "$${MQTT_HEMS_PASSWORD:?Set MQTT_HEMS_PASSWORD in .env}"
@@ -89,24 +89,27 @@ services:
     volumes:
       - mosquitto_data:/mosquitto/data
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -u hems -P \"$$MQTT_HEMS_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 15 >/dev/null"]
+      test: [ "CMD-SHELL", "mosquitto_sub -h localhost -u hems -P \"$$MQTT_HEMS_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 15 >/dev/null" ]
       interval: 10s
       timeout: 20s
       retries: 5
       start_period: 5s
-    networks: [mqtt_bus]
+    networks: [ mqtt_bus ]
 
   influxdb:
     image: influxdb:${INFLUXDB_VERSION}
     restart: unless-stopped
     env_file:
       - ../.env
+    environment:
+      INFLUXD_SESSION_LENGTH: 480 # in minutes, 480=8h, TTL until sign out
+      INFLUXD_SESSION_RENEW_DISABLED: "false"
     ports:
       - "8086:8086"
     volumes:
       - ./data/influxdb:/var/lib/influxdb2
     healthcheck:
-      test: ["CMD", "influx", "ping"]
+      test: [ "CMD", "influx", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 10

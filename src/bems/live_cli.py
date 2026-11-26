@@ -110,6 +110,7 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
         service_config = with_mock_identities(config, device_ids=mock_device_ids)
         night_baseline = NightBaselineProvider(config, input_database) if config.night.baseline_estimation.enabled and input_database else None
         bus = MeasurementBus()
+        command_log_csv = config.control.command_log_csv if config.control.command_log_enabled else None
         service = LiveControlService(
             config=service_config,
             input_database=input_database if once else None,
@@ -117,9 +118,10 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
             output_databases=connected_databases,
             batteries=batteries,
             poll_interval_s=config.control.bems_db_poll_interval_s,
-            command_log_csv=config.control.command_log_csv,
+            command_log_csv=command_log_csv,
             night_baseline=night_baseline,
         )
+        await service.initialize()
         if once:
             await service.run_once(now=datetime.now(UTC))
         else:

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.7 - 2026-11-26
+
+### Fixed
+
+- Initialize and reload Zendure live devices by writing and readback-verifying `inverseMaxPower` to the effective BEMS discharge limit, preventing device-side caps (for example 800 W after disconnecting Zendure HEMS) from silently clipping requested power.
+
+### Changed
+
+- Quiet BEMS live logs by setting `httpx`/`httpcore` to `WARNING` and moving text-file backup writes to `DEBUG`.
+- Add `bems.control.command_log_enabled` (default `false`) to disable CSV command logging while keeping `command_log_csv` as the path.
+
 ## 0.11.6 - 2026-11-25
 
 ### Added
