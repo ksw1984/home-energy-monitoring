@@ -151,7 +151,7 @@ class TextFileDatabase(BaseDatabase):
         """
         self.directory.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Write to jsonl in {self.directory.absolute()}")
+        logger.debug("Write %d measurements to jsonl in %s", len(measurements), self.directory.absolute())
         files: dict[date, TextIO] = {}
 
         try:

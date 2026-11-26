@@ -224,7 +224,7 @@ def test_live_service_logs_accepted_commands_to_csv(tmp_path):
     battery = RecordingBattery()
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(input_measurements(timestamp)),
         output_databases=[],
         batteries={"test_live": battery},
@@ -251,7 +251,7 @@ def test_live_service_logs_failed_commands_without_accepted_power(tmp_path):
     battery.fail_sets = True
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(input_measurements(timestamp)),
         output_databases=[],
         batteries={"test_live": battery},
@@ -276,7 +276,7 @@ def test_stale_failsafe_logs_zero_command(tmp_path):
     battery = RecordingBattery()
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(),
         output_databases=[],
         batteries={"test_live": battery},
@@ -381,7 +381,7 @@ def test_live_service_blocks_control_when_device_identity_is_unavailable():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
 
     assert battery.targets == []
-    assert any(point.metric == "battery_device_alive" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "battery_control_ok" and point.value == 0 for point in output_database.writes)
 
 
 def test_live_service_requests_zero_when_inputs_become_stale():
