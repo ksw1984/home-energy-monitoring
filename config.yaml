@@ -317,6 +317,7 @@ calculators:
           pv_power:
             source: inverter_fronius
             metric: pv_power
+            default: 0
           household_power:
             source: meter_household_dlms
             metric: grid_active_power

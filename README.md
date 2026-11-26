@@ -598,8 +598,8 @@ cp deployment/.env.example .env
 Set `HEMS_VERSION` and `BEMS_VERSION` to the release version without the leading `v`. They can be changed independently. `MOSQUITTO_VERSION` is required too. Keep the `DOCKER_INFLUXDB_INIT_*` entries from the template; InfluxDB uses them when its data directory is initialized for the first time.
 
 ```dotenv
-HEMS_VERSION=0.11.7
-BEMS_VERSION=0.11.7
+HEMS_VERSION=0.11.8
+BEMS_VERSION=0.11.8
 MOSQUITTO_VERSION=2.0
 INFLUXDB_VERSION=2.9.1
 GRAFANA_VERSION=13.2

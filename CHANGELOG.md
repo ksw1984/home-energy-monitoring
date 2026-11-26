@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.8 - 2026-11-26
+
+### Fixed
+
+- Allow formula calculator inputs to declare a `default` value used only in-memory when a measurement is missing; use `pv_power: default 0` so `household_power_draw` is still calculated when the Fronius inverter is offline.
+
 ## 0.11.7 - 2026-11-26
 
 ### Fixed
