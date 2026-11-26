@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.11.9 - 2026-11-26
+
+### Fixed
+
+- Send a best-effort zero-power shutdown failsafe to live BEMS batteries on SIGTERM/SIGINT/container stop, with timeout and graceful bus shutdown.
+
 ## 0.11.8 - 2026-11-26
 
 ### Fixed
