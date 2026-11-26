@@ -13,3 +13,7 @@ def setup_logging() -> None:
             logging.StreamHandler(sys.stdout),
         ],
     )
+
+    # HTTP client libraries are very chatty at INFO on polling loops.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

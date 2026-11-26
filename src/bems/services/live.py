@@ -86,7 +86,8 @@ class LiveControlService:
         self.output_databases = output_databases
         self.batteries = batteries
         self.poll_interval_s = poll_interval_s
-        self.command_log = BatteryCommandLog(command_log_csv) if command_log_csv else None
+        command_log_enabled = config.control.command_log_enabled and command_log_csv is not None
+        self.command_log = BatteryCommandLog(command_log_csv) if command_log_enabled else None
         self.night_baseline = night_baseline
         self.controller = GridBalancingController(deadband_w=config.control.deadband_w)
         self.devices = {device.id: device for device in config.devices if device.enabled and device.mode == "live"}

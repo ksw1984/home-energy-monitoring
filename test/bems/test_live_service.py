@@ -224,7 +224,7 @@ def test_live_service_logs_accepted_commands_to_csv(tmp_path):
     battery = RecordingBattery()
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(input_measurements(timestamp)),
         output_databases=[],
         batteries={"test_live": battery},
@@ -251,7 +251,7 @@ def test_live_service_logs_failed_commands_without_accepted_power(tmp_path):
     battery.fail_sets = True
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(input_measurements(timestamp)),
         output_databases=[],
         batteries={"test_live": battery},
@@ -276,7 +276,7 @@ def test_stale_failsafe_logs_zero_command(tmp_path):
     battery = RecordingBattery()
     path = tmp_path / "commands.csv"
     service = LiveControlService(
-        config=live_config(),
+        config=replace(live_config(), control=replace(live_config().control, command_log_enabled=True)),
         input_database=MemoryDatabase(),
         output_databases=[],
         batteries={"test_live": battery},

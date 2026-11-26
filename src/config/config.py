@@ -153,8 +153,9 @@ class BemsControlConfig:
     # MQTT is the cross-process live feed; database remains for one-shot checks.
     feed: str = "mqtt"
     # Optional CSV log of every setpoint actually sent to an adapter. Works
-    # for mock and vendor adapters; ``None`` disables the log.
-    command_log_csv: str | None = None
+    # for mock and vendor adapters; set command_log_enabled to false to disable.
+    command_log_enabled: bool = True
+    command_log_csv: str | None = "data/bems_commands.csv"
     # Heat-pump discharge may only start when the energy above the night
     # reserve covers this many seconds at heat_pump_reference_power_w. Zero
     # disables the gate and keeps the legacy per-cycle reserve cap.
@@ -530,10 +531,15 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
     if feed not in {"mqtt", "bus", "database"}:
         raise ValueError("BEMS control.feed must be 'mqtt', 'bus' or 'database'")
 
-    command_log_csv = raw_control.get("command_log_csv")
+    command_log_enabled = raw_control.get("command_log_enabled")
+    command_log_csv = raw_control.get("command_log_csv", "data/bems_commands.csv")
 
+    if command_log_enabled is not None and not isinstance(command_log_enabled, bool):
+        raise ValueError("BEMS control.command_log_enabled must be a boolean")
     if command_log_csv is not None and (not isinstance(command_log_csv, str) or not command_log_csv.strip()):
         raise ValueError("BEMS control.command_log_csv must be a non-empty path or null")
+    if command_log_enabled is None:
+        command_log_enabled = command_log_csv is not None
 
     control = BemsControlConfig(
         deadband_w=float(raw_control.get("deadband_w", 20.0)),
@@ -545,6 +551,7 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
         bems_db_poll_interval_s=float(raw_control.get("bems_db_poll_interval_s", 5.0)),
         hems_mqtt_publish_interval_s=float(raw_control.get("hems_mqtt_publish_interval_s", 1.0)),
         feed=feed,
+        command_log_enabled=command_log_enabled,
         command_log_csv=command_log_csv,
         min_heat_pump_sustain_s=float(raw_control.get("min_heat_pump_sustain_s", 0.0)),
         heat_pump_reference_power_w=float(raw_control.get("heat_pump_reference_power_w", 2000.0)),
