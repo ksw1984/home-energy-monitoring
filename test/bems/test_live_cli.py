@@ -4,7 +4,7 @@ from datetime import datetime, UTC
 
 from src.bems.battery_adapter.mock import MockBatteryAdapter
 from src.bems.core.domain import BatteryPowerCommand, BatteryProfile
-from src.bems.live_cli import _write_mock_commands
+from src.bems.live_cli import _shutdown_failsafe, _write_mock_commands
 
 
 def _profile() -> BatteryProfile:
@@ -52,3 +52,28 @@ def test_write_mock_commands_writes_header_for_idle_mock(tmp_path):
     _write_mock_commands(path, {"test_live": adapter})
 
     assert path.read_text(encoding="utf-8").splitlines() == ["timestamp,device_id,requested_power_w,accepted_power_w,soc_percent"]
+
+
+class _RecordingBattery:
+    def __init__(self) -> None:
+        self.commands: list[float] = []
+
+    async def set_power(self, command: BatteryPowerCommand) -> None:
+        self.commands.append(command.power_w)
+
+
+def test_shutdown_failsafe_sends_zero_for_live_mode():
+    battery = _RecordingBattery()
+
+    asyncio.run(_shutdown_failsafe({"zendure_live": battery}, dry_run=False, once=False))
+
+    assert battery.commands == [0.0]
+
+
+def test_shutdown_failsafe_skips_dry_run_and_once():
+    battery = _RecordingBattery()
+
+    asyncio.run(_shutdown_failsafe({"zendure_live": battery}, dry_run=True, once=False))
+    asyncio.run(_shutdown_failsafe({"zendure_live": battery}, dry_run=False, once=True))
+
+    assert battery.commands == []

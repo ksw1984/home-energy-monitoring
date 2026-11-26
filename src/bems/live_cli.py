@@ -9,12 +9,13 @@ import argparse
 import asyncio
 import csv
 import logging
+import signal
 from datetime import datetime, UTC
 from pathlib import Path
 
 from src.bems.battery_adapter.factory import AdapterClient, create_adapters, with_mock_identities
 from src.bems.battery_adapter.mock import MockBatteryAdapter
-from src.bems.core.domain import Battery
+from src.bems.core.domain import Battery, BatteryPowerCommand
 from src.bems.services.live import LiveControlService
 from src.bems.services.night_baseline_service import NightBaselineProvider
 from src.config.config import CONFIG_FILE, config_obj, load_config
@@ -87,6 +88,32 @@ def _connect_enabled_databases(databases) -> list:
     return connected
 
 
+def _install_stop_handlers(stop_event: asyncio.Event) -> None:
+    """Request a graceful bus shutdown on SIGTERM/SIGINT."""
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(signum, stop_event.set)
+        except NotImplementedError:
+
+            def _handle_signal(_signum: int, _frame: object) -> None:
+                loop.call_soon_threadsafe(stop_event.set)
+
+            signal.signal(signum, _handle_signal)
+
+
+async def _run_bus(service: LiveControlService, subscriber: MqttMeasurementSubscriber, *, dry_run: bool) -> None:
+    """Run bus control until a shutdown signal or cancellation requests stop."""
+    stop_event = asyncio.Event()
+    _install_stop_handlers(stop_event)
+    watcher = asyncio.create_task(_watch_config(service, subscriber, dry_run=dry_run))
+    try:
+        await service.run_forever_bus(stop_event=stop_event)
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
 async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
     """Run mock batteries or explicitly configured vendor live adapters."""
     config = config_obj.bems
@@ -130,13 +157,11 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
                 sources=[(config.inputs.grid.source, config.inputs.grid.metric), (config.inputs.household.source, config.inputs.household.metric)],
             )
             await subscriber.start()
-            watcher = asyncio.create_task(_watch_config(service, subscriber, dry_run=dry_run))
-            try:
-                await service.run_forever_bus()
-            finally:
-                watcher.cancel()
-                await asyncio.gather(watcher, return_exceptions=True)
+            await _run_bus(service, subscriber, dry_run=dry_run)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        logger.info("BEMS shutdown requested")
     finally:
+        await _shutdown_failsafe(batteries, dry_run=dry_run, once=once)
         if subscriber is not None:
             await subscriber.close()
         if dry_run:
@@ -145,6 +170,33 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
             await client.close()
         for database in databases:
             database.close()
+
+
+SHUTDOWN_FAILSAFE_TIMEOUT_S = 5.0
+
+
+async def _shutdown_failsafe(batteries: dict[str, Battery], *, dry_run: bool, once: bool) -> None:
+    """Best-effort zero command on process shutdown.
+
+    Docker stop sends SIGTERM and later SIGKILL. Without this, the last
+    requested battery setpoint can remain active after BEMS exits. The
+    ``--once`` mode is a diagnostic single cycle and should not change device
+    state on exit; dry-run mode never sends vendor commands.
+    """
+    if dry_run or once or not batteries:
+        return
+
+    async def _send_zero(device_id: str, battery: Battery) -> None:
+        try:
+            await asyncio.wait_for(
+                battery.set_power(BatteryPowerCommand(timestamp=datetime.now(UTC), power_w=0.0)),
+                timeout=SHUTDOWN_FAILSAFE_TIMEOUT_S,
+            )
+            logger.info("BEMS shutdown failsafe set %s to 0 W", device_id)
+        except Exception:
+            logger.exception("BEMS shutdown failsafe failed for %s", device_id)
+
+    await asyncio.gather(*(_send_zero(device_id, battery) for device_id, battery in batteries.items()))
 
 
 async def _watch_config(service: LiveControlService, subscriber: MqttMeasurementSubscriber, *, dry_run: bool) -> None:
