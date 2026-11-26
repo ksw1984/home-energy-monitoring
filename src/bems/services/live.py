@@ -566,6 +566,25 @@ class LiveControlService:
         ]
         return reserve_wh, measurements
 
+    async def initialize(self) -> None:
+        """Verify live identities and apply vendor-side limits before control starts.
+
+        Device-side ceilings such as Zendure ``inverseMaxPower`` are written
+        only after the exact model/firmware allowlist passes. A failed check or
+        write prevents the service from starting instead of letting BEMS send
+        setpoints that the device silently clamps.
+        """
+        async with self._configuration_lock:
+            for device_id, battery in self.batteries.items():
+                device = self.devices[device_id]
+                identity = await battery.get_identity()
+                compatible, reason = self._firmware_compatibility(device, identity)
+                if not compatible:
+                    raise RuntimeError(
+                        f"BEMS live startup blocked for {device_id}: {reason} (model={identity.model} firmware={identity.firmware_version})"
+                    )
+                await self._apply_device_power_limits(device_id, device, self._profile_for_device(device))
+
     async def update_config(self, config: BemsConfig) -> None:
         """Apply safe live settings and battery power limits without rebuilding adapters.
 
@@ -626,6 +645,9 @@ class LiveControlService:
             if hasattr(battery, "power_w"):
                 power = battery.power_w
                 battery.power_w = max(-discharge_limit, min(charge_limit, power))
+        configure_device_limits = getattr(battery, "configure_device_limits", None)
+        if configure_device_limits is not None:
+            await configure_device_limits(discharge_limit_w=discharge_limit)
         previous_target = self._last_requested_power.get(device_id, 0.0)
         bounded_target = max(-discharge_limit, min(charge_limit, previous_target))
         if bounded_target == previous_target:
