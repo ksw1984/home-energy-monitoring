@@ -61,6 +61,7 @@ class RecordingBattery:
         self.fail_identity = False
         self.fail_sets = False
         self.command_refresh_interval_s: float | None = None
+        self.configured_discharge_limit_w: float | None = None
 
     async def get_state(self) -> BatteryState:
         if self.fail_reads:
@@ -71,6 +72,9 @@ class RecordingBattery:
         if self.fail_identity:
             raise ConnectionError("mock identity read failed")
         return BatteryIdentity("A17E2", "1.0.0")
+
+    async def configure_device_limits(self, *, discharge_limit_w: float) -> None:
+        self.configured_discharge_limit_w = discharge_limit_w
 
     async def set_power(self, command: BatteryPowerCommand) -> None:
         if self.fail_sets:
@@ -761,3 +765,49 @@ def test_bus_mode_requires_a_bus():
 
     with pytest.raises(RuntimeError, match="measurement bus"):
         asyncio.run(service.run_forever_bus())
+
+
+def test_live_service_initialize_configures_device_limits_after_identity_check():
+    battery = RecordingBattery()
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(),
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+
+    asyncio.run(service.initialize())
+
+    assert battery.configured_discharge_limit_w == 3000
+
+
+def test_live_service_initialize_blocks_when_identity_is_not_allowed():
+    battery = RecordingBattery()
+    battery.fail_identity = True
+    service = LiveControlService(
+        config=live_config(),
+        input_database=MemoryDatabase(),
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+
+    with pytest.raises(ConnectionError, match="mock identity read failed"):
+        asyncio.run(service.initialize())
+
+    assert battery.configured_discharge_limit_w is None
+
+
+def test_live_service_update_config_reapplies_device_limit():
+    battery = RecordingBattery()
+    settings = live_config()
+    service = LiveControlService(
+        config=settings,
+        input_database=MemoryDatabase(),
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+    updated_device = replace(settings.devices[0], max_output_power_w=1200)
+
+    asyncio.run(service.update_config(replace(settings, devices=[updated_device])))
+
+    assert battery.configured_discharge_limit_w == 1200

@@ -120,6 +120,7 @@ async def _run(*, dry_run: bool, once: bool, mock_csv: str) -> None:
             command_log_csv=config.control.command_log_csv,
             night_baseline=night_baseline,
         )
+        await service.initialize()
         if once:
             await service.run_once(now=datetime.now(UTC))
         else:
