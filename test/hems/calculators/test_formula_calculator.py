@@ -271,3 +271,45 @@ def test_formula_calculator_calculates_inverter_efficiency():
     assert result[0].value == 90.0
     assert result[0].unit == "%"
     assert result[0].timestamp == timestamp
+
+
+def test_formula_calculator_uses_default_when_optional_input_is_missing():
+    calculator = FormulaCalculator(
+        calculations=[
+            CalculationConfig(
+                source="calculated",
+                metric="household_power_draw",
+                unit="kW",
+                formula="household_power + pv_power*0.001",
+                inputs={
+                    "pv_power": CalculatorInputConfig(
+                        source="inverter_fronius",
+                        metric="pv_power",
+                        default=0.0,
+                    ),
+                    "household_power": CalculatorInputConfig(
+                        source="meter_household_dlms",
+                        metric="grid_active_power",
+                    ),
+                },
+            ),
+        ],
+    )
+
+    timestamp = datetime(2026, 11, 26, 12, 0, tzinfo=UTC)
+    result = calculator.calculate(
+        [
+            Measurement(
+                timestamp=timestamp,
+                source="meter_household_dlms",
+                metric="grid_active_power",
+                value=1.5,
+                unit="kW",
+            )
+        ]
+    )
+
+    assert len(result) == 1
+    assert result[0].metric == "household_power_draw"
+    assert result[0].value == 1.5
+    assert result[0].timestamp == timestamp
