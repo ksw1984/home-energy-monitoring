@@ -154,7 +154,7 @@ class BemsControlConfig:
     feed: str = "mqtt"
     # Optional CSV log of every setpoint actually sent to an adapter. Works
     # for mock and vendor adapters; set command_log_enabled to false to disable.
-    command_log_enabled: bool = True
+    command_log_enabled: bool = False
     command_log_csv: str | None = "data/bems_commands.csv"
     # Heat-pump discharge may only start when the energy above the night
     # reserve covers this many seconds at heat_pump_reference_power_w. Zero
@@ -531,15 +531,13 @@ def _load_bems_config(config_data: dict[str, Any]) -> BemsConfig:  # noqa: C901,
     if feed not in {"mqtt", "bus", "database"}:
         raise ValueError("BEMS control.feed must be 'mqtt', 'bus' or 'database'")
 
-    command_log_enabled = raw_control.get("command_log_enabled")
+    command_log_enabled = raw_control.get("command_log_enabled", False)
     command_log_csv = raw_control.get("command_log_csv", "data/bems_commands.csv")
 
-    if command_log_enabled is not None and not isinstance(command_log_enabled, bool):
-        raise ValueError("BEMS control.command_log_enabled must be a boolean")
+    if not isinstance(command_log_enabled, bool):
+        raise TypeError("BEMS control.command_log_enabled must be a boolean")
     if command_log_csv is not None and (not isinstance(command_log_csv, str) or not command_log_csv.strip()):
         raise ValueError("BEMS control.command_log_csv must be a non-empty path or null")
-    if command_log_enabled is None:
-        command_log_enabled = command_log_csv is not None
 
     control = BemsControlConfig(
         deadband_w=float(raw_control.get("deadband_w", 20.0)),

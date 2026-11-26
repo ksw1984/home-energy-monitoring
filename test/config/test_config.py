@@ -189,20 +189,22 @@ def test_bems_control_accepts_mqtt_feed():
     assert config.control.feed == "mqtt"
 
 
-def test_bems_control_command_log_defaults_to_none():
+def test_bems_control_command_log_defaults_to_disabled():
     config = _load_bems_config({})
 
-    assert config.control.command_log_csv is None
+    assert config.control.command_log_enabled is False
+    assert config.control.command_log_csv == "data/bems_commands.csv"
 
 
 def test_bems_control_accepts_command_log_path():
     config = _load_bems_config(
         {
             "databases": [{"type": "influxdb"}],
-            "bems": {"control": {"command_log_csv": "data/commands.csv"}},
+            "bems": {"control": {"command_log_enabled": True, "command_log_csv": "data/commands.csv"}},
         }
     )
 
+    assert config.control.command_log_enabled is True
     assert config.control.command_log_csv == "data/commands.csv"
 
 

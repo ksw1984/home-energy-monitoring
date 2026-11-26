@@ -381,7 +381,7 @@ def test_live_service_blocks_control_when_device_identity_is_unavailable():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
 
     assert battery.targets == []
-    assert any(point.metric == "battery_device_alive" and point.value == 0 for point in output_database.writes)
+    assert any(point.metric == "battery_control_ok" and point.value == 0 for point in output_database.writes)
 
 
 def test_live_service_requests_zero_when_inputs_become_stale():
