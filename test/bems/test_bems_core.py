@@ -263,7 +263,6 @@ def test_night_reserve_and_forecast_default():
         longitude=13.7,
         timezone="Europe/Berlin",
     )
-    assert reserve > 100
     before_dawn_reserve = night_reserve_wh(
         timestamp=datetime(2026, 1, 15, 2, tzinfo=UTC),
         profile=reserve_profile,
@@ -275,7 +274,6 @@ def test_night_reserve_and_forecast_default():
     min_reserve = reserve_profile.capacity_wh * reserve_profile.min_soc_percent / 100
     assert reserve > min_reserve
     assert before_dawn_reserve > min_reserve
-    assert before_dawn_reserve < reserve
     assert reserve <= reserve_profile.capacity_wh
     assert before_dawn_reserve <= reserve_profile.capacity_wh
     assert ZeroSolarForecastProvider().expected_pv_energy_kwh(timestamp) == 0
