@@ -317,6 +317,7 @@ calculators:
           pv_power:
             source: inverter_fronius
             metric: pv_power
+            default: 0
           household_power:
             source: meter_household_dlms
             metric: grid_active_power
@@ -415,7 +416,7 @@ bems:
     zendure_solarflow_4000_mix_ac:
       name: Zendure Solarflow 4000 Mix AC+
       capacity_wh: 8000
-      min_soc_percent: 5
+      min_soc_percent: 10
       max_soc_percent: 100
       max_charge_power_w: 3000
       max_discharge_power_w: 3000

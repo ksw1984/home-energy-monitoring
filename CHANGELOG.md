@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.12.1 - 2026-11-27
+
+### Fixed
+
+- Calculate BEMS night household reserve from the full dusk-dawn night window duration (with configured margins) as a daytime build target, while shrinking the reserve during the night window so energy saved below baseline becomes available for heat-pump discharge.
+
+## 0.12.0 - 2026-11-27
+
+### Changed
+
+- Keep the calculated BEMS night household reserve active during daytime until the next dawn+margin boundary, so heat-pump discharge uses only energy above the expected household reserve while household demand remains protected.
+
+## 0.11.9 - 2026-11-26
+
+### Fixed
+
+- Send a best-effort zero-power shutdown failsafe to live BEMS batteries on SIGTERM/SIGINT/container stop, with timeout and graceful bus shutdown.
+
+## 0.11.8 - 2026-11-26
+
+### Fixed
+
+- Allow formula calculator inputs to declare a `default` value used only in-memory when a measurement is missing; use `pv_power: default 0` so `household_power_draw` is still calculated when the Fronius inverter is offline.
+
 ## 0.11.7 - 2026-11-26
 
 ### Fixed
