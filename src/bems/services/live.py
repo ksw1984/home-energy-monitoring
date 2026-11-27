@@ -106,6 +106,7 @@ class LiveControlService:
         self._last_command_at: dict[str, datetime] = {}
         self._heat_pump_discharge_active: dict[str, bool] = {}
         self._verified_identities: dict[str, BatteryIdentity] = {}
+        self._device_unavailable: dict[str, bool] = {}
         self._heat_pump_gate = HeatPumpDischargeGate(
             min_sustain_s=config.control.min_heat_pump_sustain_s,
             reference_power_w=config.control.heat_pump_reference_power_w,
@@ -380,6 +381,7 @@ class LiveControlService:
             try:
                 before = await battery.get_state()
                 device_state_read = True
+                self._mark_device_available(device_id, state=before)
                 if not await self._identity_ok(device_id, battery, device, timestamp, before, outputs):
                     continue
                 requested_power_w = self._calculate_device_setpoint(
@@ -495,6 +497,18 @@ class LiveControlService:
         )
         outputs.extend(self._command_measurements(device, timestamp, requested_power_w, accepted_power_w, status=1))
 
+    def _mark_device_available(self, device_id: str, *, state: BatteryState) -> None:
+        """Log once when a device responds again after a read failure."""
+        if self._device_unavailable.get(device_id):
+            actual_power_kw = (state.charge_power_w - state.discharge_power_w) / 1000.0
+            logger.info(
+                "BEMS device %s recovered (soc=%.1f%% actual=%.3fkW)",
+                device_id,
+                state.soc_percent,
+                actual_power_kw,
+            )
+        self._device_unavailable[device_id] = False
+
     def _handle_control_error(  # noqa: PLR0913
         self,
         *,
@@ -521,6 +535,8 @@ class LiveControlService:
             )
             outputs.extend(self._command_measurements(device, timestamp, requested_power_w, None, status=0 if command_sent else -1))
         logger.error("BEMS adapter operation failed for device %s: %s", device_id, exc)
+        if not device_state_read:
+            self._device_unavailable[device_id] = True
         outputs.extend(self._error_measurements(device, now, requested_power_w, stale=0, device_alive=device_state_read))
 
     def _effective_night_reserve(
@@ -762,6 +778,7 @@ class LiveControlService:
             try:
                 state = await battery.get_state()
                 device_state_read = True
+                self._mark_device_available(device_id, state=state)
                 identity = self._verified_identities.get(device_id)
                 if identity is None:
                     identity = await battery.get_identity()
