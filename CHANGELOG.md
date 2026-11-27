@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.12.0 - 2026-11-27
+
+### Changed
+
+- Keep the calculated BEMS night household reserve active during daytime until the next dawn+margin boundary, so heat-pump discharge uses only energy above the expected household reserve while household demand remains protected.
+
 ## 0.11.9 - 2026-11-26
 
 ### Fixed
