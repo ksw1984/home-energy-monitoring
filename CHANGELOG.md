@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-## 0.20.1 - 2026-11-27
+## 0.12.1 - 2026-11-27
 
 ### Fixed
 
-- Calculate BEMS night household reserve from the full dusk-dawn night window duration (with configured margins), instead of shrinking remaining hours, so the reserve stays a fixed target before and during the night.
+- Calculate BEMS night household reserve from the full dusk-dawn night window duration (with configured margins) as a daytime build target, while shrinking the reserve during the night window so energy saved below baseline becomes available for heat-pump discharge.
 
 ## 0.12.0 - 2026-11-27
 
