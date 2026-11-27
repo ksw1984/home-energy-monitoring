@@ -474,6 +474,33 @@ def test_stale_failsafe_sends_zero_even_when_firmware_is_unverified():
     assert not any(point.metric == "battery_control_ok" for point in output_database.writes)
 
 
+def test_live_service_logs_recovery_after_device_read_failure(caplog):
+    timestamp = datetime(2026, 10, 18, 12, tzinfo=UTC)
+    input_database = MemoryDatabase(input_measurements(timestamp))
+    battery = RecordingBattery()
+    service = LiveControlService(
+        config=live_config(),
+        input_database=input_database,
+        output_databases=[],
+        batteries={"test_live": battery},
+    )
+
+    async def _fail_get_state() -> BatteryState:
+        raise RuntimeError("report timeout")
+
+    original = battery.get_state
+    battery.get_state = _fail_get_state  # type: ignore[method-assign]
+    asyncio.run(service.run_once(now=timestamp))
+
+    battery.get_state = original  # type: ignore[method-assign]
+    next_timestamp = timestamp + timedelta(seconds=1)
+    input_database.measurements.extend(input_measurements(next_timestamp))
+    with caplog.at_level("INFO"):
+        asyncio.run(service.run_once(now=next_timestamp))
+
+    assert any("recovered" in record.message.lower() for record in caplog.records)
+
+
 def test_live_service_requires_adapters_only_for_enabled_live_devices():
     with pytest.raises(ValueError, match="Missing battery adapters"):
         LiveControlService(
