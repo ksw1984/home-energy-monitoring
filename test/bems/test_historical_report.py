@@ -68,6 +68,43 @@ def test_report_chart_uses_meter_signs_and_charge_positive_battery_power():
     assert row["energy_kwh"] == 3.5
 
 
+def _historical_points(*, start: datetime, grid_w: float, household_w: float, pv_w: float = 0.0):
+    bems = config_obj.bems
+    assert bems is not None
+    grid = bems.inputs.grid
+    household = bems.inputs.household
+    pv = bems.inputs.pv
+    points = []
+    for offset in (0, 10, 20, 30):
+        timestamp = start + timedelta(seconds=offset)
+        points.extend(
+            [
+                Measurement(timestamp, grid.source, grid.metric, grid_w, "W"),
+                Measurement(timestamp, household.source, household.metric, household_w, "W"),
+                Measurement(timestamp, pv.source, pv.metric, pv_w, "W"),
+            ]
+        )
+    return points
+
+
+def _run_historical(tmp_path, *, device, settings, start: datetime, points, run_id: str):  # noqa: PLR0913 - small test helper keeps simulation setup explicit.
+    database = HistoryMemoryDatabase(points)
+    asyncio.run(
+        simulate_historical(
+            start=start,
+            stop=start + timedelta(seconds=40),
+            config=settings,
+            history_database=database,
+            output_dir=tmp_path,
+            device_ids={device.id},
+            run_id=run_id,
+        )
+    )
+    timeseries_path = tmp_path / run_id / f"timeseries_{device.id}.csv"
+    with timeseries_path.open(encoding="utf-8", newline="") as file:
+        return list(csv.DictReader(file)), database
+
+
 def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa: PLR0915 - integration assertions cover generated artifacts and logging.
     tmp_path, caplog
 ):
@@ -86,34 +123,10 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
         ),
     )
     start = datetime(2026, 1, 15, 0, tzinfo=UTC)
-    grid = settings.inputs.grid
-    household = settings.inputs.household
-    pv = settings.inputs.pv
-    points = []
-    for offset in (0, 10, 20, 30):
-        timestamp = start + timedelta(seconds=offset)
-        points.extend(
-            [
-                Measurement(timestamp, grid.source, grid.metric, 800, "W"),
-                Measurement(timestamp, household.source, household.metric, 500, "W"),
-                Measurement(timestamp, pv.source, pv.metric, 0, "W"),
-            ]
-        )
-    database = HistoryMemoryDatabase(points)
+    points = _historical_points(start=start, grid_w=800, household_w=500)
+    timeseries, database = _run_historical(tmp_path, device=device, settings=settings, start=start, points=points, run_id="test-run")
 
-    run_id = asyncio.run(
-        simulate_historical(
-            start=start,
-            stop=start + timedelta(seconds=40),
-            config=settings,
-            history_database=database,
-            output_dir=tmp_path,
-            device_ids={device.id},
-            run_id="test-run",
-        )
-    )
-
-    report_dir = tmp_path / run_id
+    report_dir = tmp_path / "test-run"
     assert "Reading grid, household and PV measurements" in caplog.text
     assert "Fetched raw measurements: grid=4" in caplog.text
     assert "raw +800.000..+800.000 W" in caplog.text
@@ -138,16 +151,13 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
     assert "household import 30.00 ct/kWh" in report_html
     assert "Meter grid without battery (reference)" in report_html
     assert (report_dir / f"measurements_{device.id}.jsonl").exists()
-    timeseries_path = report_dir / f"timeseries_{device.id}.csv"
-    assert timeseries_path.exists()
-    with timeseries_path.open(encoding="utf-8", newline="") as file:
-        timeseries = list(csv.DictReader(file))
+
     assert float(timeseries[0]["actual_power_w"]) == 0
-    # 800W grid import = 500W household + 300W heat pump. With the full night
-    # reserve active, energy above reserve is insufficient for heat-pump sustain,
-    # so only household demand is discharged from the battery.
-    assert all(float(row["requested_power_w"]) == -500 for row in timeseries)
-    assert all(float(row["actual_power_w"]) == -500 for row in timeseries[1:])
+    # 800W grid import = 500W household + 300W heat pump. At 50% SOC the
+    # shrinking night reserve leaves enough surplus for heat-pump sustain, so
+    # both household and heat pump can be discharged.
+    assert all(float(row["requested_power_w"]) == -780 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -780 for row in timeseries[1:])
     assert float(timeseries[-1]["soc_percent"]) < 50
     assert (report_dir / f"weekly_{device.id}.csv").exists()
     with (report_dir / f"daily_{device.id}.csv").open(encoding="utf-8", newline="") as file:
@@ -175,6 +185,54 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
     with (report_dir / f"measurements_{device.id}.jsonl").open(encoding="utf-8") as file:
         first_measurement = json.loads(next(file))
     assert first_measurement["source"].startswith("bems_sim_")
+
+
+def test_historical_simulation_discharge_only_household_when_soc_is_below_night_reserve(tmp_path):
+    bems = config_obj.bems
+    assert bems is not None
+    device = replace(bems.devices[0], enabled=True, initial_soc_percent=35)
+    settings = replace(bems, devices=[device])
+    start = datetime(2026, 1, 15, 0, tzinfo=UTC)
+    points = _historical_points(start=start, grid_w=800, household_w=500)
+
+    timeseries, _database = _run_historical(tmp_path, device=device, settings=settings, start=start, points=points, run_id="low-soc")
+
+    # 35% SOC is below the shrinking night reserve at 00:00 UTC, so there is no
+    # surplus for heat-pump sustain; only household demand may be served.
+    assert all(float(row["requested_power_w"]) == -500 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -500 for row in timeseries[1:])
+
+
+def test_historical_simulation_allows_heat_pump_when_household_load_is_low(tmp_path):
+    bems = config_obj.bems
+    assert bems is not None
+    device = replace(bems.devices[0], enabled=True, initial_soc_percent=50)
+    settings = replace(bems, devices=[device])
+    start = datetime(2026, 1, 15, 0, tzinfo=UTC)
+    points = _historical_points(start=start, grid_w=400, household_w=100)
+
+    timeseries, _database = _run_historical(tmp_path, device=device, settings=settings, start=start, points=points, run_id="low-household")
+
+    # Low household load leaves enough energy above the shrinking night reserve
+    # for heat-pump sustain, so household + heat pump can be served.
+    assert all(float(row["requested_power_w"]) == -400 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -400 for row in timeseries[1:])
+
+
+def test_historical_simulation_allows_heat_pump_when_soc_has_surplus(tmp_path):
+    bems = config_obj.bems
+    assert bems is not None
+    device = replace(bems.devices[0], enabled=True, initial_soc_percent=80)
+    settings = replace(bems, devices=[device])
+    start = datetime(2026, 1, 15, 0, tzinfo=UTC)
+    points = _historical_points(start=start, grid_w=800, household_w=500)
+
+    timeseries, _database = _run_historical(tmp_path, device=device, settings=settings, start=start, points=points, run_id="high-soc")
+
+    # With high SOC there is clear surplus above the night reserve, so the heat
+    # pump may discharge in addition to household demand.
+    assert all(float(row["requested_power_w"]) == -780 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -780 for row in timeseries[1:])
 
 
 def test_historical_simulation_keeps_190_w_discharge_continuous_for_two_minutes(tmp_path):

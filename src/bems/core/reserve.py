@@ -48,8 +48,9 @@ def night_reserve_wh(  # noqa: PLR0913 - geographic, schedule, battery and basel
 
     # Use the same dusk/dawn window definition as baseline aggregation so the
     # reserve horizon cannot drift away from the measured night boundaries.
-    # Daytime also keeps the coming night's reserve so the heat pump does not
-    # consume household reserve before that reserve is available.
+    # Daytime keeps the coming night's full reserve as a build target. During
+    # the night window, reserve shrinks with remaining hours so household energy
+    # saved below baseline becomes available to the heat pump.
     window_evening = today - timedelta(days=1) if local_time < dawn_with_margin else today
     window = night_window_for_evening(
         window_evening,
@@ -59,5 +60,6 @@ def night_reserve_wh(  # noqa: PLR0913 - geographic, schedule, battery and basel
         dusk_margin_minutes=dusk_margin_minutes,
         dawn_margin_minutes=dawn_margin_minutes,
     )
-    baseline_energy_wh = max(0.0, baseline_household_w) * window.duration_h / profile.discharge_efficiency
+    reserve_hours = max(0.0, (window.end - local_time).total_seconds() / 3600) if window.start <= local_time < window.end else window.duration_h
+    baseline_energy_wh = max(0.0, baseline_household_w) * reserve_hours / profile.discharge_efficiency
     return min(profile.capacity_wh * profile.max_soc_percent / 100, minimum_energy_wh + baseline_energy_wh)
