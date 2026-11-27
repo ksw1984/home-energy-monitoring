@@ -8,7 +8,7 @@ from src.bems.core.domain import BatteryProfile
 from src.bems.core.night_baseline import night_window_for_evening
 
 from astral import Observer
-from astral.sun import dawn, dusk
+from astral.sun import dawn
 
 
 class SolarForecastProvider(Protocol):
@@ -38,24 +38,18 @@ def night_reserve_wh(  # noqa: PLR0913 - geographic, schedule, battery and basel
     dusk_margin_minutes: int = 30,
     dawn_margin_minutes: int = 30,
 ) -> float:
-    """Estimate pack energy to retain for household baseline through the night."""
+    """Estimate pack energy to retain for household baseline until the night reserve end."""
     local_time = timestamp.astimezone(ZoneInfo(timezone))
     observer = Observer(latitude=latitude, longitude=longitude)
     today = local_time.date()
-    today_dusk = dusk(observer, today, 0, tzinfo=timezone)
     today_dawn = dawn(observer, today, 0, tzinfo=timezone)
     minimum_energy_wh = profile.capacity_wh * profile.min_soc_percent / 100
     dawn_with_margin = today_dawn + timedelta(minutes=dawn_margin_minutes)
-    dusk_with_margin = today_dusk - timedelta(minutes=dusk_margin_minutes)
-
-    # During daylight, retain only the configured minimum SOC. Holding the
-    # coming night's reserve all day can suppress heat-pump discharge even
-    # when morning PV has already returned.
-    if dawn_with_margin <= local_time < dusk_with_margin:
-        return minimum_energy_wh
 
     # Use the same dusk/dawn window definition as baseline aggregation so the
     # reserve horizon cannot drift away from the measured night boundaries.
+    # Daytime also keeps the coming night's reserve so the heat pump does not
+    # consume household reserve before that reserve is available.
     window_evening = today - timedelta(days=1) if local_time < dawn_with_margin else today
     reserve_until = night_window_for_evening(
         window_evening,

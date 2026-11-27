@@ -272,13 +272,16 @@ def test_night_reserve_and_forecast_default():
         longitude=13.7,
         timezone="Europe/Berlin",
     )
-    assert reserve == 700
-    assert before_dawn_reserve > reserve
+    min_reserve = reserve_profile.capacity_wh * reserve_profile.min_soc_percent / 100
+    assert reserve > min_reserve
+    assert before_dawn_reserve > min_reserve
+    assert before_dawn_reserve < reserve
+    assert reserve <= reserve_profile.capacity_wh
     assert before_dawn_reserve <= reserve_profile.capacity_wh
     assert ZeroSolarForecastProvider().expected_pv_energy_kwh(timestamp) == 0
 
 
-def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
+def test_daytime_reserve_holds_energy_for_the_following_night():
     local_morning = datetime(2026, 10, 19, 5, 5, tzinfo=UTC)
     reserve_profile = profile(capacity_wh=7000, max_discharge_power_w=3500)
     reserve = night_reserve_wh(
@@ -289,9 +292,16 @@ def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
         longitude=13.7,
         timezone="Europe/Berlin",
     )
-    assert reserve > 1037
+    min_reserve = reserve_profile.capacity_wh * reserve_profile.min_soc_percent / 100
+    assert reserve > min_reserve
 
-    state = BatteryState(local_morning, 51, 3570, 0, 0)
+    state = BatteryState(
+        local_morning,
+        soc_percent=reserve / reserve_profile.capacity_wh * 100,
+        energy_wh=reserve,
+        charge_power_w=0,
+        discharge_power_w=0,
+    )
     setpoint = GridBalancingController().calculate_setpoint(
         grid_power_w=2260,
         household_power_w=460,
@@ -302,7 +312,7 @@ def test_daytime_reserve_does_not_hold_energy_for_the_following_night():
         device_max_output_power_w=2000,
         global_max_output_power_w=2000,
     )
-    assert setpoint == -2000
+    assert setpoint == pytest.approx(-460)
 
 
 def test_costs_use_household_tariff_and_export_tariff():
