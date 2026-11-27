@@ -8,14 +8,14 @@ The BEMS controls and evaluates AC-coupled batteries independently of the HEMS p
 - Reads live grid and household meter values from the standalone MQTT broker; live control does not start inside HEMS.
 - Uses import-positive power internally; HEMS meter values already use this sign convention and are converted to watts at the BEMS boundary.
 - Charges only from measured grid export (PV surplus).
-- Serves household demand first. Heat-pump demand is served only from energy above the calculated overnight reserve.
+- Serves household demand first. Heat-pump demand is served only from energy above the calculated household reserve until the next night-reserve end (including daytime), so the battery can be charged up to that reserve before heat-pump discharge uses surplus energy.
 - Limits power by battery profile, per-device setting, and the global BEMS limit.
 - Models charge/discharge efficiency, power ramping, SOC limits, and energy losses in historical simulations.
 - Stores requested power separately from actual power and state measurements.
 - Requires an available device and an explicitly approved model/firmware before live hardware writes.
 - Requests 0 W when live inputs become stale, which deactivates both battery charging and feed-in. This safety stop does not depend on reading the device identity or firmware first.
 
-The night reserve uses a configurable household baseline (300 W fallback), astronomical dusk and sunrise with configurable margins (dusk −30 min and sunrise +50 min in the sample config), and an optional measured baseline derived from completed nights. Forecast support is an interface only; its current provider returns 0 kWh.
+The night reserve uses a configurable household baseline (300 W fallback), astronomical dusk and sunrise with configurable margins (dusk −30 min and sunrise +50 min in the sample config), and an optional measured baseline derived from completed nights. The reserve is applied day and night until the next dawn+margin boundary; it protects expected household baseline energy, while energy above it remains available for heat-pump discharge when the sustain gate allows it. Forecast support is an interface only; its current provider returns 0 kWh.
 
 ## Configure devices
 

@@ -140,7 +140,7 @@ def test_live_service_processes_new_meter_rows_once_and_persists_observed_state(
     assert asyncio.run(service.run_once(now=now)) == 1
     assert asyncio.run(service.run_once(now=now)) == 0
     assert len(battery.targets) == 1
-    assert battery.targets[0].power_w == -480
+    assert battery.targets[0].power_w == -300
     metrics = {point.metric for point in output_database.writes}
     assert {
         "battery_requested_power",
@@ -238,8 +238,8 @@ def test_live_service_logs_accepted_commands_to_csv(tmp_path):
 
     assert len(rows) == 1
     assert rows[0]["device_id"] == "test_live"
-    assert float(rows[0]["requested_power_w"]) == -480.0
-    assert float(rows[0]["accepted_power_w"]) == -480.0
+    assert float(rows[0]["requested_power_w"]) == -300.0
+    assert float(rows[0]["accepted_power_w"]) == -300.0
     assert float(rows[0]["soc_percent"]) == 50.0
     assert rows[0]["status"] == "accepted"
     assert rows[0]["error"] == ""
@@ -264,7 +264,7 @@ def test_live_service_logs_failed_commands_without_accepted_power(tmp_path):
         rows = list(csv.DictReader(file))
 
     assert len(rows) == 1
-    assert float(rows[0]["requested_power_w"]) == -480.0
+    assert float(rows[0]["requested_power_w"]) == -300.0
     assert rows[0]["accepted_power_w"] == ""
     assert rows[0]["soc_percent"] == ""
     assert rows[0]["status"] == "failed"
@@ -399,7 +399,7 @@ def test_live_service_requests_zero_when_inputs_become_stale():
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=1)))
     asyncio.run(service.run_once(now=timestamp + timedelta(seconds=25)))
 
-    assert [command.power_w for command in battery.targets] == [-480, 0]
+    assert [command.power_w for command in battery.targets] == [-300.0, 0]
     assert any(point.metric == "battery_stale_input" and point.value == 1 for point in output_database.writes)
 
 
@@ -530,9 +530,9 @@ def test_live_service_refreshes_time_limited_vendor_setpoints():
     next_timestamp = timestamp + timedelta(seconds=22)
     next_points = input_measurements(next_timestamp)
     # Keep the same underlying load after accounting for the previously
-    # delivered -480 W battery output.
-    next_points[0] = replace(next_points[0], value=20)
-    next_points[1] = replace(next_points[1], value=-180)
+    # delivered -300 W battery output.
+    next_points[0] = replace(next_points[0], value=200)
+    next_points[1] = replace(next_points[1], value=0)
     input_database.measurements.extend(next_points)
     assert asyncio.run(service.run_once(now=next_timestamp + timedelta(seconds=1))) == 1
     assert len(battery.targets) == 2
