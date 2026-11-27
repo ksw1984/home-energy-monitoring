@@ -214,9 +214,10 @@ def test_historical_simulation_allows_heat_pump_when_household_load_is_low(tmp_p
     timeseries, _database = _run_historical(tmp_path, device=device, settings=settings, start=start, points=points, run_id="low-household")
 
     # Low household load leaves enough energy above the shrinking night reserve
-    # for heat-pump sustain, so household + heat pump can be served.
-    assert all(float(row["requested_power_w"]) == -400 for row in timeseries)
-    assert all(float(row["actual_power_w"]) == -400 for row in timeseries[1:])
+    # for heat-pump sustain, so household + heat pump can be served. The
+    # controller keeps the configured 20W deadband as grid import margin.
+    assert all(float(row["requested_power_w"]) == -380 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -380 for row in timeseries[1:])
 
 
 def test_historical_simulation_allows_heat_pump_when_soc_has_surplus(tmp_path):
