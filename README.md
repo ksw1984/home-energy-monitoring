@@ -13,6 +13,7 @@ Grafana.
 ## Table of contents
 
 - [Overview](#overview)
+- [CodeGraph for AI agents](#codegraph-for-ai-agents)
 - [Supported collectors](#supported-collectors)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
@@ -51,6 +52,33 @@ Important repository files:
 - Tests: `test/`
 - Grafana provisioning and dashboards: `grafana/`
 - Pre-commit configuration: `.pre-commit-config.yaml`
+
+---
+
+## CodeGraph for AI agents
+
+This repository is indexed with [CodeGraph](https://github.com/colbymchenry/codegraph), a local SQLite knowledge graph of
+symbols, call paths, and dependencies. It covers the Python sources as well as the JavaScript and YAML files in this repo.
+`opencode.jsonc` registers the CodeGraph MCP server, and `AGENTS.md` instructs agents to use it before grep/read when they
+need to understand or locate code.
+
+First-time setup on a fresh clone:
+
+1. Install the CLI: Windows `irm https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.ps1 | iex`,
+   macOS/Linux `curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh`, or
+   `npx @colbymchenry/codegraph`.
+2. Build the local index with `codegraph init .`. The MCP config and agent instructions are already checked in; do not
+   re-run `codegraph install` unless you intentionally want to regenerate them.
+
+Daily usage:
+
+- In OpenCode, CodeGraph is exposed as `codegraph_codegraph_explore`. Code questions such as "how does DLMS connection
+  recovery work?" should be answered from the graph, including verbatim source and call paths.
+- From a shell, use `codegraph explore "<symbols or question>"`, `codegraph callers <symbol>`, or
+  `codegraph impact <symbol>`.
+- The index auto-syncs on file changes. If it looks stale, run `codegraph sync .`; `codegraph status .` shows the indexed
+  files and statistics.
+- `.codegraph/` contains the generated database and is gitignored. Keep it local; do not commit it.
 
 ---
 
@@ -598,8 +626,8 @@ cp deployment/.env.example .env
 Set `HEMS_VERSION` and `BEMS_VERSION` to the release version without the leading `v`. They can be changed independently. `MOSQUITTO_VERSION` is required too. Keep the `DOCKER_INFLUXDB_INIT_*` entries from the template; InfluxDB uses them when its data directory is initialized for the first time.
 
 ```dotenv
-HEMS_VERSION=0.11.9
-BEMS_VERSION=0.11.9
+HEMS_VERSION=0.12.0
+BEMS_VERSION=0.12.0
 MOSQUITTO_VERSION=2.0
 INFLUXDB_VERSION=2.9.1
 GRAFANA_VERSION=13.2

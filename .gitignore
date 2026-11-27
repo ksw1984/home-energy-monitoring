@@ -224,3 +224,7 @@ __marimo__/
 
 # issue tracker
 plan/issues
+
+# CodeGraph local index
+.codegraph/
+.codegraph-wsl/
