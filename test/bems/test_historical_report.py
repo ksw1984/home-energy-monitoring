@@ -143,8 +143,11 @@ def test_historical_simulation_writes_local_reports_but_not_to_database(  # noqa
     with timeseries_path.open(encoding="utf-8", newline="") as file:
         timeseries = list(csv.DictReader(file))
     assert float(timeseries[0]["actual_power_w"]) == 0
-    assert all(float(row["requested_power_w"]) == -780 for row in timeseries)
-    assert all(float(row["actual_power_w"]) == -780 for row in timeseries[1:])
+    # 800W grid import = 500W household + 300W heat pump. With the full night
+    # reserve active, energy above reserve is insufficient for heat-pump sustain,
+    # so only household demand is discharged from the battery.
+    assert all(float(row["requested_power_w"]) == -500 for row in timeseries)
+    assert all(float(row["actual_power_w"]) == -500 for row in timeseries[1:])
     assert float(timeseries[-1]["soc_percent"]) < 50
     assert (report_dir / f"weekly_{device.id}.csv").exists()
     with (report_dir / f"daily_{device.id}.csv").open(encoding="utf-8", newline="") as file:
